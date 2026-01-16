@@ -88,11 +88,9 @@ Splash Screen
     ↓
 Welcome Screen
     ↓
-    ├─→ Login Screen ──→ (Auth Success) ──→ Connect Screen
+    ├─→ Login Screen ──→ (Auth Success) ──→ Retailer Dashboard (Home)
     │                                           ↓
-    └─→ Signup Screen ──→ (OTP Verify) ──→ Connect Screen
-                                                ↓
-                                        Retailer Dashboard (Home)
+    └─→ Signup Screen ──→ (OTP Verify) ──→ Retailer Dashboard (Home)
                                                 ↓
                     ┌───────────────────────────┼───────────────────────────┐
                     ↓                           ↓                           ↓
@@ -102,6 +100,11 @@ Welcome Screen
                                                 │
                                                 ↓
                                         New Order Screen (FAB)
+                                                
+Connect Screen (Optional)
+    - Accessible via /connect route
+    - Can be accessed from dashboard quick actions
+    - Not part of mandatory post-auth flow
 ```
 
 **Bottom Navigation Tabs:**
@@ -112,6 +115,10 @@ Welcome Screen
 
 **Floating Action Button (FAB):**
 - New Order (opens product browsing)
+
+**Post-Authentication Flow:**
+- After successful login or signup, users are **directly navigated to Retailer Dashboard** (`/home`)
+- Connect Screen is **optional** and can be accessed when needed via `/connect` route or from dashboard actions
 
 ### Services Layer
 
