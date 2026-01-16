@@ -1,0 +1,980 @@
+## 🪔 DIYA — Wholesaler Dashboard (DIYA-WS-01)
+
+### 🎯 Objective
+Provide the wholesaler a simple, powerful overview of daily business performance with fast access to actions that matter:
+Orders → Payments → Dues → Delivery → Alerts
+
+---
+
+### 🧱 UX Components
+
+**Layout**
+- **Left Sidebar Navigation** (Icons + Labels)
+  - Dashboard (active)
+  - Orders
+  - Khatabook
+  - Retailers
+  - My Business
+  - Analytics
+  - Settings
+- **Top Header**
+  - Profile dropdown (Business name + avatar)
+  - Notifications bell
+  - Search bar (global search)
+- **Main Content — 3 Zones**
+
+1️⃣ **Top KPI Tiles (4 Cards)**
+- New Orders Today
+- Payments Received Today
+- Pending Orders
+- Total Outstanding
+
+2️⃣ **Location Filter + Mini Map / Dropdown**
+- Dropdown: State → District → Area
+- Territory heat indicators (Gold 🔥 / Silver 🟡 / Risk ⚠️)
+
+3️⃣ **Alert/Event Stream (Right Panel)**
+- New Orders notifications
+- Payments received
+- Overdue alerts
+- Delivery issues
+
+4️⃣ **Quick Action Row (Shortcut Buttons)**
+- Add Payment (Cash)
+- Create Order (manual)
+- Add Retailer
+
+---
+
+### 🔄 Interactions
+
+- Click KPI → Open detailed section  
+(e.g., “Pending Orders → Orders filtered by Pending”)
+- Change Location → All metrics & streams auto-refresh
+- Hover KPI → Show % change vs last week/month
+- Click alert → Deep link to Order/Payment page
+- Search → Search retailer/order/invoice
+
+Errors:
+- If no data → friendly empty state illustrations
+
+---
+
+### 🗂 Data Attributes
+
+**KPI Cards Data**
+- order_count_today
+- payments_received_today
+- pending_orders
+- total_outstanding
+
+**Location Filter Data**
+- retailer_count_per_area
+- revenue_per_area
+- payment_delay_stats
+
+**Alert Stream Data**
+- order_id
+- retailer_name
+- type (order/payment)
+- timestamp
+- status_color
+
+Color Coding:
+- 🟢 Good → Paid / Delivered
+- 🟠 Pending → Payment due soon
+- 🔴 Critical → Overdue / Exposure high
+
+---
+
+### ✨ Animations / Micro-Interactions
+
+- KPI cards lift up slightly on hover (shadow + scale 1.02)
+- Smooth number counting animation on load
+- Toast confirmation after actions (bottom right)
+- Notifications slide-in from the right
+- Location filter fade-in transitions
+
+---
+
+### 🖥️ UI Style Inspiration
+> Inspired by **21stdev**
+- Clean, matte white/soft gray background
+- Bold typography for numbers (Inter / Poppins)
+- Primary highlight color: Diya Orange 🪔🔥 (#FF7A00)
+- Accent colors: Rich Green (#27AE60), Amber (#F2C94C), Red (#EB5757)
+- Large spacing, easy clicks
+
+---
+
+### 💡 Wholesaler Psychology Match
+- Shows only **today’s priorities**
+- Uses numbers + colors instead of complex charts
+- Big clickable cards, no tiny text
+- Feels modern yet not intimidating
+
+## 📦 DIYA — Orders List (DIYA-WS-02)
+
+### 🎯 Objective
+Give wholesalers a clean, real-time list of all orders with clear status visibility and 2-click access to order actions.
+
+---
+
+### 🧱 UX Components
+
+**Layout**
+- Left Sidebar (persistent)
+- Page Header:
+  - Page Title: “Orders”
+  - Filters: [Status] [Location] [Date Range]
+  - Search Bar (Retailer / Order Number)
+
+**Main Content**
+- **Order Cards in List View**
+  - Order ID (e.g. #DY2052)
+  - Retailer Name + Location
+  - Order Amount
+  - Date/Time
+  - Order Status Badge
+  - Overdue Credit Warning (if any)
+
+**Status Badges**
+| Status | Color |
+|--------|-------|
+| Pending | 🟠 Orange |
+| Approved | 🔵 Blue |
+| Packed | 🟣 Purple |
+| Out for Delivery | 🚚 Navy |
+| Delivered | 🟢 Green |
+| Returned / Short | 🔴 Red |
+
+**Right Quick Filters Panel** (optional, collapsible)
+- “Only Pending Approvals”
+- “Payment Pending”
+- “High Exposure Orders”
+- “Delivered This Week”
+
+Pagination: **Load More** button (familiar & simple)
+
+---
+
+### 🔄 Interactions
+
+🔹 **Primary Interactions**
+- Click order card → Go to **Order Detail Screen**
+- Filter pills update orders instantly
+- Search updates in real time
+
+🔹 **Hover States**
+- Card elevation + slight outline glow
+- Status badge tooltip: “Approved, awaiting packing”
+
+🔹 Sorting Rules
+- Default → **Newest First**
+- Alternative Sort Options:
+  - Highest Value First
+  - Credit Exposure High → Low
+
+🔹 Empty State
+If no orders:
+> “No orders in this view — Try removing filters”
+
+---
+
+### 🗂 Data Attributes
+
+- order_id
+- order_status
+- retailer_name
+- retailer_location
+- order_value
+- placed_at (timestamp)
+- credit_exposure_state (normal / warning / critical)
+- payment_status
+
+Color Cues:
+- 🔴 Credit Exposure: Show warning badge  
+- 🟠 Payment pending: Show due icon
+
+---
+
+### ✨ Animations & Micro-Interactions
+
+- Order cards slide-in from bottom on load
+- Status badge pulse for urgent items
+- Filters animate with soft fade transitions
+- Toast for filter applied/reset
+
+---
+
+### 🖥️ UI Style Inspiration
+
+> **21stdev-inspired clean lists**
+- High readability rows
+- Large touch-friendly cards
+- Clear badges for fast scanning
+- Zero clutter
+
+Typography:
+- Bold titles, Medium labels, Soft subtexts
+
+Colors:
+- White background
+- Neutral borders
+- Diya brand accents: 🪔🔥 #FF7A00
+
+---
+
+### 💡 Psychology Behind UX
+- Orders = wholesaler priority  
+✔ Always 1–2 clicks away  
+✔ Visible status, no scrolling confusion  
+✔ Filters designed by **real business thinking**
+
+
+## 📦 DIYA — Order Detail (DIYA-WS-03)
+
+### 🎯 Objective
+Help wholesalers quickly review & act on an order:
+Approve, Edit, Confirm Payment, Pack, Deliver — with zero confusion.
+
+---
+
+### 🧱 UX Components
+
+**Header Area**
+- Order ID (#DY2052)
+- Status Badge: Pending / Approved / Packed / Delivered
+- Timestamp: “Placed on 26 Oct 2025 — 10:42 AM”
+- Action Buttons (contextual):
+  - Pending → [Approve] [Edit Order] [Reject]
+  - Approved → [Mark Packed] [Edit Items]
+  - Packed → [Out for Delivery]
+  - Out for Delivery → [Mark Delivered]
+
+**Retailer Mini Profile Card**
+- Retailer Name & Address
+- Outstanding Due
+- Last Payment Date
+- Exposure Alert (if exceeding credit)
+- “View Full Ledger” link
+
+**Order Items Table**
+| Product | Qty | Rate | Subtotal | Stock Tag |
+|--------|-----|------|----------|-----------|
+| Surf Excel | 10 | ₹180 | ₹1,800 | ✔ In Stock |
+| Parle-G | 50 | ₹10 | ₹500 | ✔ |
+| Lux Soap | 24 | ₹20 | ₹480 | ⚠ Low Stock |
+
+**Price Breakdown Card**
+- Item Total
+- GST
+- Delivery charge
+- **Grand Total**
+- Button: **Download Invoice** (visible after approval)
+
+**Payment Context Card**
+- Previous Due
+- Current Order Amount
+- Total Exposure After Invoice
+- Payment Status Label (UPI / Cash Pending / Partial Paid)
+
+📌 If **Credit Limit Exceeded**:
+Prompt:
+> “Collect minimum ₹X to approve order”
+
+---
+
+### 🔄 Interactions
+
+✔ Status Change Actions:
+- “Approve Order” → auto generates invoice → status update
+- “Edit Order” → open modal for line item changes
+- “Mark as Packed” → sets Packing timestamp
+- “Out for Delivery” → opens delivery person assignment
+- “Mark Delivered” → triggers ledger settlement logic
+
+✔ Payment Handling:
+- If UPI payment auto-received → Ledger auto-update
+- If Cash → “Confirm Cash Received” button appears
+
+✔ Retailer Profile Click → Navigate to retailer detail
+
+---
+
+### 🗂 Data Attributes
+
+- order_id
+- retailer_id + retailer_name
+- order_items [{sku, qty, price}]
+- stock_status
+- gst_percent
+- delivery_charge
+- previous_due
+- current_due
+- exposure_value
+- credit_limit
+- timestamps (placed, approved, packed, delivered)
+
+Status Logic:
+- Color-coded with icons
+- Display urgency when due > threshold
+
+---
+
+### ✨ Animations / Micro-Interactions
+
+- Smooth step transitions for status changes
+- Success confetti micro-animation when payment confirmed
+- Invoice button appears with soft fade-in after approval
+- Warning shake animation if trying to approve over credit limit
+
+Toast Notifications:
+- “Order Approved Successfully! Invoice Generated.”
+- “Cash Payment Confirmed.”
+- “Item Stock Shortage Detected.”
+
+---
+
+### 🖥️ UI Style Inspiration
+> Clean, card-first design like **21stdev**
+- Clear sections with titles
+- Ample whitespace → zero cognitive overload
+- Big buttons with icons + text
+- Consistent shadow layers for cards
+- Status badges rounded, readable
+
+Colors:
+- Primary: Diya Orange (#FF7A00)
+- Status Colors:  
+  Green (#27AE60), Orange (#F2994A), Red (#EB5757),
+  Blue (#2D9CDB), Purple (#9B51E0)
+
+---
+
+### 💡 Wholesaler Mindset Fit
+- All critical actions **right where eyes look**
+- No scrolling for main decisions
+- Status-driven journey keeps trust clear
+- Alerts prevent risky approvals
+
+
+## 🏪 DIYA — Retailers List (DIYA-WS-04)
+
+### 🎯 Objective
+Provide wholesalers a clear, organized list of all their retailer partners
+sorted by business priority: **highest dues → lowest**.
+
+Zero confusion. Quick actions = Better collections & trust.
+
+---
+
+### 🧱 UX Components
+
+**Layout**
+- Persistent sidebar
+- Page Title: “Retailers”
+- Search Bar (Retailer Name)
+- Location Filters:
+  - State → District → Area
+- Sort Options:
+  - Dues High → Low (default)
+  - A–Z Retailer Names
+  - Payment Behavior (Good → Bad)
+  - Business Contribution (GMV)
+
+**Retailer Cards (List View)**
+
+Example Card:
+```
+Lakshmi Stores — Hanamkonda, Telangana
+Owner: Ravi Kumar | +91 98765 43210
+🟥 Due ₹8,200 | Overdue ₹3,500 | Avg delay: 7 days
+Last Order: ₹11,647 — 3 days ago
+```
+
+**Color-coded Dues Bubble**
+- 🟢 All Clear
+- 🟠 Pending
+- 🔴 Overdue
+
+**Action Buttons on Hover**
+- “View Profile”
+- “Request Payment”
+- “Message”
+
+**Add New Retailer CTA**
+Centered button above list:
+[ + Add Retailer ]
+
+---
+
+### 🔄 Interactions
+
+- Click retailer card → Retailer Detail Screen (DIYA-WS-05)
+- Search updates instantly (fuzzy matching)
+- Filters → Smooth list refresh
+- Hover shows action buttons
+- Clicking Due Value filter reorganizes data dynamically
+
+Empty State:
+> “No retailers found in this location — Try different filter”
+
+---
+
+### 🗂 Data Attributes
+
+- retailer_id
+- retailer_name
+- owner_name
+- phone_number
+- address (State, District, Area)
+- outstanding_due
+- overdue_amount
+- last_order_amount
+- last_order_date
+- payment_delay_rank
+
+**Sorting Priority**:
+1️⃣ Overdue Amount  
+2️⃣ Total Due  
+3️⃣ Recency of Order  
+
+---
+
+### ✨ Animations / Micro-Interactions
+
+- Cards fade-in with slide from bottom
+- Hover → Subtle lift + shadow + CTA icons appear
+- Red dues bubble pulses slowly for **critical overdue**
+- Filters animate chip-select transitions
+
+Quick haptic-like click feedback:
+- “Payment Reminder Sent”
+- “Retailer Added Successfully”
+
+---
+
+### 🖥️ UI Style — Inspired by 21stdev
+
+- Clean list layout with generous whitespace
+- Rounded cards with soft shadows
+- Bold dues numbers → attract attention
+- Sticky filter bar for constant visibility
+
+Typography Sizes:
+- Title: 20–22px
+- Card Name: 18px
+- Details: 14–16px
+
+---
+
+### 💡 Wholesaler Psychology Match
+
+✔ Retailers are cashflow.  
+✔ Top defaulters always stay on top — **smart priority**  
+✔ Location filters support **area-wise expansion thinking**
+
+Retailer list becomes a **money collection dashboard** 🤑
+
+
+## 🧾 DIYA — Retailer Profile (DIYA-WS-05)
+
+### 🎯 Objective
+Give the wholesaler **one complete view** of their business relationship with a specific retailer:
+Orders • Payments • Insights • Communication • Credit Control
+
+---
+
+### 🧱 UX Components
+
+**Header — Retailer Snapshot**
+- Retailer Name & Business Icon
+- Owner Name
+- WhatsApp & Call icons (quick actions)
+- Location Details
+- GSTIN
+- Badges:
+  - ⭐ Business Tier (Gold/Silver/Bronze)
+  - ⚠ Credit Risk Alert (if exceeding)
+
+**Financial Summary Bar (Highlighted)**
+- **Outstanding Due** — in bold red/orange
+- **Overdue Amount**
+- **Credit Limit + Exposure Bar**
+- **Last Payment Date**
+- Button: **Request Payment 💰**
+
+---
+
+### Tabbed Content Section
+
+Tabs (4 total):
+
+#### 1️⃣ Orders Tab
+- Table/List of orders:
+  - Order ID
+  - Amount
+  - Status
+  - Date
+- Quick filter: Pending / Delivered / Approved
+- Click → Order Detail Screen
+
+---
+
+#### 2️⃣ Khatabook Tab (Ledger View)
+| Date | Description | Type | Amount | Status |
+|------|-------------|------|--------|--------|
+| 26 Oct | Order #DY2052 | Debit | ₹11,647 | Pending |
+| 20 Oct | Payment UPI | Credit | ₹5,000 | Confirmed |
+
+Actions inside:
+- **Add Manual Cash Payment**
+- **View All Invoices**
+- **Mark Due as Dispute** (if shortage)
+
+---
+
+#### 3️⃣ Insights Tab (Retailer Behavior Intelligence)
+Visual stat cards:
+- Total orders this month
+- Monthly GMV
+- Payment delay avg
+- Most purchased top 5 items
+- Credit cycle chart (days until payment)
+- Area category performance
+
+Gamification Tags:
+- 🟢 “Good Payer”
+- 🔴 “High Risk”
+- 💎 “Top Customer”
+
+---
+
+#### 4️⃣ Chat / Notes Tab (Optional for MVP)
+- Simple business notes
+- “Sticky note” for special deals or conditions
+- Voice note option (future)
+
+---
+
+### 🔄 Interactions
+
+- Click **Request Payment** → opens payment reminder modal (auto or manual)
+- Change **Credit Limit** → slider or number input → instant save
+- Click metric → Filter list below (e.g. overdue → show overdue or
+
+
+## 💰 DIYA — Khatabook (Ledger Home) (DIYA-WS-06)
+
+### 🎯 Objective
+Give the wholesaler a **clear and accurate** view of all business dues:
+Who owes how much, what’s overdue, and who to follow up with first.
+
+---
+
+### 🧱 UX Components
+
+**Layout**
+- Left Sidebar Navigation persistent
+- Page Title: **Khatabook**
+- **Search Bar** (Retailer name / Phone / GSTIN)
+- **Filter Chips**:
+  - All
+  - Pending
+  - Overdue
+  - Partial Paid
+  - Settled
+
+**Top Summary Tiles (3)**
+```
+Total Outstanding : ₹1,27,400 (🔺+8% this month)
+Overdue Amount    : ₹35,200  (⚠️ needs collection)
+Paid This Month   : ₹2,45,000 (🟢 good)
+```
+
+**Main Retailer Dues List**
+Each card shows:
+- Retailer Name + Location
+- Due Amount (highlighted)
+- Overdue Amount (if any)
+- Last Payment Date
+- Payment Behavior Tag (Good / Medium / Risk)
+- Mini CTA button: **Request Payment**
+
+Color Coding:
+- 🟥 High Overdue (urgent)
+- 🟧 Pending (medium priority)
+- 🟩 All Clear (hidden from default list)
+
+**Right Insights Mini-Panel (Optional)**
+- Who delayed most
+- Who paid most this month
+
+---
+
+### 🔄 Interactions
+
+- Click retailer card → Goes to **Retailer Ledger Tab**
+- Search instantly filters list
+- Filters update visuals dynamically
+- “Request Payment” triggers:
+  - SMS/WhatsApp default template
+  - Or Auto Reminder toggle modal
+- Hover → CTA icons reveal
+
+Empty State:
+> “All dues collected! Great work! 🎉”
+
+---
+
+### 🗂 Data Attributes
+
+- retailer_id
+- outstanding_due
+- overdue_amount
+- last_payment_timestamp
+- payment_delay_score
+- auto_reminder_status
+
+Sort Priority:
+1️⃣ Overdue first  
+2️⃣ Highest due  
+3️⃣ Worst payment behavior  
+
+---
+
+### ✨ Animations & Micro-Interactions
+
+- Number-count animation on summary tiles
+- Pulse effect on 🔴 overdue badges
+- Smooth filter pill transitions
+- Toast: “Reminder Sent Successfully”
+- Hover lift for retailer cards
+
+---
+
+### 🖥️ UI Style Inspiration — 21stdev
+
+- Clean card hierarchy
+- Sharp contrast between money numbers and text
+- Rounded edges with subtle shadows
+- High readability fonts (Poppins/Inter)
+
+Primary:
+🪔 Diya Orange #FF7A00
+
+Status Colors:
+🟩 #27AE60  
+🟧 #F2994A  
+🟥 #EB5757  
+
+---
+
+### 💡 Wholesaler Psychology Fit
+
+✔ Shows only **important money information**  
+✔ Helps collections **faster** without calling everyone  
+✔ Keeps relationships safe → No forced spam
+
+Khatabook becomes a **profitable action center**.
+
+# 🪔 DIYA Wholesaler Web — Remaining Screens (08 → 20)
+
+---
+
+## 🏷️ DIYA-WS-08 — Product List (My Business)
+
+### 🎯 Objective
+Manage inventory: view, update pricing & stock availability easily.
+
+### UX Components
+- Table/List of products
+- Category filter dropdown
+- Search bar (Fuzzy search)
+- Add New Product button (Prominent)
+- Stock alerts (Low/out indicators)
+
+### Interactions
+- Click product → Edit Screen WS-09
+- Filter by category, stock status
+- Inline price editing (optional)
+
+### Data Attributes
+- product_id, name, category, rate, stock, image
+
+### Animations
+- Table row hover lift
+- Alert badges pulsing for low/out stock
+
+---
+
+## 🏷️ DIYA-WS-09 — Add/Edit Product Modal
+
+### 🎯 Objective
+Add or modify SKU details quickly with no confusion.
+
+### UX Components
+- Modal form (Name, Category, Rate, Stock, Image Upload)
+- Save / Cancel buttons
+
+### Interactions
+- Auto image preview
+- Validate required fields
+
+### Data Attributes
+price, stock_count, gst_applicable, visibility_status
+
+### Animations
+Slide-in modal + smooth button success
+
+---
+
+## 🗂️ DIYA-WS-10 — Categories + Subcategories
+
+### 🎯 Objective
+Organize inventory structure for fast browsing.
+
+### UX Components
+- Two-column layout: Categories (Left) → Subcategories (Right)
+- Add/Edit/Delete buttons
+
+### Interactions
+- Drag reorder support (future)
+- Click category filters products
+
+### Data Attributes
+category_id, subcategory_id, names
+
+### Animations
+Smooth accordion expand/collapse
+
+---
+
+## ⚙ DIYA-WS-11 — Business Settings
+
+### 🎯 Objective
+Configure business identity, GST, delivery rules & visibility mode.
+
+### UX Components
+- Business card with editable fields (GST, Address)
+- Toggle: Public / Private Mode
+- Delivery charge & min order input
+- QR Code (for branding future)
+
+### Interactions
+- Save confirmation
+- Disable fields if incomplete
+
+### Data Attributes
+gstin, business_address, delivery_rules, visibility_mode
+
+### Animations
+Subtle setting-save checkmark animation
+
+---
+
+## 📊 DIYA-WS-12 — Analytics Home
+
+### 🎯 Objective
+High-level business intelligence dashboard.
+
+### UX Components
+- Revenue Trends Line Chart
+- Top 5 Retailers
+- Top Products Bar Graph
+- Monthly Payment Delay Trend
+
+### Interactions
+- Filters: Date Range, Location
+
+### Data Attributes
+sales_metrics, payment_behavior_stats
+
+### Animations
+Charts animate on load/data-change
+
+---
+
+## 🌍 DIYA-WS-13 — Location Insights
+
+### 🎯 Objective
+Reveal revenue by state/district & expansion opportunity.
+
+### UX Components
+- Heatmap by State
+- Table: District-wise GMV + Avg Delay
+- Gold/Silver labels for top areas
+
+### Interactions
+- Click district → filter down list
+- Export as PDF
+
+### Data Attributes
+geo_revenue_data, delay_per_area
+
+### Animations
+Soft geographic region highlight transitions
+
+---
+
+## 🔗 DIYA-WS-14 — Connection Requests
+
+### 🎯 Objective
+Approve new retailers only under **Private Mode**.
+
+### UX Components
+- List of pending retailer requests
+- Approve / Reject buttons
+
+### Interactions
+- Approve → Auto add to retailer list
+
+### Data Attributes
+status=pending/approved/rejected
+
+### Animations
+Slide-out removal on approve
+
+---
+
+## 🔐 DIYA-WS-15 — Login + Forgot Password
+
+### 🎯 Objective
+Secure access with zero confusion.
+
+### UX Components
+- Email/Phone input
+- Password input with eye-toggle
+- “Forgot Password?” CTA → OTP flow
+
+### Interactions
+- Validation messages
+- Session store token on success
+
+### Data Attributes
+auth_token, mobile_number, password_hash
+
+### Animations
+Soft fade overlay + success bounce
+
+---
+
+## 🚚 DIYA-WS-16 — Delivery Status (Optional MVP)
+
+### 🎯 Objective
+Track order → delivery workflow.
+
+### UX Components
+- Assign Delivery Person modal
+- Status progress tracker
+
+### Interactions
+- Mark Packed → Out for Delivery → Delivered
+
+### Data Attributes
+delivery_agent, timestamps
+
+### Animations
+Stepper animation through lifecycle
+
+---
+
+## 🧾 DIYA-WS-17 — Payment Receipts / History
+
+### 🎯 Objective
+Full record of payments received.
+
+### UX Components
+- Timeline of payments
+- Filter: Cash / UPI / Part Paid
+
+### Interactions
+- Download receipt / invoice
+
+### Data Attributes
+payment_id, mode, ref_id, confirmation_status
+
+### Animations
+Receipt slide-in on open
+
+---
+
+## 🔔 DIYA-WS-18 — Auto Reminder Settings
+
+### 🎯 Objective
+Control overdue reminder behavior per retailer.
+
+### UX Components
+- Toggle ON/OFF
+- Frequency: 3/7/14 days
+- Time: Morning/Evening
+- Polite template preview
+
+### Interactions
+- Test reminder → Self message
+
+### Data Attributes
+reminder_frequency, reminder_status
+
+### Animations
+Toggle switch glow
+
+---
+
+## 👥 DIYA-WS-19 — Staff & Permissions (Future Feature)
+
+### 🎯 Objective
+Wholesaler can add employees with access roles.
+
+### UX Components
+- Staff list
+- Role manager
+
+### Interactions
+Role change affects navigation access
+
+### Data Attributes
+role_type, activity_logs
+
+### Animations
+Row slide transitions
+
+---
+
+## 🆘 DIYA-WS-20 — Help & Support
+
+### 🎯 Objective
+Solve issues quickly.
+
+### UX Components
+- FAQs
+- Support contact + Whatsapp link
+- Tutorial video links
+
+### Interactions
+Click → Expand answers
+
+### Data Attributes
+support_ticket_id
+
+### Animations
+Accordion drop transitions
+
+---
+
+### 🖥️ UI Style — Same Direction (21stdev)
+- Clean card layouts
+- Soft shadows
+- Diya Orange (#FF7A00) accents
+- Big font sizes for semi-digital wholesalers
+
+---
+
+### 💡 End Result
+All power features ⚡  
+Zero overload 🧠  
+Trust maintained 🤝  
+Business accelerated 🚀
+
+	

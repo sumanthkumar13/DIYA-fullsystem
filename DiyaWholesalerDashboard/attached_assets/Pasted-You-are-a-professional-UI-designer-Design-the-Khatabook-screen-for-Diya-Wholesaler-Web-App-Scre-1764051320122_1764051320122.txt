@@ -1,0 +1,114 @@
+You are a professional UI designer. Design the Khatabook screen for Diya Wholesaler Web App.
+
+Screen Number: DIYA-WS-06  
+Screen Name: Khatabook Home
+
+Objective:
+Display all retailer dues in a simple and actionable layout for faster payment recovery.
+
+UX Components:
+- Top Summary Tiles (3):
+  1. Total Outstanding Due
+  2. Overdue Amount
+  3. Payments Received this Month
+- Filters:
+  - All | Pending | Overdue | Partial Paid | Settled
+- Retailer Dues List:
+  - Retailer Name, Due Amount, Overdue Amount, Last Payment Date
+  - Status Colors: Green (Clear), Orange (Pending), Red (Overdue)
+  - CTA: “Request Payment” button
+- Search Bar (Retailer name)
+
+Interactions:
+- Click retailer → Retailer Ledger Screen
+- Filter pills update list live
+- Hover reveal: call, WhatsApp icons
+
+Data Attributes:
+- outstanding_due
+- overdue_due
+- last_payment_date
+- payment_delay_rank
+
+Animations:
+- Tile count animation
+- Pulse effect on critical overdue red badges
+- Smooth fade for filter changes
+
+Style Reference:
+Clean, minimal, 21stdev inspiration, big numbers, bold colors.
+
+
+You are a professional UI designer. Design the My Business screen for Diya Wholesaler Web App.
+
+Screen Number: DIYA-WS-08  
+Screen Name: Product Management
+
+Objective:
+Allow wholesaler to manage product prices, stock and catalog structure easily.
+
+UX Components:
+- Tabs:
+  1. Products
+  2. Categories/Subcategories
+  3. Business Info (GST, Delivery charges, Visibility)
+- Product List Table:
+  - Product Image, Name, Category, Price, Stock, Edit Button
+- Big CTA: “+ Add Product”
+- Low Stock Alerts (Badges)
+- Inline Search + Category Filters
+
+Interactions:
+- Edit → open modal to update product details
+- Add Product → full form modal
+- Toggle product visibility (Active/Inactive)
+
+Data Attributes:
+product_id, price, stock, image, category
+
+Animations:
+- Slide-in modals
+- Hover effects on product row
+- Alert badges pulse softly for low/out of stock
+
+Style:
+21stdev inspired, wide tables, strong readability.
+
+
+You are a professional UI designer. Design the Analytics screen for Diya Wholesaler Web App.
+
+Screen Number: DIYA-WS-12  
+Screen Name: Business Analytics
+
+Objective:
+Give the wholesaler smart insights to make revenue & collection decisions.
+
+UX Components:
+- Filters: Date Range, State → District
+- Charts:
+  1. Monthly Sales Trend (line chart)
+  2. Payment Delay Trend
+  3. Top 5 Retailers (bar chart)
+  4. Top Selling Products
+- KPI Cards:
+  - Revenue this month
+  - Average payment delay
+  - Location performance status (Gold/Silver/Risk badges)
+- Export PDF button
+
+Interactions:
+- Click chart section → drill down data
+- Filter instantly refreshes visuals
+
+Data Attributes:
+geo_revenue_stats, payment_behavior_metrics, product_rankings
+
+Animations:
+- Chart animations on load
+- Smooth filter refresh transitions
+- Subtle bounce for KPI metrics
+
+Style:
+Modern, clean dashboard visuals, high-contrast metrics, Diya branding.
+
+

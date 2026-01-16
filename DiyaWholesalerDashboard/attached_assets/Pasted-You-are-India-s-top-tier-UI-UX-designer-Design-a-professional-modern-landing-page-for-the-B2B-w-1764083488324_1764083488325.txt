@@ -1,0 +1,385 @@
+You are India’s top-tier UI/UX designer.  
+Design a professional, modern landing page for the B2B wholesale platform “Diya”  
+— inspired by the aesthetic style of **21stdev**, focusing on clarity, elegance, bold typography, and smooth horizontal sections.
+
+TARGET AUDIENCE:
+Wholesalers of:
+- Plumbing & Sanitary (PVC, CPVC pipes and fittings)
+- Hardware & Electrical
+- Construction Material Distributors
+- Borewell/Pump Suppliers
+
+TONE:
+Modern, trustworthy, clean, subtle animations, strong storytelling.
+
+TAGLINE:
+“Bring Diya to Your Business”
+
+========================================
+🎨 **LANDING PAGE STRUCTURE**
+========================================
+
+## 1️⃣ HERO SECTION
+- Large full-width hero
+- Left side:
+  - Big headline: “Bring Diya to Your Business”
+  - Subtext: “India’s most intuitive digital platform for wholesalers to manage orders, payments, transport, and retailers — all in one place.”
+  - CTA buttons:
+    - “Get Started”
+    - “Watch Demo”
+- Right side: Minimal illustration of B2B business (pipes, boxes, order list dashboard, UPI payments)
+- Background: subtle gradient with soft lighting (21stdev vibes)
+
+Animations:
+- Slow fade-in for hero text
+- Subtle hover enlarge on CTA
+- Light glow effect behind “Diya”
+
+## 2️⃣ SLIDING CATEGORIES SECTION (HORIZONTAL SCROLLER)
+Title: “Who We Serve”
+- Smooth horizontal scroll cards:
+  1. Plumbing & Sanitary Distributors (Ashirvad, Astral style vibe)
+  2. Electrical & Hardware Wholesale
+  3. Construction Material Suppliers
+  4. Pumps & Borewell Distributors
+  5. General Wholesale
+1. FMCG Distributor  
+2. General Kirana Wholesale  
+3. Dry Grocery / Grains & Pulses  
+4. Stationery & Toys  
+5. Medical & Pharma Distributor  
+6. Cosmetics / Personal Care  
+7. Snacks & Confectionery  
+8. Packaged Food Distributor  
+9. Beverage Distributor  
+10. Household Cleaning & Chemicals  
+11. Hardware / Electrical  
+12. Garments / Textiles  
+13. Agri Products (Seeds/Pesticides)  
+14. Other Categories  
+- Card style: 21stdev matte-white tiles, soft shadow, icon on top, title below.
+- Smooth scrolling animation.
+
+## 3️⃣ PROBLEM STATEMENT (“THE WHOLESALE REALITY”)
+- Icons grid with simple facts:
+  - Missed orders on WhatsApp
+  - No payment tracking
+  - Credit confusion
+  - Manual diaries
+  - Retailer not paying on time
+  - No invoice management
+- Dark section with white text.
+
+## 4️⃣ DIYA SOLUTION SECTION
+Title: “A Complete Business OS for Wholesalers”
+- 3-column layout:
+  - Orders → clean workflows
+  - Payments → UPI + ledger sync
+  - Transport → delivery & pickup logic
+  - Product Catalog → easy import from Excel
+  - Retailer App → auto synced
+- Small product UI mockups (cards style)
+
+## 5️⃣ WHY DIYA (VALUE PROPOSITION)
+- Modern, trustworthy design
+- Full automation without changing behavior
+- Works even if retailer doesn’t use the app (manual confirmation flows)
+- Category-aware (pipes, fittings, hardware)
+
+## 6️⃣ FEATURES GRID
+Use clean card layout:
+- Order lifecycle
+- Khatabook auto ledger
+- UPI payments
+- Delivery model control
+- Retailer insights
+- Location analytics
+- Catalog import (Excel/CSV)
+
+7)  🚀 DiyaRetailer — Your Retailers Get Their Own App
+
+A powerful, simple mobile app that lets your retailers place orders, track payments, and stay synced with your business — 24/7.
+
+### 🟧 Why Retailers Love DiyaRetailer
+Your retailers get a **clean, modern shopping experience**:
+- 🛒 Browse your full catalog  
+- ➕ Add to cart instantly  
+- 📦 Track order status (Requested → Packed → Out for Delivery → Delivered)  
+- 💰 Pay via UPI  
+- 📄 Download invoices & bills  
+- 🔄 Reorder frequently purchased items  
+- 📘 Check their Khatabook anytime  
+
+### 📱 Beautiful App Screens (for UI tools)
+Include two mockups:  
+1. **Ordering Screen** — product list, add-to-cart  
+2. **Payment Screen** — UPI QR + amount due  
+
+Both in rounded iPhone frames with subtle shadows.
+
+### 🧩 Fully Synced With Your Diya Dashboard
+Everything the retailer does is instantly visible to you:
+- New orders  
+- Payment notifications  
+- Ledger updates  
+- Delivery status  
+- Outstanding dues  
+
+No WhatsApp.  
+No confusion.  
+No manual diaries.  
+Just a clean, synced system.
+
+### 📥 Ask Your Retailers to Download the App
+**“Tell your retailers to download: DiyaRetailer”**  
+Designed for simple, fast adoption — even by retailers who aren’t tech-savvy.
+
+**Buttons:**
+- “Download on Google Play”  
+- “Coming soon on App Store”  
+
+Place them as rounded 21stdev-style pill buttons.
+
+### 🎨 Design Style Instructions
+- Soft grey background section  
+- Orange accent #FF7A00  
+- Clean mobile mockups  
+- Simple icons  
+- Smooth fade-in animations  
+- Big clear text  
+
+
+## 8 TESTIMONIAL PREVIEW (optional)
+- “Diya made our order tracking 5x easier” — Siva Shakthi Marketing (example)
+- Clean minimalist card.
+
+## 9 FOOTER
+- Logo
+- About
+- Privacy Policy
+- Contact
+- Copyright
+
+========================================
+🎨 **DESIGN REQUIREMENTS**
+========================================
+STYLE:
+- Inspired by 21stdev:
+  - Large whitespace
+  - Minimal icons
+  - Soft shadows
+  - Rounded cards
+  - Modern gradients
+  - Deep contrast hero section
+- Accent color: Diya Orange (#FF7A00)
+- Neutral greys for background
+- Clear typography (Poppins / Inter)
+
+ANIMATIONS:
+- Smooth fade transitions
+- Horizontal scroller with inertia
+- Glow hover on CTA buttons
+- Slow parallax effects in hero
+
+OVERALL GOAL:
+Make the landing page feel premium, modern, and instantly trustworthy —  
+something a wholesaler sees and says:  
+“Yeh toh sahi app lagti hai. Let’s start using it.”
+
+
+SIGN UP AND SIGN IN FLOW 
+# 🪔 DIYA — WHOLESALER AUTH + SIGNUP FLOW (UI SCREENS)
+
+========================================
+# 🔐 SCREEN A — SIGN IN PAGE
+========================================
+### Purpose:
+Allow existing wholesalers to log in quickly.
+
+### UI Components:
+- Logo + Tagline: “Bring Diya to Your Business”
+- Title: “Sign In to Your Account”
+- Fields:
+  - Mobile Number (with +91 prefix)
+  - Password
+- Actions:
+  - “Forgot Password?”
+  - Sign In (primary button)
+  - Divider: “Don’t have an account?”
+  - “Create Account” (secondary link-button)
+
+### Design:
+- Clean white card in the center
+- Soft shadows
+- 21stdev-grade minimal icons
+- Subtle orange hover effects
+
+### Interactions:
+- Wrong password → soft shake animation
+- “Forgot Password?” → OTP reset flow
+- “Create Account” → goes to Signup Step 1
+
+========================================
+# 🧪 SIGNUP FLOW (8 SCREENS)
+========================================
+
+# 1️⃣ SCREEN 1 — Welcome
+- Large modern hero
+- Title: “Bring Diya to Your Business”
+- Subtext: “Digitize orders, payments, and retailers effortlessly.”
+- Buttons:
+  - Create Account (primary)
+  - Sign In (secondary)
+
+# 2️⃣ SCREEN 2 — Owner Details + OTP
+### Fields:
+- Full Name
+- Mobile Number → “Send OTP”
+- OTP Input Modal (6 digits)
+- Set Password
+
+### Interaction:
+Next → Screen 3
+
+# 3️⃣ SCREEN 3 — Industry Selection (PILL TAG STYLE)
+### Title:
+“What type of business do you run?”
+
+### Category Pills (select one or more):
+- FMCG Distributor ⓧ  
+- General Kirana ⓧ  
+- Dry Grocery / Grains ⓧ  
+- Stationery & Toys ⓧ  
+- Medical & Pharma ⓧ  
+- Cosmetics / Personal Care ⓧ  
+- Snacks & Confectionery ⓧ  
+- Packaged Food Distributor ⓧ  
+- Beverage Distributor ⓧ  
+- Household Cleaning & Chemicals ⓧ  
+- Hardware / Electrical ⓧ  
+- Garments / Textiles ⓧ  
+- Agri Products (Seeds/Pesticides) ⓧ  
+- Other (text input)
+
+### UI:
+- Soft white pill chips
+- Shadow + hover lift
+- Orange selected state (#FF7A00)
+
+# 4️⃣ SCREEN 4 — Business Details
+### Fields:
+- Business Name
+- GSTIN + toggle “Not GST Registered”
+- Address
+- Pincode
+- State (dropdown)
+- District (dropdown)
+- City/Town
+
+### Interaction:
+Next → Screen 5
+
+# 5️⃣ SCREEN 5 — Delivery Model
+### Title:
+“How do you deliver goods to retailers?”
+
+### Options (two big cards):
+**Option A — I deliver goods**
+- Minimum order value  
+- Delivery charge  
+- Areas served (multi-select district picker)
+
+**Option B — Retailers pick up from my shop**
+- No extra fields
+
+### UI:
+- Icon cards with bold labels
+- Highlight selected card with orange border glow
+
+# 6️⃣ SCREEN 6 — Payment Setup
+### Fields:
+- UPI ID (required)
+- Upload UPI QR (optional)
+- Bank Account (optional)
+- IFSC (optional)
+
+### Purpose:
+Enables instant retailer → wholesaler UPI.
+
+# 7️⃣ SCREEN 7 — Product Catalog Onboarding
+### Options:
+- Upload Excel / CSV (drag & drop)
+- “Download Sample Template”
+- OR → “Add Products Later”
+
+# 8️⃣ SCREEN 8 — Signup Success
+### Visual:
+- Celebration confetti animation
+- Light glow background
+
+### Text:
+“Your Diya Business is Ready 🎉”
+“Start receiving orders from your retailers today.”
+
+### CTAs:
+- Go to Dashboard (primary)
+- Invite Retailers → (QR + share link)
+
+========================================
+# 🗺️ WHAT HAPPENS AFTER SIGNUP? (FULL FLOW MAP)
+========================================
+
+## STEP 1 — Redirect to Onboarding Checklist Page
+A guided checklist appears:
+- Add Products  
+- Add Retailers  
+- Setup Delivery Areas  
+- Setup Business Info  
+- Explore Dashboard  
+
+The checklist shows progress (0% → 100%).
+
+## STEP 2 — They Enter MAIN DASHBOARD
+Dashboard widgets:
+- Total Retailers
+- Outstanding Due
+- Pending Orders
+- Quick Actions:
+  - Add Payment  
+  - Create Order  
+  - Add Retailer  
+
+## STEP 3 — Prompt to Invite Retailers
+A banner appears:
+> “Invite your retailers to download DiyaRetailer app  
+> and start placing orders.”
+
+Buttons:
+- Share Download Link
+- Show QR for retailer app
+
+## STEP 4 — Retailers Start Ordering  
+Retailers browse catalog → place orders → wholesaler sees instantly.
+
+## STEP 5 — Payment + Ledger Sync  
+Retailers pay via UPI → ledger updates (manual confirmation in MVP).
+
+## STEP 6 — Complete Business Setup  
+(Optional)  
+- Add more products  
+- Manage categories  
+- Add staff users  
+- Configure delivery areas  
+
+========================================
+# 🎨 GLOBAL DESIGN LANGUAGE
+========================================
+- 21stdev-inspired minimal UI  
+- Soft shadows  
+- White space heavy  
+- Inter / Poppins typography  
+- Orange brand color #FF7A00  
+- Pill-shaped category chips  
+- Slide & fade animations  
+
+

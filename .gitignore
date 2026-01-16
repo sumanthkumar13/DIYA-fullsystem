@@ -1,0 +1,42 @@
+# --- General ---
+.DS_Store
+*.log
+*.tmp
+
+# --- IntelliJ / Java ---
+.idea/
+*.iml
+out/
+target/
+
+# --- Spring Boot ---
+/backend/target/
+*.jar
+
+# --- Flutter ---
+/frontend/build/
+/frontend/.dart_tool/
+/frontend/.flutter-plugins
+/frontend/.flutter-plugins-dependencies
+/frontend/.packages
+/frontend/pubspec.lock
+
+# --- Android ---
+/frontend/android/.gradle/
+/frontend/android/local.properties
+/frontend/android/app/build/
+
+# --- iOS ---
+/frontend/ios/Pods/
+/frontend/ios/.symlinks/
+/frontend/ios/Flutter/Flutter.framework
+/frontend/ios/Flutter/Flutter.podspec
+/frontend/ios/Flutter/App.framework
+/frontend/ios/Flutter/Generated.xcconfig
+/frontend/ios/Flutter/flutter_export_environment.sh
+
+# --- Secrets / env ---
+.env
+*.env
+application.properties
+application-prod.properties
