@@ -6,6 +6,7 @@ import com.fasterxml.jackson.annotation.ObjectIdGenerators;
 import jakarta.persistence.*;
 import lombok.*;
 
+import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.UUID;
 
@@ -41,8 +42,8 @@ public class LedgerEntry {
     @Column(nullable = false)
     private EntryType entryType;
 
-    @Column(nullable = false)
-    private Double amount;
+    @Column(precision = 19, scale = 2, nullable = false)
+    private BigDecimal amount;
 
     @Column(length = 500)
     private String description;

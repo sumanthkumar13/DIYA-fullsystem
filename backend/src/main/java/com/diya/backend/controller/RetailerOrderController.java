@@ -20,12 +20,24 @@ public class RetailerOrderController {
 
     // ✅ Checkout
     @PostMapping("/checkout")
-    public ResponseEntity<OrderCheckoutResponse> checkout(@RequestBody OrderCheckoutRequest req) {
-        Authentication auth = SecurityContextHolder.getContext().getAuthentication();
-        String identifier = auth.getName();
+    public ResponseEntity<?> checkout(@RequestBody OrderCheckoutRequest req) {
+        try {
+            Authentication auth = SecurityContextHolder.getContext().getAuthentication();
+            String identifier = auth.getName();
 
-        OrderCheckoutResponse resp = orderService.checkoutFromCart(identifier, req);
-        return ResponseEntity.ok(resp);
+            OrderCheckoutResponse resp = orderService.checkoutFromCart(identifier, req);
+            return ResponseEntity.ok(resp);
+        } catch (RuntimeException e) {
+            java.util.Map<String, Object> errorResponse = new java.util.HashMap<>();
+            errorResponse.put("success", false);
+            errorResponse.put("message", e.getMessage() != null ? e.getMessage() : "Order checkout failed");
+            return ResponseEntity.badRequest().body(errorResponse);
+        } catch (Exception e) {
+            java.util.Map<String, Object> errorResponse = new java.util.HashMap<>();
+            errorResponse.put("success", false);
+            errorResponse.put("message", "Internal server error: " + e.getMessage());
+            return ResponseEntity.status(500).body(errorResponse);
+        }
     }
 
     // ✅ Retailer Orders list

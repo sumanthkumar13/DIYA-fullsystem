@@ -40,9 +40,18 @@ public class OrderItem {
     @Column(nullable = false)
     private Integer qty;
 
+    // edit history (nullable; captured only on first edit)
+    private Integer originalQty;
+
     @Column(nullable = false)
     private Double unitPriceSnapshot;
 
+    // edit history (nullable; captured only on first edit)
+    private Double originalUnitPrice;
+
     @Column(nullable = false)
     private Double lineTotal;
+
+    // edit history (nullable; captured only on first edit)
+    private Double originalLineTotal;
 }

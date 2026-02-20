@@ -8,6 +8,7 @@ import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.web.bind.annotation.*;
 
+import java.math.BigDecimal;
 import java.util.Map;
 import java.util.UUID;
 
@@ -26,7 +27,7 @@ public class RetailerPaymentController {
         String identifier = auth.getName(); // email OR phone
 
         UUID orderId = UUID.fromString((String) body.get("orderId"));
-        Double amount = Double.valueOf(body.get("amount").toString());
+        BigDecimal amount = new BigDecimal(body.get("amount").toString());
 
         // accept both keys to maintain compatibility
         String mode = (String) body.getOrDefault("mode",

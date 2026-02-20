@@ -10,6 +10,7 @@ import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
 
+import java.math.BigDecimal;
 import java.util.*;
 
 @Service
@@ -26,6 +27,8 @@ public class ProductService {
 
     @Transactional
     public ProductResponseDTO createProduct(String identifier, String authType, ProductCreateRequest req) {
+        validateTaxFields(req.getHsnCode(), req.getGstRate(), req.getTaxType());
+
         Wholesaler wholesaler = resolveWholesaler(identifier, authType);
 
         Category category = categoryRepository.findById(req.getCategoryId())
@@ -49,6 +52,9 @@ public class ProductService {
         int nextSeq = last.map(p -> p.getSequenceNumber() == null ? 1 : p.getSequenceNumber() + 1).orElse(1);
         String sku = generateSku(nextSeq);
 
+        TaxType taxType = req.getTaxType() != null ? req.getTaxType() : TaxType.TAXABLE;
+        BigDecimal gstRate = resolveGstRate(req.getGstRate(), taxType);
+
         Product product = Product.builder()
                 .wholesaler(wholesaler)
                 .category(category)
@@ -64,10 +70,40 @@ public class ProductService {
                 .imageUrl(req.getImageUrl())
                 .active(true)
                 .visibleToRetailer(req.getVisibleToRetailer() == null ? true : req.getVisibleToRetailer())
+                .hsnCode(req.getHsnCode())
+                .gstRate(gstRate)
+                .taxType(taxType)
+                .baseUnit(req.getBaseUnit())
+                .sellingUnit(req.getSellingUnit())
+                .unitsPerSelling(req.getUnitsPerSelling())
+                .priceIncludesTax(req.getPriceIncludesTax() != null && req.getPriceIncludesTax())
+                .tallyItemSynced(false)
                 .build();
 
         product = productRepository.save(product);
         return toDto(product);
+    }
+
+    /**
+     * If hsnCode provided but gstRate missing → reject.
+     * If taxType is EXEMPT or NIL_RATED → gstRate must be 0.
+     */
+    private void validateTaxFields(String hsnCode, BigDecimal gstRate, TaxType taxType) {
+        if (hsnCode != null && !hsnCode.isBlank() && gstRate == null) {
+            throw new RuntimeException("GST Rate is required when HSN Code is provided");
+        }
+        if (taxType == TaxType.EXEMPT || taxType == TaxType.NIL_RATED) {
+            if (gstRate != null && gstRate.compareTo(BigDecimal.ZERO) != 0) {
+                throw new RuntimeException("GST Rate must be 0 when Tax Type is " + taxType);
+            }
+        }
+    }
+
+    private BigDecimal resolveGstRate(BigDecimal gstRate, TaxType taxType) {
+        if (taxType == TaxType.EXEMPT || taxType == TaxType.NIL_RATED) {
+            return BigDecimal.ZERO;
+        }
+        return gstRate != null ? gstRate : BigDecimal.ZERO;
     }
 
     public ProductDetailDTO getRetailerProductDetail(String identifier, UUID productId, UUID wholesalerId) {
@@ -214,6 +250,32 @@ public class ProductService {
             p.setActive(req.getActive());
         if (req.getVisibleToRetailer() != null)
             p.setVisibleToRetailer(req.getVisibleToRetailer());
+
+        // Tax & Billing (optional updates)
+        if (req.getHsnCode() != null || req.getGstRate() != null || req.getTaxType() != null) {
+            validateTaxFields(
+                    req.getHsnCode() != null ? req.getHsnCode() : p.getHsnCode(),
+                    req.getGstRate() != null ? req.getGstRate() : p.getGstRate(),
+                    req.getTaxType() != null ? req.getTaxType() : p.getTaxType());
+        }
+        if (req.getHsnCode() != null)
+            p.setHsnCode(req.getHsnCode());
+        if (req.getGstRate() != null)
+            p.setGstRate(req.getGstRate());
+        if (req.getTaxType() != null) {
+            p.setTaxType(req.getTaxType());
+            if (req.getTaxType() == TaxType.EXEMPT || req.getTaxType() == TaxType.NIL_RATED) {
+                p.setGstRate(BigDecimal.ZERO);
+            }
+        }
+        if (req.getBaseUnit() != null)
+            p.setBaseUnit(req.getBaseUnit());
+        if (req.getSellingUnit() != null)
+            p.setSellingUnit(req.getSellingUnit());
+        if (req.getUnitsPerSelling() != null)
+            p.setUnitsPerSelling(req.getUnitsPerSelling());
+        if (req.getPriceIncludesTax() != null)
+            p.setPriceIncludesTax(req.getPriceIncludesTax());
 
         p = productRepository.save(p);
         return toDto(p);

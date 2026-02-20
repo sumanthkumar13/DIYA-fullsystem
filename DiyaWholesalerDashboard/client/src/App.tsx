@@ -6,8 +6,10 @@ import { Layout } from "@/components/layout/Layout";
 import Dashboard from "@/pages/dashboard";
 import Orders from "@/pages/orders";
 import OrderDetail from "@/pages/order-detail";
+import InvoicePreviewPage from "@/pages/invoice-preview";
 import Retailers from "@/pages/retailers";
 import RetailerProfile from "@/pages/retailer-profile";
+import RetailerStatementPage from "@/pages/retailer-statement";
 import Khatabook from "@/pages/khatabook";
 import MyBusiness from "@/pages/business";
 import Analytics from "@/pages/analytics";
@@ -81,6 +83,12 @@ function Router() {
         )}
       </Route>
 
+      <Route path="/invoices/:invoiceId">
+        <AppLayout>
+          <InvoicePreviewPage />
+        </AppLayout>
+      </Route>
+
       <Route path="/retailers">
         <AppLayout>
           <Retailers />
@@ -88,16 +96,20 @@ function Router() {
       </Route>
 
       <Route path="/retailers/:id">
-        {(params) => (
-          <AppLayout>
-            <RetailerProfile />
-          </AppLayout>
-        )}
+        <AppLayout>
+          <RetailerProfile />
+        </AppLayout>
       </Route>
 
       <Route path="/khatabook">
         <AppLayout>
           <Khatabook />
+        </AppLayout>
+      </Route>
+
+      <Route path="/khatabook/:retailerId">
+        <AppLayout>
+          <RetailerStatementPage />
         </AppLayout>
       </Route>
 

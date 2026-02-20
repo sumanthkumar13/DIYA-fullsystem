@@ -70,9 +70,11 @@ diya_frontend/lib/
 | Retailer Dashboard | `screens/home/retailer_dashboard.dart` | `/home` | Main dashboard with wholesaler cards, quick stats |
 | Connect Screen | `screens/connect/connect_screen.dart` | `/connect` | Wholesaler discovery and connection requests |
 | Orders Screen | `screens/orders/orders_screen.dart` | `/orders` | List of all orders with status filters |
-| Payments Screen | `screens/payments/payments_screen.dart` | `/payments` | Payment history and record new payment |
+| Order Detail Screen | `screens/orders/order_detail_screen.dart` | (no route; opened via `Navigator.push` from orders list) | Order details, payment status |
+| Payments Screen | `screens/payments/payments_screen.dart` | `/payments` | **UI only (mock data)** — not wired to `POST /api/retailer/payments` |
 | Account Screen | `screens/account/account_screen.dart` | `/account` | Profile settings, logout |
 | New Order Screen | `screens/new_order/new_order_screen.dart` | `/new-order` | Browse products, add to cart, checkout |
+| Connected Wholesalers | `screens/wholesalers/connected_wholesalers_screen.dart` | `/wholesalers` | List of approved wholesalers |
 
 #### Wholesaler Screens (if implemented)
 
@@ -168,9 +170,13 @@ Connect Screen (Optional)
 | Method | Endpoint | Description |
 |--------|----------|-------------|
 | `checkout(req)` | `POST /api/retailer/orders/checkout` | Checkout cart and create order |
+| `getRetailerOrders()` | `GET /api/retailer/orders` | List retailer's orders |
+| `getRetailerOrderDetail(orderId)` | `GET /api/retailer/orders/{orderId}` | Order detail for retailer |
 
 **Used By:**
 - `new_order_screen.dart` - Order placement
+- `orders_screen.dart` - Order list and detail
+- `order_detail_screen.dart` - Order detail
 
 #### 5. ConnectionService
 **File**: `lib/services/connection_service.dart`
@@ -328,23 +334,23 @@ DiyaWholesalerDashboard/
 
 #### Protected Pages (App Routes)
 
-| Page | File | Route | Description |
-|------|------|-------|-------------|
-| Dashboard | `pages/dashboard.tsx` | `/dashboard` | Main dashboard with KPIs, activity feed |
-| Orders | `pages/orders.tsx` | `/orders` | Order list with filters |
-| Order Detail | `pages/order-detail.tsx` | `/orders/:id` | Order details, status updates |
-| Retailers | `pages/retailers.tsx` | `/retailers` | Connected retailers list |
-| Retailer Profile | `pages/retailer-profile.tsx` | `/retailers/:id` | Retailer details, outstanding balance |
-| Connection Requests | `pages/connection-requests.tsx` | `/connection-requests` | Approve/reject retailer requests |
-| Categories | `pages/categories.tsx` | `/categories` | Category management |
-| Category Detail | `pages/CategoryDetailPage.tsx` | `/categories/:categoryId` | Category with subcategories |
-| SubCategory Page | `pages/SubCategoryPage.tsx` | `/subcategories/:id` | Subcategory management |
-| Add Product | `pages/product-new.tsx` | `/products/new` | Create new product |
-| Khatabook | `pages/khatabook.tsx` | `/khatabook` | Ledger view, retailer statements |
-| Business | `pages/business.tsx` | `/business` | Business profile, settings |
-| Analytics | `pages/analytics.tsx` | `/analytics` | Sales analytics, trends |
-| Settings | `pages/settings.tsx` | `/settings` | Account settings, visibility mode |
-| Not Found | `pages/not-found.tsx` | `*` | 404 page |
+| Page | File | Route | Description | API / Mock |
+|------|------|-------|-------------|------------|
+| Dashboard | `pages/dashboard.tsx` | `/dashboard` | Main dashboard with KPIs, activity feed | **API** (KPI, territory, activity) |
+| Orders | `pages/orders.tsx` | `/orders` | Order list with filters | **API** |
+| Order Detail | `pages/order-detail.tsx` | `/orders/:id` | Order details, accept/reject/status/edit | **API** |
+| Retailers | `pages/retailers.tsx` | `/retailers` | Connected retailers list | **Mock** |
+| Retailer Profile | `pages/retailer-profile.tsx` | `/retailers/:id` | Retailer details, outstanding balance | **Mock** |
+| Connection Requests | `pages/connection-requests.tsx` | `/connection-requests` | Approve/reject retailer requests | **API** |
+| Categories | `pages/categories.tsx` | `/categories` | Category management | **API** |
+| Category Detail | `pages/CategoryDetailPage.tsx` | `/categories/:categoryId` | Category with subcategories (create subcategory here) | **API** |
+| SubCategory Page | `pages/SubCategoryPage.tsx` | (no route in `App.tsx`; subcategories managed in CategoryDetailPage) | Subcategory management | **API** (when used) |
+| Add Product | `pages/product-new.tsx` | `/products/new` | Create new product | **API** |
+| Khatabook | `pages/khatabook.tsx` | `/khatabook` | Ledger view, retailer statements | **Mock** (ledger API not wired) |
+| Business | `pages/business.tsx` | `/business` | Business profile, settings | — |
+| Analytics | `pages/analytics.tsx` | `/analytics` | Sales analytics, trends | **Mock** (analytics API not wired) |
+| Settings | `pages/settings.tsx` | `/settings` | Account settings, visibility mode | **API** (visibility) |
+| Not Found | `pages/not-found.tsx` | `*` | 404 page | — |
 
 ### Navigation Structure
 
@@ -377,15 +383,18 @@ Dashboard (Main Hub)
 **Location**: `client/src/services/`
 
 API service files for backend communication:
-- Order services
-- Product services
-- Retailer services
-- Analytics services
+- `order.ts` — orders list, order detail, accept/reject/status/edit
+- `product.ts` — product list, create, update
+- `category.ts` — categories, subcategories by category, create subcategory
+- `connectionRequests.ts` — pending connection requests, approve/reject
+- `wholesalerSettings.ts` — visibility mode
+
+Dashboard pages **Retailers**, **Retailer Profile**, **Khatabook**, and **Analytics** use mock data; no dedicated services call `/api/wholesaler/connections` (full list), ledger, or analytics endpoints yet.
 
 **Pattern:**
-- Uses TanStack Query for data fetching
-- Axios or fetch for HTTP requests
-- Session-based authentication (Passport.js)
+- Uses TanStack Query for data fetching (e.g. `useDashboard`, order-detail)
+- Single axios instance in `lib/axios.ts` (baseURL: `http://localhost:8081/api`), JWT from `localStorage`
+- No Passport.js; dashboard uses JWT in `Authorization` header
 
 ### State Management
 

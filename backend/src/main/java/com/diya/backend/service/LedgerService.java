@@ -9,6 +9,7 @@ import com.diya.backend.repository.WholesalerRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 
+import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.util.List;
 
@@ -96,21 +97,21 @@ public class LedgerService {
     // Outstanding calculation (core Kata Book logic)
     // Outstanding = SUM(DEBIT) - SUM(CREDIT)
     // ==========================================================
-    public double getOutstandingForPair(Wholesaler wholesaler, Retailer retailer) {
+    public BigDecimal getOutstandingForPair(Wholesaler wholesaler, Retailer retailer) {
 
         List<LedgerEntry> entries = ledgerEntryRepository.findByWholesalerAndRetailer(wholesaler, retailer);
 
-        double totalDebit = entries.stream()
+        BigDecimal totalDebit = entries.stream()
                 .filter(e -> e.getEntryType() == LedgerEntry.EntryType.DEBIT)
-                .mapToDouble(LedgerEntry::getAmount)
-                .sum();
+                .map(LedgerEntry::getAmount)
+                .reduce(BigDecimal.ZERO, BigDecimal::add);
 
-        double totalCredit = entries.stream()
+        BigDecimal totalCredit = entries.stream()
                 .filter(e -> e.getEntryType() == LedgerEntry.EntryType.CREDIT)
-                .mapToDouble(LedgerEntry::getAmount)
-                .sum();
+                .map(LedgerEntry::getAmount)
+                .reduce(BigDecimal.ZERO, BigDecimal::add);
 
-        return totalDebit - totalCredit;
+        return totalDebit.subtract(totalCredit);
     }
 
     public List<LedgerEntry> getStatementForPair(Wholesaler wholesaler, Retailer retailer) {

@@ -1,6 +1,8 @@
 package com.diya.backend.dto;
 
 import lombok.*;
+
+import java.math.BigDecimal;
 import java.util.UUID;
 
 @Getter
@@ -11,6 +13,6 @@ import java.util.UUID;
 public class OrderCheckoutResponse {
     private UUID orderId;
     private String orderNumber;
-    private Double totalAmount;
+    private BigDecimal totalAmount;
     private String message;
 }

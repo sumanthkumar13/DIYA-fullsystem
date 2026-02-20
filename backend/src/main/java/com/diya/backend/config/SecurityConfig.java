@@ -50,8 +50,12 @@ public class SecurityConfig {
                                                 "/api/wholesaler/products/**",
                                                 "/api/wholesaler/orders/**",
                                                 "/api/wholesaler/connections/**",
-                                                "/api/wholesaler/dashboard/**")
+                                                "/api/wholesaler/dashboard/**",
+                                                "/api/wholesaler/settings/**")
                                     .hasRole("WHOLESALER")
+                                    .requestMatchers("/api/hsn/**").hasRole("WHOLESALER")
+                                    .requestMatchers("/api/invoices/**").hasRole("WHOLESALER")
+                                    .requestMatchers("/api/tally/**").hasRole("WHOLESALER")
 
                                     /* RETAILER */
                                     .requestMatchers("/api/retailer/**").hasRole("RETAILER")

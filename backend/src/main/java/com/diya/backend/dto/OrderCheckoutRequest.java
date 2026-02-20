@@ -14,4 +14,5 @@ public class OrderCheckoutRequest {
     // payment method / reference can be extended
     private String paymentMethod;
     private String paymentReference;
+    private java.util.List<String> selectedProductIds;
 }

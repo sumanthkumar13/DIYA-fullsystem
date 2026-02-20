@@ -3,6 +3,7 @@ package com.diya.backend.dto.cart;
 import lombok.Builder;
 import lombok.Data;
 
+import java.math.BigDecimal;
 import java.util.List;
 import java.util.UUID;
 
@@ -13,6 +14,6 @@ public class CartDTO {
     private UUID wholesalerId;
     private String wholesalerName;
     private List<CartItemDTO> items;
-    private Double totalAmount;
+    private BigDecimal totalAmount;
     private Integer totalItems;
 }

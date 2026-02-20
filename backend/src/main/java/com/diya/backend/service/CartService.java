@@ -8,6 +8,7 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.math.BigDecimal;
 import java.util.Optional;
 import java.util.UUID;
 import java.util.stream.Collectors;
@@ -147,9 +148,9 @@ public class CartService {
      */
     private CartDTO toDto(Cart cart) {
 
-        double totalAmount = cart.getItems().stream()
-                .mapToDouble(item -> item.getPriceAtTime() * item.getQuantity())
-                .sum();
+        BigDecimal totalAmount = cart.getItems().stream()
+                .map(item -> BigDecimal.valueOf(item.getPriceAtTime()).multiply(BigDecimal.valueOf(item.getQuantity())))
+                .reduce(BigDecimal.ZERO, BigDecimal::add);
 
         return CartDTO.builder()
                 .id(cart.getId())

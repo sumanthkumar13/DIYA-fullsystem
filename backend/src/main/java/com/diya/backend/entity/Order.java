@@ -6,6 +6,7 @@ import com.fasterxml.jackson.annotation.ObjectIdGenerators;
 import jakarta.persistence.*;
 import lombok.*;
 
+import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
@@ -53,6 +54,26 @@ public class Order {
     private LocalDateTime deliveredAt;
     private LocalDateTime cancelledAt;
 
+    // edit metadata (nullable)
+    private LocalDateTime editedAt;
+    private String editedBy;   // identifier (email/phone) for audit
+    private String editReason; // required when editing, nullable otherwise
+
+    // payment terms (order-level credit days)
+    @Enumerated(EnumType.STRING)
+    private PaymentMode paymentMode; // CASH / UPI / CREDIT
+
+    private Integer creditDays; // only for CREDIT
+
+    private LocalDateTime dueDate; // acceptedAt + creditDays (CREDIT only)
+
+    /** Credit amount approved by wholesaler for this order (outstanding until paid). */
+    @Column(precision = 19, scale = 2)
+    private BigDecimal approvedCreditAmount;
+
+    /** Due date for credit (now + creditDays) when order accepted on credit. */
+    private LocalDateTime creditDueDate;
+
     @Enumerated(EnumType.STRING)
     @Column(nullable = false)
     @Builder.Default
@@ -64,10 +85,14 @@ public class Order {
     private PaymentStatus paymentStatus = PaymentStatus.UNPAID;
 
     // totals snapshot
-    private Double subtotal;
-    private Double taxAmount;
-    private Double deliveryCharge;
-    private Double totalAmount;
+    @Column(precision = 19, scale = 2, nullable = false)
+    private BigDecimal subtotal;
+    @Column(precision = 19, scale = 2, nullable = false)
+    private BigDecimal taxAmount;
+    @Column(precision = 19, scale = 2, nullable = false)
+    private BigDecimal deliveryCharge;
+    @Column(precision = 19, scale = 2, nullable = false)
+    private BigDecimal totalAmount;
 
     public enum Status {
         PLACED, // retailer checkout completed, waiting wholesaler action
@@ -77,10 +102,17 @@ public class Order {
         DISPATCHED,
         DELIVERED,
         COMPLETED,
-        CANCELLED
+        CANCELLED,
+        INVOICED  // invoice finalized for this order
     }
 
     public enum PaymentStatus {
         UNPAID, PARTIAL, PAID
+    }
+
+    public enum PaymentMode {
+        CASH,
+        UPI,
+        CREDIT
     }
 }

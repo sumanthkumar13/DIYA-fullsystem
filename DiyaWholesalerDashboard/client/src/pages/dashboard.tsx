@@ -2,6 +2,7 @@ import { useState } from "react";
 import { Switch } from "@/components/ui/switch";
 import { useToast } from "@/hooks/use-toast";
 import { useWholesalerVisibility } from "@/hooks/useWholesalerVisibility";
+import { AddPaymentModal } from "@/components/payments/AddPaymentModal";
 
 import {
   ArrowUpRight,
@@ -30,11 +31,12 @@ import { cn } from "@/lib/utils";
 import { useDashboardKpi, useDashboardTerritory, useDashboardActivity } from "@/hooks/useDashboard";
 
 export default function Dashboard() {
+  const [addPaymentOpen, setAddPaymentOpen] = useState(false);
   const { data: kpi } = useDashboardKpi();
   const { data: territory } = useDashboardTerritory();
   const { data: activity } = useDashboardActivity();
   const { toast } = useToast();
-const { mode, loading: visibilityLoading, saving, setVisibility } = useWholesalerVisibility();
+  const { mode, loading: visibilityLoading, saving, setVisibility } = useWholesalerVisibility();
 
   return (
     <div className="space-y-6">
@@ -212,7 +214,11 @@ const { mode, loading: visibilityLoading, saving, setVisibility } = useWholesale
 
           {/* Quick Actions */}
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
-            <Button className="h-auto py-4 flex flex-col gap-2 bg-white border border-gray-200 shadow-sm hover:bg-gray-50 text-gray-900 hover:border-primary/50 transition-all group" variant="ghost">
+            <Button
+              onClick={() => setAddPaymentOpen(true)}
+              className="h-auto py-4 flex flex-col gap-2 bg-white border border-gray-200 shadow-sm hover:bg-gray-50 text-gray-900 hover:border-primary/50 transition-all group"
+              variant="ghost"
+            >
               <div className="h-10 w-10 rounded-full bg-green-100 flex items-center justify-center group-hover:scale-110 transition-transform">
                 <CreditCard className="h-5 w-5 text-green-600" />
               </div>
@@ -268,6 +274,8 @@ const { mode, loading: visibilityLoading, saving, setVisibility } = useWholesale
           </Card>
         </div>
       </div>
+
+      <AddPaymentModal open={addPaymentOpen} onClose={() => setAddPaymentOpen(false)} />
     </div>
   );
 }

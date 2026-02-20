@@ -5,6 +5,7 @@ import com.diya.backend.repository.*;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 
+import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.time.ZoneId;
 import java.time.format.TextStyle;
@@ -39,11 +40,14 @@ public class AnalyticsService {
                                 .filter(p -> p.getWholesaler().getId().equals(wholesaler.getId()))
                                 .toList();
 
-                double totalSales = orders.stream().mapToDouble(Order::getTotalAmount).sum();
-                double totalReceived = payments.stream()
+                BigDecimal totalSales = orders.stream()
+                                .map(Order::getTotalAmount)
+                                .filter(Objects::nonNull)
+                                .reduce(BigDecimal.ZERO, BigDecimal::add);
+                BigDecimal totalReceived = payments.stream()
                                 .filter(p -> p.getStatus() == Payment.PaymentStatus.CONFIRMED)
-                                .mapToDouble(Payment::getAmount)
-                                .sum();
+                                .map(Payment::getAmount)
+                                .reduce(BigDecimal.ZERO, BigDecimal::add);
                 long pendingOrders = orders.stream()
                                 .filter(o -> o.getStatus() == Order.Status.PLACED)
                                 .count();
@@ -56,7 +60,7 @@ public class AnalyticsService {
                 summary.put("totalOrders", orders.size());
                 summary.put("totalSales", totalSales);
                 summary.put("totalReceived", totalReceived);
-                summary.put("outstandingAmount", totalSales - totalReceived);
+                summary.put("outstandingAmount", totalSales.subtract(totalReceived));
                 summary.put("pendingOrders", pendingOrders);
                 summary.put("deliveredOrders", deliveredOrders);
                 summary.put("activeRetailers", retailerRepository.count());
@@ -82,18 +86,21 @@ public class AnalyticsService {
                                 .filter(p -> p.getRetailer().getId().equals(retailer.getId()))
                                 .toList();
 
-                double totalSpent = orders.stream().mapToDouble(Order::getTotalAmount).sum();
-                double totalPaid = payments.stream()
+                BigDecimal totalSpent = orders.stream()
+                                .map(Order::getTotalAmount)
+                                .filter(Objects::nonNull)
+                                .reduce(BigDecimal.ZERO, BigDecimal::add);
+                BigDecimal totalPaid = payments.stream()
                                 .filter(p -> p.getStatus() == Payment.PaymentStatus.CONFIRMED)
-                                .mapToDouble(Payment::getAmount)
-                                .sum();
+                                .map(Payment::getAmount)
+                                .reduce(BigDecimal.ZERO, BigDecimal::add);
 
                 Map<String, Object> summary = new LinkedHashMap<>();
                 summary.put("retailerName", retailer.getShopName());
                 summary.put("totalOrders", orders.size());
                 summary.put("totalSpent", totalSpent);
                 summary.put("totalPaid", totalPaid);
-                summary.put("outstandingDue", totalSpent - totalPaid);
+                summary.put("outstandingDue", totalSpent.subtract(totalPaid));
                 return summary;
         }
 
@@ -112,13 +119,15 @@ public class AnalyticsService {
                                 .filter(o -> o.getWholesaler().getId().equals(wholesaler.getId()))
                                 .toList();
 
-                Map<String, Double> monthlyTotals = orders.stream()
+                Map<String, BigDecimal> monthlyTotals = orders.stream()
                                 .collect(Collectors.groupingBy(
                                                 o -> o.getPlacedAt()
                                                                 .atZone(ZoneId.systemDefault())
                                                                 .getMonth()
                                                                 .getDisplayName(TextStyle.SHORT, Locale.ENGLISH),
-                                                Collectors.summingDouble(Order::getTotalAmount)));
+                                                Collectors.reducing(BigDecimal.ZERO,
+                                                        o -> o.getTotalAmount() != null ? o.getTotalAmount() : BigDecimal.ZERO,
+                                                        BigDecimal::add)));
 
                 Map<String, Object> result = new LinkedHashMap<>();
                 result.put("wholesaler", wholesaler.getBusinessName());

@@ -6,6 +6,7 @@ import com.diya.backend.repository.*;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 
+import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.*;
@@ -34,12 +35,12 @@ public class DashboardService {
                                 .filter(o -> o.getPlacedAt().toLocalDate().isEqual(today))
                                 .count();
 
-                double paymentsToday = paymentRepository.findByWholesaler(wholesaler).stream()
+                BigDecimal paymentsToday = paymentRepository.findByWholesaler(wholesaler).stream()
                                 .filter(p -> p.getStatus() == Payment.PaymentStatus.CONFIRMED)
                                 .filter(p -> p.getConfirmedAt() != null
                                                 && p.getConfirmedAt().toLocalDate().isEqual(today))
-                                .mapToDouble(Payment::getAmount)
-                                .sum();
+                                .map(Payment::getAmount)
+                                .reduce(BigDecimal.ZERO, BigDecimal::add);
 
                 int pendingOrders = (int) orderRepository
                                 .findByWholesaler(wholesaler)
@@ -47,19 +48,21 @@ public class DashboardService {
                                 .filter(o -> o.getStatus() == Order.Status.PLACED)
                                 .count();
 
-                double credit = ledgerRepository.findByWholesaler(wholesaler).stream()
+                BigDecimal credit = ledgerRepository.findByWholesaler(wholesaler).stream()
                                 .filter(l -> l.getEntryType() == LedgerEntry.EntryType.CREDIT)
-                                .mapToDouble(LedgerEntry::getAmount).sum();
+                                .map(LedgerEntry::getAmount)
+                                .reduce(BigDecimal.ZERO, BigDecimal::add);
 
-                double debit = ledgerRepository.findByWholesaler(wholesaler).stream()
+                BigDecimal debit = ledgerRepository.findByWholesaler(wholesaler).stream()
                                 .filter(l -> l.getEntryType() == LedgerEntry.EntryType.DEBIT)
-                                .mapToDouble(LedgerEntry::getAmount).sum();
+                                .map(LedgerEntry::getAmount)
+                                .reduce(BigDecimal.ZERO, BigDecimal::add);
 
                 return DashboardKpiDTO.builder()
                                 .newOrdersToday(newOrdersToday)
                                 .paymentsReceivedToday(paymentsToday)
                                 .pendingOrders(pendingOrders)
-                                .totalOutstanding(credit - debit)
+                                .totalOutstanding(debit.subtract(credit))
                                 .build();
         }
 

@@ -104,13 +104,15 @@ Complete REST API endpoint documentation for all controllers.
 | Endpoint | Method | Request Body | Response | Auth Required | Used By |
 |----------|--------|--------------|----------|---------------|---------|
 | `/api/wholesaler/orders` | GET | Query: `?status=string&search=string&dateRange=string&page=int&size=int` | `List<OrderListItemDTO>` | Wholesaler | Dashboard: `orders.tsx` |
-| `/api/wholesaler/orders/{orderId}/accept` | POST | - | `Order` | Wholesaler | Dashboard: `order-detail.tsx` |
+| `/api/wholesaler/orders/{orderId}` | GET | - | `WholesalerOrderDetailDTO` | Wholesaler | Dashboard: `order-detail.tsx` |
+| `/api/wholesaler/orders/{orderId}/accept` | POST | Optional: `WholesalerOrderAcceptRequest` (`paymentMode`, `creditDays`). Query: `?force=false` | `Order` | Wholesaler | Dashboard: `order-detail.tsx` |
 | `/api/wholesaler/orders/{orderId}/reject` | POST | - | `Order` | Wholesaler | Dashboard: `order-detail.tsx` |
 | `/api/wholesaler/orders/{orderId}/packing` | POST | - | `Order` | Wholesaler | Dashboard: `order-detail.tsx` |
 | `/api/wholesaler/orders/{orderId}/dispatch` | POST | - | `Order` | Wholesaler | Dashboard: `order-detail.tsx` |
 | `/api/wholesaler/orders/{orderId}/deliver` | POST | - | `Order` | Wholesaler | Dashboard: `order-detail.tsx` |
 | `/api/wholesaler/orders/{orderId}/complete` | POST | - | `Order` | Wholesaler | Dashboard: `order-detail.tsx` |
 | `/api/wholesaler/orders/{orderId}/cancel` | POST | - | `Order` | Wholesaler | Dashboard: `order-detail.tsx` |
+| `/api/wholesaler/orders/{orderId}/edit` | POST | `WholesalerOrderEditRequest` (order items/quantities) | `Order` | Wholesaler | Dashboard: `order-detail.tsx` |
 
 ## Wholesaler - Connections
 

@@ -1,5 +1,9 @@
 import { useEffect, useState } from "react";
-import { getVisibilityMode, updateVisibilityMode, VisibilityMode } from "@/services/wholesalerSettings";
+import {
+  getWholesalerSettings,
+  updateWholesalerSettings,
+  VisibilityMode,
+} from "@/services/wholesalerSettings";
 
 export function useWholesalerVisibility() {
   const [mode, setMode] = useState<VisibilityMode>("PUBLIC");
@@ -9,8 +13,8 @@ export function useWholesalerVisibility() {
   async function refresh() {
     setLoading(true);
     try {
-      const m = await getVisibilityMode();
-      setMode(m);
+      const settings = await getWholesalerSettings();
+      setMode(settings.visibilityMode);
     } finally {
       setLoading(false);
     }
@@ -19,9 +23,9 @@ export function useWholesalerVisibility() {
   async function setVisibility(newMode: VisibilityMode) {
     setSaving(true);
     try {
-      const m = await updateVisibilityMode(newMode);
-      setMode(m);
-      return m;
+      const updated = await updateWholesalerSettings({ visibilityMode: newMode });
+      setMode(updated.visibilityMode);
+      return updated.visibilityMode;
     } finally {
       setSaving(false);
     }

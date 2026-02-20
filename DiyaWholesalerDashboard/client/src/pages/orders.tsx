@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Link } from "wouter";
 import { 
   Search, 
@@ -24,63 +24,132 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import emptyStateImage from "@assets/generated_images/empty_state_illustration_for_orders.png";
+import { fetchOrders, OrderListItem } from "@/services/order";
 
-const mockOrders = [
-  {
-    id: "DY2052",
-    retailer: "Lakshmi Stores",
-    location: "Hanamkonda, Telangana",
-    amount: "₹12,400",
-    date: "Today, 10:42 AM",
-    status: "Pending",
-    items: 12,
-    exposure: "Normal"
-  },
-  {
-    id: "DY2051",
-    retailer: "Heritage Fresh",
-    location: "Kukatpally, Hyderabad",
-    amount: "₹8,200",
-    date: "Today, 09:15 AM",
-    status: "Approved",
-    items: 8,
-    exposure: "Warning"
-  },
-  {
-    id: "DY2050",
-    retailer: "Ravi Kirana General Stores",
-    location: "Uppal, Hyderabad",
-    amount: "₹4,500",
-    date: "Yesterday, 06:30 PM",
-    status: "Packed",
-    items: 5,
-    exposure: "Normal"
-  },
-  {
-    id: "DY2049",
-    retailer: "Sri Balaji Traders",
-    location: "Warangal, Telangana",
-    amount: "₹15,600",
-    date: "Yesterday, 04:15 PM",
-    status: "Out for Delivery",
-    items: 22,
-    exposure: "Critical"
-  },
-  {
-    id: "DY2048",
-    retailer: "Vijaya Stores",
-    location: "Secunderabad",
-    amount: "₹2,100",
-    date: "24 Oct, 11:00 AM",
-    status: "Delivered",
-    items: 3,
-    exposure: "Normal"
+// Map backend status to UI status
+function mapStatusToUI(status: string): string {
+  const statusMap: Record<string, string> = {
+    PLACED: "Pending",
+    ACCEPTED: "Approved",
+    PACKING: "Packed",
+    DISPATCHED: "Out for Delivery",
+    DELIVERED: "Delivered",
+    COMPLETED: "Delivered",
+    CANCELLED: "Cancelled",
+    REJECTED: "Rejected",
+  };
+  return statusMap[status] || status;
+}
+
+// Map backend status to filter value
+function mapStatusToFilter(uiStatus: string): string {
+  const filterMap: Record<string, string> = {
+    "Pending": "PLACED",
+    "Approved": "ACCEPTED",
+    "Packed": "PACKING",
+    "Out for Delivery": "DISPATCHED",
+    "Delivered": "DELIVERED",
+    "Cancelled": "CANCELLED",
+    "Rejected": "REJECTED",
+  };
+  return filterMap[uiStatus] || uiStatus;
+}
+
+// Format amount with ₹ and commas
+function formatAmount(amount: number): string {
+  return `₹${amount.toLocaleString("en-IN")}`;
+}
+
+// Format date to relative format
+function formatDate(dateString: string): string {
+  if (!dateString) return "";
+  try {
+    const date = new Date(dateString);
+    const now = new Date();
+    const diffMs = now.getTime() - date.getTime();
+    const diffMins = Math.floor(diffMs / 60000);
+    const diffHours = Math.floor(diffMs / 3600000);
+    const diffDays = Math.floor(diffMs / 86400000);
+
+    if (diffMins < 1) return "Just now";
+    if (diffMins < 60) return `${diffMins} min ago`;
+    if (diffHours < 24) {
+      const hours = date.getHours();
+      const mins = date.getMinutes();
+      const ampm = hours >= 12 ? "PM" : "AM";
+      const hour12 = hours % 12 || 12;
+      return `Today, ${hour12}:${mins.toString().padStart(2, "0")} ${ampm}`;
+    }
+    if (diffDays === 1) {
+      const hours = date.getHours();
+      const mins = date.getMinutes();
+      const ampm = hours >= 12 ? "PM" : "AM";
+      const hour12 = hours % 12 || 12;
+      return `Yesterday, ${hour12}:${mins.toString().padStart(2, "0")} ${ampm}`;
+    }
+    if (diffDays < 7) {
+      const days = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+      const dayName = days[date.getDay()];
+      const hours = date.getHours();
+      const mins = date.getMinutes();
+      const ampm = hours >= 12 ? "PM" : "AM";
+      const hour12 = hours % 12 || 12;
+      return `${dayName}, ${hour12}:${mins.toString().padStart(2, "0")} ${ampm}`;
+    }
+    // Fallback to formatted date
+    return date.toLocaleDateString("en-IN", {
+      day: "numeric",
+      month: "short",
+      hour: "numeric",
+      minute: "2-digit",
+    });
+  } catch (e) {
+    return dateString;
   }
-];
+}
 
 export default function Orders() {
   const [filterStatus, setFilterStatus] = useState("all");
   const [searchQuery, setSearchQuery] = useState("");
+  const [orders, setOrders] = useState<OrderListItem[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  // Load orders from API
+  useEffect(() => {
+    loadOrders();
+  }, [filterStatus, searchQuery]);
+
+  async function loadOrders() {
+    try {
+      setLoading(true);
+      setError(null);
+      
+      const backendStatus = filterStatus === "all" ? undefined : mapStatusToFilter(filterStatus);
+      const data = await fetchOrders(backendStatus, searchQuery || undefined);
+      
+      // Transform backend data to UI format
+      const transformedOrders: OrderListItem[] = data.map((order: any) => ({
+        id: order.id || "",
+        orderNumber: order.orderNumber || "",
+        retailer: order.retailer || "Unknown",
+        location: order.location || "",
+        amount: order.amount || 0,
+        date: formatDate(order.date || ""),
+        status: mapStatusToUI(order.status || "PLACED"),
+        items: order.items || 0,
+        exposure: order.exposure || "NORMAL",
+      }));
+      
+      setOrders(transformedOrders);
+    } catch (e: any) {
+      console.error("Failed to load orders:", e);
+      setError(e?.response?.data?.message || e?.message || "Failed to load orders");
+      setOrders([]);
+    } finally {
+      setLoading(false);
+    }
+  }
 
   const getStatusColor = (status: string) => {
     switch (status) {
@@ -89,7 +158,8 @@ export default function Orders() {
       case "Packed": return "bg-purple-100 text-purple-700 border-purple-200";
       case "Out for Delivery": return "bg-indigo-100 text-indigo-700 border-indigo-200";
       case "Delivered": return "bg-green-100 text-green-700 border-green-200";
-      case "Returned": return "bg-red-100 text-red-700 border-red-200";
+      case "Cancelled": return "bg-red-100 text-red-700 border-red-200";
+      case "Rejected": return "bg-red-100 text-red-700 border-red-200";
       default: return "bg-gray-100 text-gray-700 border-gray-200";
     }
   };
@@ -105,9 +175,12 @@ export default function Orders() {
     }
   };
 
-  const filteredOrders = mockOrders.filter(order => {
-    if (filterStatus !== "all" && order.status !== filterStatus) return false;
-    if (searchQuery && !order.retailer.toLowerCase().includes(searchQuery.toLowerCase()) && !order.id.toLowerCase().includes(searchQuery.toLowerCase())) return false;
+  const filteredOrders = orders.filter(order => {
+    if (
+      searchQuery &&
+      !order.retailer.toLowerCase().includes(searchQuery.toLowerCase()) &&
+      !(order.orderNumber || "").toLowerCase().includes(searchQuery.toLowerCase())
+    ) return false;
     return true;
   });
 
@@ -135,7 +208,7 @@ export default function Orders() {
         <div className="relative flex-1 w-full">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
           <Input 
-            placeholder="Search by retailer or Order ID..." 
+            placeholder="Search by retailer or Order Number..." 
             className="pl-10 bg-gray-50 border-gray-200 w-full"
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
@@ -151,7 +224,10 @@ export default function Orders() {
               <SelectItem value="Pending">Pending</SelectItem>
               <SelectItem value="Approved">Approved</SelectItem>
               <SelectItem value="Packed">Packed</SelectItem>
+              <SelectItem value="Out for Delivery">Out for Delivery</SelectItem>
               <SelectItem value="Delivered">Delivered</SelectItem>
+              <SelectItem value="Cancelled">Cancelled</SelectItem>
+              <SelectItem value="Rejected">Rejected</SelectItem>
             </SelectContent>
           </Select>
           
@@ -181,20 +257,35 @@ export default function Orders() {
 
       {/* Orders List */}
       <div className="space-y-3">
-        {filteredOrders.length > 0 ? (
+        {loading ? (
+          <div className="flex flex-col items-center justify-center py-12 bg-white rounded-xl border border-gray-200">
+            <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary mb-4"></div>
+            <p className="text-gray-500">Loading orders...</p>
+          </div>
+        ) : error ? (
+          <div className="flex flex-col items-center justify-center py-12 bg-white rounded-xl border border-gray-200 border-dashed">
+            <AlertTriangle className="h-12 w-12 text-red-500 mb-4" />
+            <h3 className="text-lg font-semibold text-gray-900">Error loading orders</h3>
+            <p className="text-gray-500 text-sm mt-1">{error}</p>
+            <Button variant="outline" className="mt-4" onClick={loadOrders}>
+              Retry
+            </Button>
+          </div>
+        ) : filteredOrders.length > 0 ? (
           filteredOrders.map((order) => {
             const StatusIcon = getStatusIcon(order.status);
+            const displayOrderNumber = order.orderNumber || "—";
             return (
               <Link key={order.id} href={`/orders/${order.id}`}>
                 <Card className="hover:shadow-md transition-all duration-200 hover:border-primary/30 cursor-pointer group border-gray-200 bg-white">
                   <CardContent className="p-4 sm:p-5 flex flex-col sm:flex-row sm:items-center gap-4">
                     <div className="flex items-center gap-4 min-w-[140px]">
                       <div className="h-10 w-10 rounded-full bg-gray-100 flex items-center justify-center text-gray-500 font-semibold text-xs group-hover:bg-primary/10 group-hover:text-primary transition-colors">
-                        {order.id.slice(-4)}
+                        {displayOrderNumber.slice(-4)}
                       </div>
                       <div>
-                        <p className="font-bold text-gray-900">{order.id}</p>
-                        <p className="text-xs text-gray-500">{order.date}</p>
+                        <p className="font-bold text-gray-900">{displayOrderNumber}</p>
+                        <p className="text-xs text-gray-500">{order.date || ""}</p>
                       </div>
                     </div>
 
@@ -206,14 +297,14 @@ export default function Orders() {
                         </p>
                       </div>
                       <div>
-                        <p className="font-bold text-gray-900">{order.amount}</p>
-                        <p className="text-xs text-gray-500">{order.items} Items</p>
+                        <p className="font-bold text-gray-900">{formatAmount(order.amount || 0)}</p>
+                        <p className="text-xs text-gray-500">{order.items || 0} Items</p>
                       </div>
                     </div>
 
                     <div className="flex items-center gap-4 justify-between sm:justify-end w-full sm:w-auto mt-2 sm:mt-0">
                       <div className="flex items-center gap-2">
-                        {order.exposure === "Critical" && (
+                        {(order.exposure === "CRITICAL" || order.exposure === "Critical") && (
                           <div className="flex items-center gap-1 text-xs font-medium text-red-600 bg-red-50 px-2 py-1 rounded-full border border-red-100">
                             <AlertTriangle className="h-3 w-3" />
                             Credit Risk

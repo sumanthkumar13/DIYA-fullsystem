@@ -1,8 +1,10 @@
 package com.diya.backend.controller;
 
+import com.diya.backend.dto.WholesalerSettingsDTO;
 import com.diya.backend.dto.connection.VisibilityModeUpdateDTO;
 import com.diya.backend.entity.Wholesaler;
 import com.diya.backend.repository.WholesalerRepository;
+import com.diya.backend.service.WholesalerSettingsService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.Authentication;
@@ -17,9 +19,9 @@ import java.util.Map;
 public class WholesalerSettingsController {
 
     private final WholesalerRepository wholesalerRepository;
+    private final WholesalerSettingsService wholesalerSettingsService;
 
     private Wholesaler resolveWholesaler(String identifier) {
-        // your system supports both phone and email
         if (identifier.contains("@")) {
             return wholesalerRepository.findByUserEmail(identifier)
                     .orElseThrow(() -> new RuntimeException("Wholesaler not found"));
@@ -27,6 +29,20 @@ public class WholesalerSettingsController {
             return wholesalerRepository.findByUserPhone(identifier)
                     .orElseThrow(() -> new RuntimeException("Wholesaler not found"));
         }
+    }
+
+    @GetMapping
+    public ResponseEntity<WholesalerSettingsDTO> getSettings() {
+        Authentication auth = SecurityContextHolder.getContext().getAuthentication();
+        WholesalerSettingsDTO dto = wholesalerSettingsService.getSettings(auth.getName());
+        return ResponseEntity.ok(dto);
+    }
+
+    @PutMapping
+    public ResponseEntity<WholesalerSettingsDTO> updateSettings(@RequestBody WholesalerSettingsDTO dto) {
+        Authentication auth = SecurityContextHolder.getContext().getAuthentication();
+        WholesalerSettingsDTO updated = wholesalerSettingsService.updateSettings(auth.getName(), dto);
+        return ResponseEntity.ok(updated);
     }
 
     @GetMapping("/visibility")

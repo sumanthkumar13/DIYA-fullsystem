@@ -149,10 +149,12 @@ public class AuthService {
         wholesalerRepository.save(wholesaler);
 
         // Create token
+        System.out.println("[AUTHSERVICE] Generating token for registerWholesaler - phone: " + user.getPhone());
         String token = jwtUtil.generateToken(
                 user.getPhone(),
                 "PHONE",
                 user.getRole().name());
+        System.out.println("[AUTHSERVICE] Token generated successfully");
 
         return AuthResponse.builder()
                 .token(token)
@@ -211,10 +213,13 @@ public class AuthService {
                 : "PHONE";
 
         // Generate token
+        String identifier = authType.equals("PHONE") ? req.getPhone() : req.getEmail();
+        System.out.println("[AUTHSERVICE] Generating token for registerRetailer - identifier: " + identifier + ", authType: " + authType);
         String token = jwtUtil.generateToken(
-                authType.equals("PHONE") ? req.getPhone() : req.getEmail(),
+                identifier,
                 authType,
                 "RETAILER");
+        System.out.println("[AUTHSERVICE] Token generated successfully");
 
         return AuthResponse.builder()
                 .token(token)
@@ -251,10 +256,12 @@ public class AuthService {
 
         String authType = identifier.contains("@") ? "EMAIL" : "PHONE";
 
+        System.out.println("[AUTHSERVICE] Generating token for login - identifier: " + identifier + ", authType: " + authType + ", role: " + user.getRole().name());
         String token = jwtUtil.generateToken(
                 identifier,
                 authType,
                 user.getRole().name());
+        System.out.println("[AUTHSERVICE] Token generated successfully");
 
         return AuthResponse.builder()
                 .token(token)

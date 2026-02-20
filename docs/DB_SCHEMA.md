@@ -285,10 +285,10 @@ Order entity with lifecycle tracking.
 | `orderNumber` | String | Not null, Unique | Auto-generated order number |
 | `status` | Enum | Not null, Default: PLACED | Order status |
 | `paymentStatus` | Enum | Not null, Default: UNPAID | Payment status |
-| `subtotal` | Double | - | Subtotal amount |
-| `taxAmount` | Double | - | Tax amount |
-| `deliveryCharge` | Double | - | Delivery charge |
-| `totalAmount` | Double | - | Total amount |
+| `subtotal` | BigDecimal | precision 19, scale 2, not null | Subtotal amount |
+| `taxAmount` | BigDecimal | precision 19, scale 2, not null | Tax amount |
+| `deliveryCharge` | BigDecimal | precision 19, scale 2, not null | Delivery charge |
+| `totalAmount` | BigDecimal | precision 19, scale 2, not null | Total amount |
 | `placedAt` | LocalDateTime | Default: now() | Order placed timestamp |
 | `acceptedAt` | LocalDateTime | - | Accepted timestamp |
 | `dispatchedAt` | LocalDateTime | - | Dispatched timestamp |
@@ -347,7 +347,7 @@ Payment records with verification workflow.
 | `order_id` | UUID | FK | References `orders.id` (optional) |
 | `wholesaler_id` | UUID | FK, Not null | References `wholesaler_profiles.id` |
 | `retailer_id` | UUID | FK, Not null | References `retailer_profiles.id` |
-| `amount` | Double | Not null | Payment amount |
+| `amount` | BigDecimal | precision 19, scale 2, not null | Payment amount |
 | `mode` | Enum | Not null | Payment mode |
 | `status` | Enum | Not null, Default: PENDING_VERIFICATION | Payment status |
 | `reference` | String | - | UTR/txn ID/UPI reference |
@@ -381,7 +381,7 @@ Ledger entries for tracking outstanding balances (Khatabook-style).
 | `retailer_id` | UUID | FK, Not null | References `retailer_profiles.id` |
 | `related_order_id` | UUID | FK | References `orders.id` (optional) |
 | `entryType` | Enum | Not null | DEBIT or CREDIT |
-| `amount` | Double | Not null | Entry amount |
+| `amount` | BigDecimal | precision 19, scale 2, not null | Entry amount |
 | `description` | String(500) | - | Entry description |
 | `entryDate` | LocalDateTime | Default: now() | Entry timestamp |
 

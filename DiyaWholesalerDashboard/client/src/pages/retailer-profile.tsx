@@ -1,30 +1,78 @@
 import { useState } from "react";
 import { useRoute, Link } from "wouter";
-import { 
-  ArrowLeft, 
-  Phone, 
-  MessageCircle, 
-  MapPin, 
-  MoreHorizontal, 
-  TrendingUp, 
-  Clock,
-  CheckCircle2,
+import { useQuery } from "@tanstack/react-query";
+import {
+  ArrowLeft,
+  Phone,
+  MessageCircle,
+  MapPin,
+  TrendingUp,
   AlertTriangle,
   FileText,
-  CreditCard,
-  History,
-  Package
+  Package,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Separator } from "@/components/ui/separator";
+import { fetchRetailerCreditSummary } from "@/services/retailerCredit";
+import { fetchOrders, OrderListItem } from "@/services/order";
+import { fetchRetailerStatement } from "@/services/khatabook";
+import { AddPaymentModal } from "@/components/payments/AddPaymentModal";
+import { cn } from "@/lib/utils";
+
+function formatAmount(n: number) {
+  return "₹" + Number(n).toLocaleString("en-IN");
+}
+
+function formatDate(dateStr: string) {
+  try {
+    return new Date(dateStr).toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" });
+  } catch {
+    return dateStr;
+  }
+}
+
+function mapStatusToUI(status: string): string {
+  const m: Record<string, string> = {
+    PLACED: "Pending", ACCEPTED: "Approved", PACKING: "Packed",
+    DISPATCHED: "Out for Delivery", DELIVERED: "Delivered",
+    COMPLETED: "Delivered", CANCELLED: "Cancelled", REJECTED: "Rejected",
+  };
+  return m[status] || status;
+}
 
 export default function RetailerProfile() {
   const [match, params] = useRoute("/retailers/:id");
-  
+  const retailerId = params?.id ?? "";
+  const [addPaymentOpen, setAddPaymentOpen] = useState(false);
+
+  const { data, isLoading } = useQuery({
+    queryKey: ["retailer-credit", retailerId],
+    queryFn: () => fetchRetailerCreditSummary(retailerId),
+    enabled: !!retailerId,
+  });
+
+  const { data: ordersData } = useQuery({
+    queryKey: ["orders"],
+    queryFn: () => fetchOrders(),
+    enabled: !!retailerId && !!data?.retailerName,
+  });
+  const orders = (ordersData || []).filter(
+    (o: OrderListItem) => (o as any).retailerId === retailerId || o.retailer === data?.retailerName
+  );
+
+  const { data: statement, isLoading: statementLoading } = useQuery({
+    queryKey: ["retailer-statement", retailerId],
+    queryFn: () => fetchRetailerStatement(retailerId),
+    enabled: !!retailerId,
+  });
+
+  const retailerName = data?.retailerName ?? "Retailer";
+  const initials = retailerName.slice(0, 2).toUpperCase();
+
   return (
     <div className="space-y-6">
       {/* Back Link */}
@@ -33,7 +81,7 @@ export default function RetailerProfile() {
           <ArrowLeft className="h-4 w-4" /> Back to Retailers
         </Link>
         <span>/</span>
-        <span className="text-gray-900 font-medium">Lakshmi Stores</span>
+        <span className="text-gray-900 font-medium">{retailerName}</span>
       </div>
 
       {/* Profile Header */}
@@ -46,11 +94,11 @@ export default function RetailerProfile() {
         <CardContent className="relative px-6 pb-6">
           <div className="flex flex-col md:flex-row md:items-end gap-6 -mt-12">
             <Avatar className="h-24 w-24 border-4 border-white shadow-md rounded-xl">
-              <AvatarFallback className="bg-gray-800 text-white text-2xl font-bold rounded-xl">LS</AvatarFallback>
+              <AvatarFallback className="bg-gray-800 text-white text-2xl font-bold rounded-xl">{initials}</AvatarFallback>
             </Avatar>
             
             <div className="flex-1 min-w-0 pb-2">
-              <h1 className="text-2xl font-bold text-gray-900">Lakshmi Stores</h1>
+              <h1 className="text-2xl font-bold text-gray-900">{retailerName}</h1>
               <div className="flex flex-wrap items-center gap-4 text-sm text-gray-500 mt-1">
                 <span className="flex items-center gap-1 text-gray-900 font-medium"><MapPin className="h-4 w-4 text-gray-400" /> Hanamkonda, Warangal</span>
                 <span className="hidden md:inline text-gray-300">|</span>
@@ -81,27 +129,31 @@ export default function RetailerProfile() {
               <CardContent className="space-y-4">
                  <div className="p-4 bg-red-50 rounded-xl border border-red-100 text-center">
                     <p className="text-xs text-red-600 font-medium uppercase tracking-wide">Total Outstanding</p>
-                    <p className="text-3xl font-display font-bold text-red-700 mt-1">₹8,200</p>
+                    <p className="text-3xl font-display font-bold text-red-700 mt-1">
+                      {isLoading ? "Loading..." : data == null ? "--" : formatAmount(Number(data?.totalOutstanding ?? 0))}
+                    </p>
                     <p className="text-xs text-red-500 mt-2 font-medium flex items-center justify-center gap-1">
-                        <AlertTriangle className="h-3 w-3" /> Overdue by 7 days
+                        {isLoading ? "..." : data == null ? "--" : (Number(data?.overdueDays ?? 0) === 0 ? "On Time" : (
+                          <><AlertTriangle className="h-3 w-3" /> {data?.overdueDays} days overdue</>
+                        ))}
                     </p>
                  </div>
 
                  <div className="space-y-3">
                     <div className="flex justify-between text-sm">
                        <span className="text-gray-500">Credit Limit</span>
-                       <span className="font-medium">₹1,50,000</span>
+                       <span className="font-medium">{isLoading ? "..." : data == null ? "--" : formatAmount(Number(data?.creditLimit ?? 0))}</span>
                     </div>
                     <div className="flex justify-between text-sm">
                        <span className="text-gray-500">Available Credit</span>
-                       <span className="font-medium text-green-600">₹1,41,800</span>
+                       <span className="font-medium text-green-600">{isLoading ? "..." : data == null ? "--" : formatAmount(Number(data?.availableCredit ?? 0))}</span>
                     </div>
                     <div className="h-2 bg-gray-100 rounded-full overflow-hidden">
-                       <div className="h-full bg-green-500 w-[5%] rounded-full" />
+                       <div className="h-full bg-green-500 rounded-full" style={{ width: data && Number(data.creditLimit) > 0 ? `${Math.max(0, Math.min(100, 100 * Number(data.availableCredit) / Number(data.creditLimit)))}%` : "0%" }} />
                     </div>
                  </div>
                  
-                 <Button className="w-full bg-primary hover:bg-primary/90 text-white shadow-sm">Record Payment</Button>
+                 <Button onClick={() => setAddPaymentOpen(true)} className="w-full bg-primary hover:bg-primary/90 text-white shadow-sm">Record Payment</Button>
               </CardContent>
            </Card>
 
@@ -144,36 +196,77 @@ export default function RetailerProfile() {
               </TabsList>
               
               <TabsContent value="orders" className="space-y-4 mt-0">
-                 {/* Order History List */}
-                 {[1, 2, 3].map((i) => (
-                    <Card key={i} className="bg-white border-gray-200 shadow-sm hover:shadow-md transition-all cursor-pointer">
+                 {orders.length === 0 ? (
+                   <Card className="bg-white border-gray-200 shadow-sm">
+                     <CardContent className="p-8 text-center">
+                       <Package className="h-12 w-12 text-gray-200 mx-auto mb-3" />
+                       <p className="text-gray-500 text-sm">No orders for this retailer.</p>
+                     </CardContent>
+                   </Card>
+                 ) : (
+                 orders.map((order: OrderListItem) => (
+                    <Link key={order.id} href={`/orders/${order.id}`}>
+                    <Card className="bg-white border-gray-200 shadow-sm hover:shadow-md transition-all cursor-pointer">
                        <CardContent className="p-4 flex items-center justify-between">
                           <div className="flex items-center gap-4">
                              <div className="h-10 w-10 rounded-full bg-blue-50 flex items-center justify-center text-blue-600">
                                 <Package className="h-5 w-5" />
                              </div>
                              <div>
-                                <p className="font-bold text-gray-900">Order #DY205{2-i}</p>
-                                <p className="text-xs text-gray-500">2{6-i} Oct 2025 • 12 Items</p>
+                                <p className="font-bold text-gray-900">{order.orderNumber ? `Order #${order.orderNumber}` : `Order #${order.id}`}</p>
+                                <p className="text-xs text-gray-500">{order.date ? formatDate(order.date) : ""} • {order.items ?? 0} Items</p>
                              </div>
                           </div>
                           <div className="text-right">
-                             <p className="font-bold text-gray-900">₹12,400</p>
-                             <Badge variant="secondary" className="bg-green-50 text-green-700 text-[10px]">Delivered</Badge>
+                             <p className="font-bold text-gray-900">{formatAmount(order.amount ?? 0)}</p>
+                             <Badge variant="secondary" className="bg-green-50 text-green-700 text-[10px]">{mapStatusToUI(order.status)}</Badge>
                           </div>
                        </CardContent>
                     </Card>
-                 ))}
+                    </Link>
+                 )))}
               </TabsContent>
               
               <TabsContent value="ledger" className="mt-0">
-                 <Card className="bg-white border-gray-200 shadow-sm">
-                    <CardContent className="p-8 text-center">
+                 {statementLoading ? (
+                   <Card className="bg-white border-gray-200 shadow-sm">
+                     <CardContent className="p-8 text-center">
+                       <p className="text-gray-500 text-sm">Loading statement...</p>
+                     </CardContent>
+                   </Card>
+                 ) : !statement?.ledger?.length ? (
+                   <Card className="bg-white border-gray-200 shadow-sm">
+                     <CardContent className="p-8 text-center">
                        <FileText className="h-12 w-12 text-gray-200 mx-auto mb-3" />
                        <h3 className="text-lg font-medium text-gray-900">Ledger View</h3>
-                       <p className="text-gray-500 text-sm">Detailed transaction history will be shown here.</p>
-                    </CardContent>
-                 </Card>
+                       <p className="text-gray-500 text-sm">No transactions yet with this retailer.</p>
+                     </CardContent>
+                   </Card>
+                 ) : (
+                   <div className="space-y-3">
+                     {statement.ledger.map((line: any, index: number) => {
+                       const isDebit = (line.type || "").toUpperCase() === "DEBIT";
+                       const label = isDebit ? "Goods Given" : "Payment Received";
+                       return (
+                         <Card key={index} className="bg-white border-gray-200 shadow-sm">
+                           <CardContent className="p-4 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+                             <div className="flex-1 min-w-0">
+                               <p className="text-sm font-medium text-gray-500">{label}</p>
+                               <p className="text-sm text-gray-900 mt-0.5">{line.description || (isDebit ? "Goods supplied" : "Payment received")}</p>
+                               <p className="text-xs text-gray-400 mt-1">{formatDate(line.date)}</p>
+                             </div>
+                             <div className="text-left sm:text-right shrink-0">
+                               <p className={cn("text-lg font-bold", isDebit ? "text-red-600" : "text-green-600")}>
+                                 {isDebit ? "+" : "−"} {formatAmount(Number(line.amount ?? 0))}
+                               </p>
+                               <p className="text-xs text-gray-500 mt-1">Balance after this: {formatAmount(Number(line.runningBalance ?? 0))}</p>
+                             </div>
+                           </CardContent>
+                         </Card>
+                       );
+                     })}
+                   </div>
+                 )}
               </TabsContent>
 
               <TabsContent value="insights" className="mt-0">
@@ -188,6 +281,8 @@ export default function RetailerProfile() {
            </Tabs>
         </div>
       </div>
+
+      <AddPaymentModal open={addPaymentOpen} onClose={() => setAddPaymentOpen(false)} initialRetailerId={retailerId || undefined} />
     </div>
   );
 }

@@ -50,9 +50,11 @@ Current implementation status of core modules and features.
 - [x] **DONE** - Order lifecycle (PLACED → ACCEPTED → PACKING → DISPATCHED → DELIVERED → COMPLETED)
 - [x] **DONE** - Order cancellation (retailer - PLACED only)
 - [x] **DONE** - Order status updates by wholesaler
+- [x] **DONE** - Wholesaler order accept with optional payload (paymentMode, creditDays)
+- [x] **DONE** - Wholesaler order edit (items/quantities)
 - [x] **DONE** - Price snapshots in order items
 - [x] **DONE** - Order list with filters
-- [x] **DONE** - Order detail view
+- [x] **DONE** - Order detail view (retailer app + dashboard)
 - [ ] **TODO** - Order history archive
 - [ ] **TODO** - Order tracking (real-time updates)
 - [ ] **TODO** - Order notifications (push/email)
@@ -60,15 +62,17 @@ Current implementation status of core modules and features.
 
 ## Payments + Ledger
 
-- [x] **DONE** - Payment recording by retailer
+- [x] **DONE** - Payment recording by retailer (backend API; Flutter UI is mock only)
 - [x] **DONE** - Payment modes (UPI, CASH, NEFT, NET_BANKING, RTGS)
-- [x] **DONE** - Payment verification workflow
-- [x] **DONE** - Payment confirmation/rejection by wholesaler
+- [x] **DONE** - Payment verification workflow (backend)
+- [x] **DONE** - Payment confirmation/rejection by wholesaler (backend API; dashboard not wired)
 - [x] **DONE** - Ledger entry system (DEBIT/CREDIT)
 - [x] **DONE** - Outstanding balance calculation
-- [x] **DONE** - Retailer statement view (Khatabook)
+- [x] **DONE** - Retailer statement view (backend API; dashboard Khatabook page uses mock data)
 - [x] **DONE** - Payment status tracking
 - [x] **DONE** - Order-payment linkage
+- [ ] **TODO** - Flutter: wire Payments screen to POST /api/retailer/payments
+- [ ] **TODO** - Dashboard: wire Khatabook to ledger API; wire payments pending/confirm/reject
 - [ ] **TODO** - Payment gateway integration (Razorpay, Stripe)
 - [ ] **TODO** - Automated payment reminders
 - [ ] **TODO** - Payment reconciliation
@@ -76,12 +80,13 @@ Current implementation status of core modules and features.
 
 ## Analytics
 
-- [x] **DONE** - Dashboard KPI metrics
-- [x] **DONE** - Territory statistics
-- [x] **DONE** - Activity feed
-- [x] **DONE** - Monthly sales trends
-- [x] **DONE** - Wholesaler summary analytics
-- [x] **DONE** - Retailer summary analytics
+- [x] **DONE** - Dashboard KPI metrics (dashboard uses API)
+- [x] **DONE** - Territory statistics (dashboard uses API)
+- [x] **DONE** - Activity feed (dashboard uses API)
+- [x] **DONE** - Monthly sales trends (backend API)
+- [x] **DONE** - Wholesaler summary analytics (backend API; dashboard Analytics page uses mock charts)
+- [x] **DONE** - Retailer summary analytics (backend API)
+- [ ] **TODO** - Dashboard: wire Analytics page to /api/analytics/wholesaler/* endpoints
 - [ ] **TODO** - Advanced sales reports
 - [ ] **TODO** - Product performance analytics
 - [ ] **TODO** - Retailer behavior analytics
@@ -147,7 +152,17 @@ Current implementation status of core modules and features.
 - [ ] **TODO** - CORS configuration review
 - [ ] **TODO** - Security audit
 
+## Frontend implementation summary (as of codebase review)
+
+**Flutter (retailer app)**  
+- **API-wired:** Auth, Connect, Home/Dashboard, Orders list & detail, New Order (products, cart, checkout), Connected Wholesalers (`/wholesalers`).  
+- **Mock / UI only:** Payments screen (no `payment_service.dart`, no POST to `/api/retailer/payments`).
+
+**Wholesaler Dashboard**  
+- **API-wired:** Login, Signup, Dashboard (KPI, territory, activity), Orders list & detail (accept/reject/status/edit), Connection requests, Categories, Category detail & subcategories, Add product, Settings (visibility).  
+- **Mock data:** Retailers list (`retailers.tsx`), Retailer profile (`retailer-profile.tsx`), Khatabook (`khatabook.tsx`), Analytics (`analytics.tsx`). Ledger and payment confirm/reject APIs are not called from the dashboard.
+
 ---
 
-**Last Updated**: 2026-01-16  
+**Last Updated**: 2026-02-10  
 **Next Review**: Weekly status updates

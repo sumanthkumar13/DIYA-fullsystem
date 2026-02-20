@@ -12,6 +12,7 @@ import 'screens/orders/orders_screen.dart';
 import 'screens/payments/payments_screen.dart';
 import 'screens/account/account_screen.dart';
 import 'screens/new_order/new_order_screen.dart';
+import 'screens/wholesalers/connected_wholesalers_screen.dart';
 import 'widgets/layout/retailer_shell.dart';
 
 void main() {
@@ -70,6 +71,11 @@ class DiyaApp extends StatelessWidget {
       child: const AccountScreen(),
     ),
 
+        '/wholesalers': (_) => RetailerShell(
+              current: NavTab.home,
+              title: null,
+              child: const ConnectedWholesalersScreen(),
+            ),
 
         // placeholder route (FAB)
         '/new-order': (_) => const NewOrderScreen(),

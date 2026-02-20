@@ -1,8 +1,11 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import '../../widgets/wholesaler_picker_sheet.dart';
+
 
 enum NavTab { home, orders, payments, account }
 
-class RetailerShell extends StatelessWidget {
+class RetailerShell extends ConsumerWidget {
   final Widget child;
   final String? title;
   final bool hideNav;
@@ -19,7 +22,7 @@ class RetailerShell extends StatelessWidget {
   Color get _primary => const Color(0xFFFF7A00);
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
     return Scaffold(
       backgroundColor: const Color(0xFFF5F5F5),
       body: SafeArea(
@@ -102,7 +105,7 @@ class RetailerShell extends StatelessWidget {
                       bottom: 42,
                       child: Center(
                         child: GestureDetector(
-                          onTap: () => Navigator.pushNamed(context, '/new-order'),
+                          onTap: () => openWholesalerPickerAndProceed(context, ref),
                           child: Container(
                             width: 56,
                             height: 56,

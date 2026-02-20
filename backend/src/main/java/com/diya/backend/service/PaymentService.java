@@ -6,6 +6,7 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.UUID;
@@ -24,11 +25,13 @@ public class PaymentService {
     // 1) Retailer records payment (UPI/CASH/NEFT/NETBANKING)
     // Creates payment as PENDING_VERIFICATION
     // ==========================================================
+    private static final BigDecimal TOLERANCE = new BigDecimal("0.01");
+
     @Transactional
     public Payment recordPayment(
             String retailerIdentifier,
             UUID orderId,
-            Double amount,
+            BigDecimal amount,
             String mode,
             String reference,
             String note) {
@@ -46,18 +49,19 @@ public class PaymentService {
             throw new RuntimeException("Access denied: Order not linked to this retailer");
         }
 
-        if (amount == null || amount <= 0) {
+        if (amount == null || amount.compareTo(BigDecimal.ZERO) <= 0) {
             throw new RuntimeException("Invalid payment amount");
         }
 
         // do not accept payment greater than pending due (optional strict rule)
-        double alreadyConfirmed = paymentRepository.findByOrder(order).stream()
+        BigDecimal alreadyConfirmed = paymentRepository.findByOrder(order).stream()
                 .filter(p -> p.getStatus() == Payment.PaymentStatus.CONFIRMED)
-                .mapToDouble(Payment::getAmount)
-                .sum();
+                .map(Payment::getAmount)
+                .reduce(BigDecimal.ZERO, BigDecimal::add);
 
-        double due = (order.getTotalAmount() == null ? 0.0 : order.getTotalAmount()) - alreadyConfirmed;
-        if (amount > due + 0.01) {
+        BigDecimal orderTotal = order.getTotalAmount() == null ? BigDecimal.ZERO : order.getTotalAmount();
+        BigDecimal due = orderTotal.subtract(alreadyConfirmed);
+        if (amount.compareTo(due.add(TOLERANCE)) > 0) {
             throw new RuntimeException("Payment amount exceeds due amount");
         }
 
@@ -171,19 +175,21 @@ public class PaymentService {
     // ==========================================================
     // Internal helper: update order payment status based on CONFIRMED payments only
     // ==========================================================
+    private static final BigDecimal PAYMENT_TOLERANCE = new BigDecimal("0.01");
+
     private void updateOrderPaymentStatus(Order order) {
         List<Payment> allPayments = paymentRepository.findByOrder(order);
 
-        double totalConfirmedPaid = allPayments.stream()
+        BigDecimal totalConfirmedPaid = allPayments.stream()
                 .filter(p -> p.getStatus() == Payment.PaymentStatus.CONFIRMED)
-                .mapToDouble(Payment::getAmount)
-                .sum();
+                .map(Payment::getAmount)
+                .reduce(BigDecimal.ZERO, BigDecimal::add);
 
-        double totalOrderAmount = order.getTotalAmount() == null ? 0.0 : order.getTotalAmount();
+        BigDecimal totalOrderAmount = order.getTotalAmount() == null ? BigDecimal.ZERO : order.getTotalAmount();
 
-        if (totalConfirmedPaid <= 0) {
+        if (totalConfirmedPaid.compareTo(BigDecimal.ZERO) <= 0) {
             order.setPaymentStatus(Order.PaymentStatus.UNPAID);
-        } else if (totalConfirmedPaid + 0.01 < totalOrderAmount) {
+        } else if (totalConfirmedPaid.add(PAYMENT_TOLERANCE).compareTo(totalOrderAmount) < 0) {
             order.setPaymentStatus(Order.PaymentStatus.PARTIAL);
         } else {
             order.setPaymentStatus(Order.PaymentStatus.PAID);

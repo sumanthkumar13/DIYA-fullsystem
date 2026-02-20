@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../providers/auth_provider.dart';
 import '../../widgets/ui/diya_card.dart';
 import '../../widgets/ui/stat_card.dart';
+import '../../widgets/wholesaler_picker_sheet.dart';
 
 class RetailerDashboard extends ConsumerWidget {
   const RetailerDashboard({super.key});
@@ -181,7 +182,7 @@ class RetailerDashboard extends ConsumerWidget {
                       SizedBox(
                         width: 160,
                         child: DiyaCard(
-                          onTap: () => Navigator.pushNamed(context, '/new-order'),
+                          onTap: () => openWholesalerPickerAndProceed(context, ref),
                           child: Column(
                             mainAxisAlignment: MainAxisAlignment.center,
                             children: [
@@ -256,6 +257,32 @@ class RetailerDashboard extends ConsumerWidget {
                               SizedBox(height: 10),
                               Text(
                                 "Search Wholesalers",
+                                style: TextStyle(
+                                  fontSize: 14,
+                                  fontWeight: FontWeight.w700,
+                                  color: Color(0xFF404040),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      SizedBox(
+                        width: 160,
+                        child: DiyaCard(
+                          onTap: () => Navigator.pushNamed(context, '/wholesalers'),
+                          child: Column(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: const [
+                              _RoundIcon(
+                                bg: Color(0xFFE0F2FE),
+                                fg: Color(0xFF0284C7),
+                                icon: Icons.store,
+                              ),
+                              SizedBox(height: 10),
+                              Text(
+                                "My Wholesalers",
                                 style: TextStyle(
                                   fontSize: 14,
                                   fontWeight: FontWeight.w700,

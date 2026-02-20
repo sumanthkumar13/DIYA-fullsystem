@@ -2,6 +2,7 @@ package com.diya.backend.entity;
 
 import jakarta.persistence.*;
 import lombok.*;
+import java.math.BigDecimal;
 import java.util.*;
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.fasterxml.jackson.annotation.JsonIdentityInfo;
@@ -60,4 +61,28 @@ public class Product {
 
         @Builder.Default
         private boolean visibleToRetailer = true;
+
+        /*
+         * ---------------------------------------------------
+         * TAX & BILLING (GST-billable accounting)
+         * All nullable for backward compatibility with existing products.
+         * ---------------------------------------------------
+         */
+        @Column(length = 8)
+        private String hsnCode;
+
+        @Column(precision = 5, scale = 2)
+        private BigDecimal gstRate;
+
+        @Enumerated(EnumType.STRING)
+        private TaxType taxType;
+
+        private String baseUnit;
+        private String sellingUnit;
+        private Integer unitsPerSelling;
+
+        private Boolean priceIncludesTax;
+
+        @Builder.Default
+        private Boolean tallyItemSynced = false;
 }

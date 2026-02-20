@@ -2,17 +2,20 @@ class OrderCheckoutRequest {
   final String wholesalerId;
   final String? paymentMethod;
   final String? paymentReference;
+  final List<String>? selectedProductIds;
 
   OrderCheckoutRequest({
     required this.wholesalerId,
     this.paymentMethod,
     this.paymentReference,
+    this.selectedProductIds,
   });
 
   Map<String, dynamic> toJson() => {
         "wholesalerId": wholesalerId,
         "paymentMethod": paymentMethod,
         "paymentReference": paymentReference,
+        if (selectedProductIds != null) "selectedProductIds": selectedProductIds,
       };
 }
 

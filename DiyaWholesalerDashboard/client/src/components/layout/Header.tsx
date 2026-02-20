@@ -12,10 +12,23 @@ import {
 import avatarImage from "@assets/generated_images/professional_business_avatar_for_a_wholesaler.png";
 import { Button } from "@/components/ui/button";
 
-export function Header() {
+interface HeaderProps {
+  isSidebarCollapsed: boolean;
+  onToggleSidebar: () => void;
+}
+
+export function Header({ isSidebarCollapsed, onToggleSidebar }: HeaderProps) {
   return (
     <header className="h-16 bg-white border-b border-gray-200 px-6 flex items-center justify-between sticky top-0 z-10 shadow-sm">
       <div className="flex items-center gap-4 flex-1">
+        <Button
+          variant="ghost"
+          size="icon"
+          onClick={onToggleSidebar}
+          aria-label={isSidebarCollapsed ? "Expand sidebar" : "Collapse sidebar"}
+        >
+          <Menu className="h-5 w-5 text-gray-600" />
+        </Button>
         <div className="relative w-full max-w-md hidden md:block">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
           <Input 

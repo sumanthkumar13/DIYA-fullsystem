@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
-import '../../widgets/ui/diya_card.dart';
+import '../../widgets/order_chat_card.dart';
+import '../../services/order_service.dart';
+import 'order_detail_screen.dart';
 
 class OrdersScreen extends StatefulWidget {
   const OrdersScreen({super.key});
@@ -10,14 +12,21 @@ class OrdersScreen extends StatefulWidget {
 
 class _OrdersScreenState extends State<OrdersScreen> {
   String activeTab = "all";
-  bool loading = false;
 
-  // mock orders for UI migration (until backend wired)
-  final List<Map<String, dynamic>> orders = [
-    {"id": 204, "status": "requested", "totalAmount": 4250, "createdAt": DateTime.now()},
-    {"id": 205, "status": "out_for_delivery", "totalAmount": 1200, "createdAt": DateTime.now()},
-    {"id": 206, "status": "delivered", "totalAmount": 3200, "createdAt": DateTime.now()},
-  ];
+  late Future<List<_UiOrder>> _ordersFuture;
+
+  @override
+  void initState() {
+    super.initState();
+    _ordersFuture = _loadOrders();
+  }
+
+  Future<void> _refresh() async {
+    setState(() {
+      _ordersFuture = _loadOrders();
+    });
+    await _ordersFuture;
+  }
 
   Color _badgeBg(String variant) {
     return switch (variant) {
@@ -63,16 +72,78 @@ class _OrdersScreenState extends State<OrdersScreen> {
     }
   }
 
-  List<Map<String, dynamic>> get filteredOrders {
+  List<_UiOrder> _filterByTab(List<_UiOrder> orders) {
     if (activeTab == "all") return orders;
 
     if (activeTab == "requested") {
-      return orders.where((o) => (o["status"] ?? "") == "requested").toList();
+      return orders.where((o) => o.status.toUpperCase() == "PLACED").toList();
     }
     if (activeTab == "delivered") {
-      return orders.where((o) => (o["status"] ?? "") == "delivered").toList();
+      return orders.where((o) {
+        final s = o.status.toUpperCase();
+        return s == "DELIVERED" || s == "COMPLETED";
+      }).toList();
     }
 
+    return orders;
+  }
+
+  Future<List<_UiOrder>> _loadOrders() async {
+    final svc = OrderService();
+    final list = await svc.getRetailerOrders();
+
+    final futures = list.map((li) async {
+      final orderId = (li["id"] ?? "").toString();
+      final status = (li["status"] ?? "PLACED").toString();
+      final amount = (li["amount"] as num? ?? 0).toDouble();
+      final itemsCount = (li["items"] as num? ?? 0).toInt();
+
+      DateTime? placedAt;
+      final dateStr = (li["date"] ?? "").toString();
+      if (dateStr.isNotEmpty) {
+        placedAt = DateTime.tryParse(dateStr);
+      }
+
+      String wholesalerName = "Wholesaler";
+      String orderNumber = "";
+      String paymentStatus = "UNPAID";
+
+      try {
+        final detail = await svc.getRetailerOrderDetail(orderId);
+
+        final wholesaler = detail["wholesaler"] as Map<String, dynamic>?;
+        wholesalerName = (wholesaler?["businessName"] ?? wholesalerName).toString();
+
+        orderNumber = (detail["orderNumber"] ?? "").toString();
+        paymentStatus = (detail["paymentStatus"] ?? paymentStatus).toString();
+
+        final placedAtStr = (detail["placedAt"] ?? "").toString();
+        final parsedPlacedAt = DateTime.tryParse(placedAtStr);
+        if (parsedPlacedAt != null) placedAt = parsedPlacedAt;
+      } catch (_) {
+        orderNumber = orderId;
+      }
+
+      final displayOrderNumber = orderNumber.isEmpty ? orderId : orderNumber;
+
+      return _UiOrder(
+        id: orderId,
+        wholesalerName: wholesalerName,
+        orderNumber: displayOrderNumber,
+        placedAt: placedAt,
+        status: status,
+        amount: amount,
+        itemsCount: itemsCount,
+        paymentStatus: paymentStatus,
+      );
+    }).toList();
+
+    final orders = await Future.wait(futures);
+    orders.sort((a, b) {
+      final ad = a.placedAt ?? DateTime.fromMillisecondsSinceEpoch(0);
+      final bd = b.placedAt ?? DateTime.fromMillisecondsSinceEpoch(0);
+      return bd.compareTo(ad);
+    });
     return orders;
   }
 
@@ -113,145 +184,101 @@ class _OrdersScreenState extends State<OrdersScreen> {
           ),
         ),
 
-        if (loading) ...[
-          ...List.generate(
-            3,
-            (i) => Padding(
-              padding: const EdgeInsets.only(bottom: 12),
-              child: Container(
-                height: 120,
-                decoration: BoxDecoration(
-                  color: const Color(0xFFFFFFFF),
-                  borderRadius: BorderRadius.circular(16),
-                ),
-              ),
-            ),
-          )
-        ] else if (filteredOrders.isEmpty) ...[
-          const SizedBox(height: 60),
-          const _EmptyOrders()
-        ] else ...[
-          ...filteredOrders.map((order) {
-            final id = order["id"];
-            final status = (order["status"] ?? "requested").toString();
-            final createdAt = order["createdAt"] as DateTime?;
-            final total = order["totalAmount"] ?? 1200;
-
-            final variant = _statusVariant(status);
-
-            return Padding(
-              padding: const EdgeInsets.only(bottom: 12),
-              child: DiyaCard(
-                child: Column(
-                  children: [
-                    Row(
-                      children: [
-                        Container(
-                          width: 48,
-                          height: 48,
+        Expanded(
+          child: RefreshIndicator(
+            onRefresh: _refresh,
+            color: const Color(0xFFFF7A00),
+            child: FutureBuilder<List<_UiOrder>>(
+              future: _ordersFuture,
+              builder: (context, snapshot) {
+                if (snapshot.connectionState == ConnectionState.waiting) {
+                  return ListView(
+                    children: List.generate(
+                      3,
+                      (i) => Padding(
+                        padding: const EdgeInsets.only(bottom: 12),
+                        child: Container(
+                          height: 96,
                           decoration: BoxDecoration(
-                            color: const Color(0xFFFF7A00).withOpacity(0.10),
-                            borderRadius: BorderRadius.circular(12),
-                          ),
-                          child: Center(
-                            child: Text(
-                              "#$id",
-                              style: const TextStyle(
-                                fontWeight: FontWeight.w900,
-                                color: Color(0xFFFF7A00),
-                              ),
-                            ),
+                            color: const Color(0xFFFFFFFF),
+                            borderRadius: BorderRadius.circular(16),
                           ),
                         ),
-                        const SizedBox(width: 12),
-                        Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text(
-                                "Order #$id",
-                                style: const TextStyle(
-                                  fontWeight: FontWeight.w900,
-                                  color: Color(0xFF171717),
-                                ),
-                              ),
-                              const SizedBox(height: 4),
-                              Text(
-                                createdAt == null
-                                    ? ""
-                                    : "${createdAt.day}/${createdAt.month}/${createdAt.year}",
-                                style: const TextStyle(
-                                  fontSize: 12,
-                                  color: Color(0xFF737373),
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-
-                        // Status badge
-                        Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-                          decoration: BoxDecoration(
-                            color: _badgeBg(variant),
-                            borderRadius: BorderRadius.circular(999),
-                          ),
-                          child: Row(
-                            children: [
-                              Icon(_statusIcon(status), size: 14, color: _badgeFg(variant)),
-                              const SizedBox(width: 6),
-                              Text(
-                                status.replaceAll("_", " "),
-                                style: TextStyle(
-                                  fontSize: 12,
-                                  fontWeight: FontWeight.w800,
-                                  color: _badgeFg(variant),
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                      ],
+                      ),
                     ),
+                  );
+                }
 
-                    const SizedBox(height: 12),
+                final orders = snapshot.data ?? [];
+                final filtered = _filterByTab(orders);
 
-                    Container(
-                      padding: const EdgeInsets.all(12),
-                      decoration: BoxDecoration(
-                        color: const Color(0xFFFAFAFA),
-                        borderRadius: BorderRadius.circular(10),
-                      ),
-                      child: Row(
-                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                        children: [
-                          const Text(
-                            "Items: 3",
-                            style: TextStyle(
-                              color: Color(0xFF525252),
-                              fontWeight: FontWeight.w600,
+                if (filtered.isEmpty) {
+                  return ListView(
+                    children: const [
+                      SizedBox(height: 60),
+                      _EmptyOrders(),
+                    ],
+                  );
+                }
+
+                return ListView.builder(
+                  itemCount: filtered.length,
+                  itemBuilder: (context, index) {
+                    final o = filtered[index];
+
+                    return Padding(
+                      padding: const EdgeInsets.only(bottom: 12),
+                      child: OrderChatCard(
+                        wholesalerName: o.wholesalerName,
+                        orderNumber: o.orderNumber,
+                        lastActivityAt: o.placedAt,
+                        status: o.status,
+                        amount: o.amount,
+                        itemsCount: o.itemsCount,
+                        paymentStatus: o.paymentStatus,
+                        onTap: () async {
+                          await Navigator.push(
+                            context,
+                            MaterialPageRoute(
+                              builder: (_) => OrderDetailScreen(orderId: o.id),
                             ),
-                          ),
-                          Text(
-                            "₹$total",
-                            style: const TextStyle(
-                              fontSize: 16,
-                              fontWeight: FontWeight.w900,
-                              color: Color(0xFF171717),
-                            ),
-                          ),
-                        ],
+                          );
+                          if (!mounted) return;
+                          await _refresh();
+                        },
                       ),
-                    )
-                  ],
-                ),
-              ),
-            );
-          }),
-        ],
+                    );
+                  },
+                );
+              },
+            ),
+          ),
+        ),
       ],
     );
   }
+}
+
+class _UiOrder {
+  final String id;
+  final String wholesalerName;
+  final String orderNumber;
+  final DateTime? placedAt;
+  final String status;
+  final double amount;
+  final int itemsCount;
+  final String paymentStatus;
+
+  const _UiOrder({
+    required this.id,
+    required this.wholesalerName,
+    required this.orderNumber,
+    required this.placedAt,
+    required this.status,
+    required this.amount,
+    required this.itemsCount,
+    required this.paymentStatus,
+  });
 }
 
 class _TabChip extends StatelessWidget {

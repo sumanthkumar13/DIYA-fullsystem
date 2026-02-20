@@ -1,6 +1,9 @@
 package com.diya.backend.controller;
 
 import com.diya.backend.dto.order.OrderListItemDTO;
+import com.diya.backend.dto.order.WholesalerOrderDetailDTO;
+import com.diya.backend.dto.order.WholesalerOrderAcceptRequest;
+import com.diya.backend.dto.order.WholesalerOrderEditRequest;
 import com.diya.backend.entity.Order;
 import com.diya.backend.service.OrderService;
 import lombok.RequiredArgsConstructor;
@@ -37,15 +40,40 @@ public class WholesalerOrderController {
         return ResponseEntity.ok(list);
     }
 
+    // ✅ Get order detail for wholesaler
+    @GetMapping("/{orderId}")
+    public ResponseEntity<WholesalerOrderDetailDTO> getOrderDetail(@PathVariable UUID orderId) {
+        Authentication auth = SecurityContextHolder.getContext().getAuthentication();
+        String identifier = auth.getName();
+        String authType = identifier.contains("@") ? "EMAIL" : "PHONE";
+
+        WholesalerOrderDetailDTO dto = orderService.getWholesalerOrderDetailDto(identifier, authType, orderId);
+        return ResponseEntity.ok(dto);
+    }
+
     // ==========================================================
     // ✅ Amazon-style ACTION endpoints
     // ==========================================================
 
     @PostMapping("/{orderId}/accept")
-    public ResponseEntity<Order> acceptOrder(@PathVariable UUID orderId) {
-        String identifier = SecurityContextHolder.getContext().getAuthentication().getName();
-        Order updated = orderService.wholesalerUpdateOrderStatus(identifier, orderId, "ACCEPTED");
-        return ResponseEntity.ok(updated);
+    public ResponseEntity<?> acceptOrder(
+            @PathVariable UUID orderId,
+            @RequestParam(required = false, defaultValue = "false") boolean force,
+            @RequestBody(required = false) WholesalerOrderAcceptRequest req) {
+        try {
+            String identifier = SecurityContextHolder.getContext().getAuthentication().getName();
+            return ResponseEntity.ok(orderService.wholesalerAcceptOrder(identifier, orderId, force, req));
+        } catch (RuntimeException e) {
+            java.util.Map<String, Object> errorResponse = new java.util.HashMap<>();
+            errorResponse.put("success", false);
+            errorResponse.put("message", e.getMessage() != null ? e.getMessage() : "Accept failed");
+            return ResponseEntity.badRequest().body(errorResponse);
+        } catch (Exception e) {
+            java.util.Map<String, Object> errorResponse = new java.util.HashMap<>();
+            errorResponse.put("success", false);
+            errorResponse.put("message", "Internal server error: " + e.getMessage());
+            return ResponseEntity.status(500).body(errorResponse);
+        }
     }
 
     @PostMapping("/{orderId}/reject")
@@ -89,5 +117,24 @@ public class WholesalerOrderController {
         String identifier = SecurityContextHolder.getContext().getAuthentication().getName();
         Order updated = orderService.wholesalerUpdateOrderStatus(identifier, orderId, "CANCELLED");
         return ResponseEntity.ok(updated);
+    }
+
+    // ✅ Direct edit order (no retailer approval)
+    @PostMapping("/{orderId}/edit")
+    public ResponseEntity<?> editOrder(@PathVariable UUID orderId, @RequestBody WholesalerOrderEditRequest req) {
+        try {
+            String identifier = SecurityContextHolder.getContext().getAuthentication().getName();
+            return ResponseEntity.ok(orderService.wholesalerEditOrder(identifier, orderId, req));
+        } catch (RuntimeException e) {
+            java.util.Map<String, Object> errorResponse = new java.util.HashMap<>();
+            errorResponse.put("success", false);
+            errorResponse.put("message", e.getMessage() != null ? e.getMessage() : "Edit failed");
+            return ResponseEntity.badRequest().body(errorResponse);
+        } catch (Exception e) {
+            java.util.Map<String, Object> errorResponse = new java.util.HashMap<>();
+            errorResponse.put("success", false);
+            errorResponse.put("message", "Internal server error: " + e.getMessage());
+            return ResponseEntity.status(500).body(errorResponse);
+        }
     }
 }

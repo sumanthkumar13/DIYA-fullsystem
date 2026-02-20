@@ -1,5 +1,7 @@
 import { useState } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { Link } from "wouter";
+import { fetchKhatabookSummary, fetchKhatabookRetailers } from "@/services/khatabook";
 import { 
   Search, 
   Filter, 
@@ -26,64 +28,33 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 
-const mockKhatabook = [
-  {
-    id: 1,
-    name: "Lakshmi Stores",
-    location: "Hanamkonda",
-    due: "₹8,200",
-    overdue: "₹3,500",
-    lastPayment: "3 days ago",
-    status: "Critical",
-    initials: "LS"
-  },
-  {
-    id: 2,
-    name: "Heritage Fresh",
-    location: "Kukatpally",
-    due: "₹12,400",
-    overdue: "₹0",
-    lastPayment: "Today",
-    status: "Good",
-    initials: "HF"
-  },
-  {
-    id: 3,
-    name: "Sri Balaji Traders",
-    location: "Warangal",
-    due: "₹45,000",
-    overdue: "₹15,000",
-    lastPayment: "12 days ago",
-    status: "Critical",
-    initials: "SB"
-  },
-  {
-    id: 4,
-    name: "Ravi Kirana",
-    location: "Uppal",
-    due: "₹2,100",
-    overdue: "₹0",
-    lastPayment: "Yesterday",
-    status: "Pending",
-    initials: "RK"
-  },
-  {
-    id: 5,
-    name: "Vijaya Stores",
-    location: "Secunderabad",
-    due: "₹0",
-    overdue: "₹0",
-    lastPayment: "24 Oct",
-    status: "Settled",
-    initials: "VS"
-  }
-];
+type KhatabookItem = {
+  id: number | string;
+  name: string;
+  location: string;
+  due: string;
+  overdue: string;
+  lastPayment: string;
+  status: string;
+  initials: string;
+};
 
 export default function Khatabook() {
   const [filterStatus, setFilterStatus] = useState("all");
   const [searchQuery, setSearchQuery] = useState("");
 
-  const filteredList = mockKhatabook.filter(item => {
+  const { data: summary, isLoading: summaryLoading } = useQuery({
+    queryKey: ["khatabook-summary"],
+    queryFn: fetchKhatabookSummary,
+  });
+
+  const { data: retailers, isLoading: retailersLoading } = useQuery({
+    queryKey: ["khatabook-retailers"],
+    queryFn: fetchKhatabookRetailers,
+  });
+
+  const khatabookList = retailers || [];
+  const filteredList = khatabookList.filter((item: KhatabookItem) => {
     if (filterStatus !== "all") {
       if (filterStatus === "Critical" && item.status !== "Critical") return false;
       if (filterStatus === "Pending" && item.status !== "Pending") return false;
@@ -111,18 +82,28 @@ export default function Khatabook() {
           <CardContent className="p-5">
             <p className="text-sm font-medium text-gray-500 mb-1">Total Outstanding Due</p>
             <div className="flex items-baseline gap-2">
-              <h3 className="text-3xl font-display font-bold text-gray-900">₹8.4L</h3>
-              <span className="text-xs font-medium text-red-600 bg-red-50 px-1.5 py-0.5 rounded">+5%</span>
+              <h3 className="text-3xl font-display font-bold text-gray-900">
+                {summaryLoading ? "Loading..." : `₹${Number(summary?.totalOutstanding ?? 0).toLocaleString("en-IN")}`}
+              </h3>
+              {!summaryLoading && (
+                <span className="text-xs font-medium text-red-600 bg-red-50 px-1.5 py-0.5 rounded">+5%</span>
+              )}
             </div>
-            <p className="text-xs text-gray-400 mt-1">Across 142 retailers</p>
+            <p className="text-xs text-gray-400 mt-1">
+              Across {summaryLoading ? "..." : (summary?.retailerCount ?? 0)} retailers
+            </p>
           </CardContent>
         </Card>
         <Card className="bg-white border-gray-200 shadow-sm">
           <CardContent className="p-5">
             <p className="text-sm font-medium text-gray-500 mb-1">Critical Overdue</p>
             <div className="flex items-baseline gap-2">
-              <h3 className="text-3xl font-display font-bold text-red-600">₹2.1L</h3>
-              <span className="text-xs font-medium text-red-600 bg-red-50 px-1.5 py-0.5 rounded animate-pulse">Urgent</span>
+              <h3 className="text-3xl font-display font-bold text-red-600">
+                {summaryLoading ? "Loading..." : `₹${Number(summary?.criticalOverdue ?? 0).toLocaleString("en-IN")}`}
+              </h3>
+              {!summaryLoading && (
+                <span className="text-xs font-medium text-red-600 bg-red-50 px-1.5 py-0.5 rounded animate-pulse">Urgent</span>
+              )}
             </div>
             <p className="text-xs text-gray-400 mt-1">Needs immediate attention</p>
           </CardContent>
@@ -131,8 +112,12 @@ export default function Khatabook() {
           <CardContent className="p-5">
             <p className="text-sm font-medium text-gray-500 mb-1">Collected This Month</p>
             <div className="flex items-baseline gap-2">
-              <h3 className="text-3xl font-display font-bold text-green-600">₹12.5L</h3>
-              <span className="text-xs font-medium text-green-600 bg-green-50 px-1.5 py-0.5 rounded">+12%</span>
+              <h3 className="text-3xl font-display font-bold text-green-600">
+                {summaryLoading ? "Loading..." : `₹${Number(summary?.collectedThisMonth ?? 0).toLocaleString("en-IN")}`}
+              </h3>
+              {!summaryLoading && (
+                <span className="text-xs font-medium text-green-600 bg-green-50 px-1.5 py-0.5 rounded">+12%</span>
+              )}
             </div>
             <p className="text-xs text-gray-400 mt-1">vs last month</p>
           </CardContent>
@@ -169,8 +154,12 @@ export default function Khatabook() {
 
       {/* List */}
       <div className="space-y-3">
-        {filteredList.map((item) => (
-          <Card key={item.id} className="group hover:shadow-md transition-all duration-200 hover:border-primary/30 cursor-pointer bg-white border-gray-200">
+        {retailersLoading ? (
+          <p className="text-sm text-gray-500 py-6">Loading retailers...</p>
+        ) : (
+        filteredList.map((item) => (
+          <Link key={item.id} href={`/khatabook/${item.id}`}>
+            <Card className="group hover:shadow-md transition-all duration-200 hover:border-primary/30 cursor-pointer bg-white border-gray-200">
             <CardContent className="p-4 sm:p-5 flex flex-col sm:flex-row sm:items-center gap-5">
               <div className="flex items-center gap-4 flex-1">
                 <Avatar className="h-12 w-12 border border-gray-100">
@@ -222,7 +211,9 @@ export default function Khatabook() {
               </div>
             </CardContent>
           </Card>
-        ))}
+          </Link>
+        ))
+        )}
       </div>
     </div>
   );

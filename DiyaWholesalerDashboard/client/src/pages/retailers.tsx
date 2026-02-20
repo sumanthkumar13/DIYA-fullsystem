@@ -1,16 +1,14 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Link } from "wouter";
-import { 
-  Search, 
-  Filter, 
-  Phone, 
-  MessageCircle, 
-  MapPin, 
-  ArrowUpRight, 
-  MoreHorizontal,
-  AlertCircle,
-  Plus
+import {
+  Search,
+  Phone,
+  MessageCircle,
+  MapPin,
+  Plus,
 } from "lucide-react";
+import api from "@/lib/api";
+import { fetchRetailerCreditSummary } from "@/services/retailerCredit";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -22,82 +20,69 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 
-const mockRetailers = [
-  {
-    id: 1,
-    name: "Lakshmi Stores",
-    owner: "Ravi Kumar",
-    phone: "+91 98765 43210",
-    location: "Hanamkonda, Telangana",
-    due: "₹8,200",
-    overdue: "₹3,500",
-    delay: "7 days",
-    lastOrder: "₹11,647 — 3 days ago",
-    status: "Critical",
-    initials: "LS"
-  },
-  {
-    id: 2,
-    name: "Heritage Fresh",
-    owner: "Suresh Reddy",
-    phone: "+91 98456 12345",
-    location: "Kukatpally, Hyderabad",
-    due: "₹12,400",
-    overdue: "₹0",
-    delay: "0 days",
-    lastOrder: "₹8,200 — Today",
-    status: "Good",
-    initials: "HF"
-  },
-  {
-    id: 3,
-    name: "Sri Balaji Traders",
-    owner: "Venkat Rao",
-    phone: "+91 99887 76655",
-    location: "Warangal, Telangana",
-    due: "₹45,000",
-    overdue: "₹15,000",
-    delay: "12 days",
-    lastOrder: "₹15,600 — Yesterday",
-    status: "Critical",
-    initials: "SB"
-  },
-  {
-    id: 4,
-    name: "Ravi Kirana General Stores",
-    owner: "Ravi Teja",
-    phone: "+91 90000 11111",
-    location: "Uppal, Hyderabad",
-    due: "₹2,100",
-    overdue: "₹0",
-    delay: "2 days",
-    lastOrder: "₹4,500 — Yesterday",
-    status: "Pending",
-    initials: "RK"
-  },
-  {
-    id: 5,
-    name: "Vijaya Stores",
-    owner: "Vijaya Lakshmi",
-    phone: "+91 88888 99999",
-    location: "Secunderabad",
-    due: "₹0",
-    overdue: "₹0",
-    delay: "0 days",
-    lastOrder: "₹2,100 — 24 Oct",
-    status: "Good",
-    initials: "VS"
+type RetailerRow = {
+  id: string;
+  name: string;
+  owner: string;
+  phone: string;
+  location: string;
+  initials: string;
+};
+
+function formatAmount(n: number): string {
+  return "₹" + Number(n).toLocaleString("en-IN");
+}
+
+function formatLastOrderDate(dateStr: string | null | undefined): string {
+  if (!dateStr) return "--";
+  try {
+    return new Date(dateStr).toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" });
+  } catch {
+    return "--";
   }
-];
+}
 
 export default function Retailers() {
   const [searchQuery, setSearchQuery] = useState("");
+  const [retailers, setRetailers] = useState<RetailerRow[]>([]);
+  const [creditSummaryMap, setCreditSummaryMap] = useState<Record<string, { totalOutstanding?: number; overdueDays?: number; lastOrderDate?: string | null }>>({});
 
-  const filteredRetailers = mockRetailers.filter(r => 
-    r.name.toLowerCase().includes(searchQuery.toLowerCase()) || 
-    r.owner.toLowerCase().includes(searchQuery.toLowerCase())
+  useEffect(() => {
+    let cancelled = false;
+    api.get("/wholesaler/connections").then((res: { data: any[] }) => {
+      if (cancelled) return;
+      const list = (res.data || []).filter((c: any) => (c.status || "").toUpperCase() === "APPROVED");
+      const rows: RetailerRow[] = list.map((c: any) => {
+        const name = c.retailerBusinessName || "Retailer";
+        return {
+          id: String(c.retailerId ?? c.id ?? ""),
+          name,
+          owner: name,
+          phone: c.retailerPhone || "--",
+          location: c.retailerCity || "--",
+          initials: name.slice(0, 2).toUpperCase(),
+        };
+      });
+      setRetailers(rows);
+      if (rows.length === 0) return;
+      Promise.all(rows.map((r) => fetchRetailerCreditSummary(r.id).catch(() => null))).then((summaries) => {
+        if (cancelled) return;
+        const map: Record<string, any> = {};
+        rows.forEach((r, i) => {
+          const s = summaries[i];
+          if (s && r.id) map[r.id] = { totalOutstanding: s.totalOutstanding, overdueDays: s.overdueDays ?? 0, lastOrderDate: s.lastOrderDate };
+        });
+        setCreditSummaryMap(map);
+      });
+    }).catch(() => {});
+    return () => { cancelled = true; };
+  }, []);
+
+  const filteredRetailers = retailers.filter(r =>
+    r.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+    (r.owner && r.owner.toLowerCase().includes(searchQuery.toLowerCase()))
   );
 
   return (
@@ -152,7 +137,11 @@ export default function Retailers() {
 
       {/* Retailers List */}
       <div className="space-y-3">
-        {filteredRetailers.map((retailer) => (
+        {filteredRetailers.map((retailer) => {
+          const summary = creditSummaryMap[retailer.id];
+          const overdueDays = summary?.overdueDays ?? 0;
+          const isOverdue = overdueDays > 0;
+          return (
           <Link key={retailer.id} href={`/retailers/${retailer.id}`}>
             <Card className="hover:shadow-md transition-all duration-200 hover:border-primary/30 cursor-pointer group border-gray-200 bg-white">
               <CardContent className="p-4 sm:p-5 flex flex-col lg:flex-row lg:items-center gap-6">
@@ -178,28 +167,28 @@ export default function Retailers() {
                   <div>
                     <p className="text-xs text-gray-500 mb-1">Outstanding Due</p>
                     <div className="flex items-center gap-2">
-                      <p className="font-bold text-gray-900">{retailer.due}</p>
-                      {retailer.status === "Critical" && (
+                      <p className="font-bold text-gray-900">{summary != null ? formatAmount(Number(summary.totalOutstanding ?? 0)) : "--"}</p>
+                      {isOverdue && (
                         <Badge variant="outline" className="bg-red-50 text-red-700 border-red-100 text-[10px] px-1.5 py-0 h-5">
                           Overdue
                         </Badge>
                       )}
                     </div>
-                    {retailer.status === "Critical" && (
-                       <p className="text-xs text-red-600 mt-0.5">Overdue: {retailer.overdue}</p>
+                    {isOverdue && (
+                       <p className="text-xs text-red-600 mt-0.5">{overdueDays} days overdue</p>
                     )}
                   </div>
                   
                   <div>
                     <p className="text-xs text-gray-500 mb-1">Avg Delay</p>
-                    <p className={retailer.status === "Critical" ? "font-medium text-red-600" : "font-medium text-gray-700"}>
-                      {retailer.delay}
+                    <p className={isOverdue ? "font-medium text-red-600" : "font-medium text-gray-700"}>
+                      {summary != null ? `${overdueDays} days` : "--"}
                     </p>
                   </div>
 
                   <div className="hidden sm:block">
                     <p className="text-xs text-gray-500 mb-1">Last Order</p>
-                    <p className="font-medium text-gray-700 text-sm">{retailer.lastOrder}</p>
+                    <p className="font-medium text-gray-700 text-sm">{summary != null ? formatLastOrderDate(summary.lastOrderDate) : "--"}</p>
                   </div>
                 </div>
 
@@ -210,7 +199,7 @@ export default function Retailers() {
                   <Button variant="outline" size="sm" className="h-9 gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
                     <MessageCircle className="h-3.5 w-3.5" /> Msg
                   </Button>
-                  {Number(retailer.overdue.replace(/[^0-9]/g, '')) > 0 && (
+                  {isOverdue && (
                      <Button size="sm" className="h-9 gap-2 bg-green-600 hover:bg-green-700 text-white shadow-sm ml-2">
                         Request Payment
                      </Button>
@@ -220,7 +209,7 @@ export default function Retailers() {
               </CardContent>
             </Card>
           </Link>
-        ))}
+        );})}
       </div>
     </div>
   );
