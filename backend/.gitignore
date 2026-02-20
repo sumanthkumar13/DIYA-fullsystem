@@ -31,3 +31,9 @@ build/
 
 ### VS Code ###
 .vscode/
+
+
+# ---- Diya backend required configs ----
+!backend/src/main/resources/application.properties
+!backend/src/main/resources/application-prod.properties
+!backend/src/main/resources/**
