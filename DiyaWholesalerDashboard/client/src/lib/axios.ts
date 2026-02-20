@@ -1,7 +1,8 @@
 import axios from "axios";
 
 const api = axios.create({
-  baseURL: "http://localhost:8081/api",
+  // baseURL: "http://localhost:8081/api", // local development URL
+  baseURL: "https://diya-fullsystem.onrender.com/api", // render.com URL
 });
 
 /** ✅ Never attach token for these endpoints */

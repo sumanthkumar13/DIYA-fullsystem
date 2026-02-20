@@ -1,3 +1,4 @@
+import api from "@/lib/axios";
 import { useState } from "react";
 import { Link, useLocation } from "wouter";
 import {
@@ -83,13 +84,19 @@ export default function SignupFlow() {
     }
 
     try {
-      const res = await fetch("http://localhost:8081/api/auth/send-otp", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ phone: mobile })
-      });
+      // const res = await fetch("http://localhost:8081/api/auth/send-otp", {
+      //   method: "POST",
+      //   headers: { "Content-Type": "application/json" },
+      //   body: JSON.stringify({ phone: mobile })
+      // });
 
-      const data = await res.json();
+      // const data = await res.json();
+
+              const res = await api.post("/auth/send-otp", {
+          phone: mobile
+        });
+
+        const data = res.data;
 
       toast({
         title: "OTP Sent",
@@ -106,13 +113,20 @@ export default function SignupFlow() {
 
   const verifyOtp = async () => {
     try {
-      const res = await fetch("http://localhost:8081/api/auth/verify-otp", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ phone: mobile, otp })
-      });
+      // const res = await fetch("http://localhost:8081/api/auth/verify-otp", {
+      //   method: "POST",
+      //   headers: { "Content-Type": "application/json" },
+      //   body: JSON.stringify({ phone: mobile, otp })
+      // });
 
-      const data = await res.json();
+      // const data = await res.json();
+
+      const res = await api.post("/auth/verify-otp", {
+  phone: mobile,
+  otp
+});
+
+const data = res.data;
 
       if (!data.success) {
         toast({
@@ -153,13 +167,16 @@ export default function SignupFlow() {
     };
 
     try {
-      const res = await fetch("http://localhost:8081/api/auth/register", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload)
-      });
+      // const res = await fetch("http://localhost:8081/api/auth/register", {
+      //   method: "POST",
+      //   headers: { "Content-Type": "application/json" },
+      //   body: JSON.stringify(payload)
+      // });
 
-      const data = await res.json();
+      // const data = await res.json();
+
+      const res = await api.post("/auth/register", payload);
+const data = res.data;
 
       if (!data.success) {
         toast({
