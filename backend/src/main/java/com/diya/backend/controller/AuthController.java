@@ -37,9 +37,10 @@ public class AuthController {
         }
 
         try {
-            authService.sendOtp(phone);
+            String otp = authService.sendOtp(phone);
             resp.put("success", true);
-            resp.put("message", "OTP sent successfully (check backend logs)");
+            resp.put("message", "OTP sent successfully");
+            resp.put("otp", otp);
             return ResponseEntity.ok(resp);
         } catch (Exception e) {
             resp.put("success", false);

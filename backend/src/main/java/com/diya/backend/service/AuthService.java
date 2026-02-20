@@ -68,8 +68,8 @@ public class AuthService {
      * SEND OTP ✅
      * -----------------------------------------------------------
      */
-    public void sendOtp(String phone) {
-        otpService.generateOtp(phone);
+    public String sendOtp(String phone) {
+        return otpService.generateOtp(phone);
     }
 
     /*

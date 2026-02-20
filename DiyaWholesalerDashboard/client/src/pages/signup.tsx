@@ -97,10 +97,11 @@ export default function SignupFlow() {
         });
 
         const data = res.data;
+        if (data?.otp) setOtp(data.otp);
 
       toast({
         title: "OTP Sent",
-        description: "Check backend logs for the OTP.",
+        description: "OTP filled below for verification.",
       });
     } catch (err) {
       toast({
