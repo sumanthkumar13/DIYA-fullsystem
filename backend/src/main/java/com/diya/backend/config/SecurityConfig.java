@@ -205,6 +205,7 @@ public class SecurityConfig {
                         "http://localhost:5000",
                         "http://localhost:5173",
                         "http://localhost:3000",
+                        "https://*.vercel.app",
 
                         // VERY IMPORTANT: your deployed frontend
                         "https://diya-fullsystem.onrender.com"));
