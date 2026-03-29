@@ -85,4 +85,8 @@ public class Product {
 
         @Builder.Default
         private Boolean tallyItemSynced = false;
+
+        /** Soft-removed from wholesaler catalog; hidden from retailers */
+        @Builder.Default
+        private boolean deleted = false;
 }

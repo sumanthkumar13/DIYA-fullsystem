@@ -2,30 +2,25 @@ import api from "@/lib/axios";
 import { useState } from "react";
 import { Link, useLocation } from "wouter";
 import {
-  ArrowRight,
   ArrowLeft,
   CheckCircle2,
-  Building2,
-  Truck,
   QrCode,
   Upload,
   Loader2,
-  ShoppingBag,
-  Store
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent } from "@/components/ui/card";
 import { useToast } from "@/hooks/use-toast";
-import { Badge } from "@/components/ui/badge";
-import { cn } from "@/lib/utils";
-
-const categories = [
-  "FMCG Distributor", "General Kirana", "Dry Grocery / Grains", "Stationery & Toys",
-  "Medical & Pharma", "Cosmetics / Personal Care", "Snacks & Confectionery",
-  "Packaged Food", "Beverage Distributor", "Household Cleaning",
-  "Hardware / Electrical", "Garments / Textiles", "Agri Products", "Other"
-];
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { WHOLESALER_REGIONS } from "@/lib/regions";
+import { WHOLESALER_BUSINESS_TYPES } from "@/lib/businessTypes";
 
 export default function SignupFlow() {
   const [step, setStep] = useState(1);
@@ -33,9 +28,7 @@ export default function SignupFlow() {
   const [isLoading, setIsLoading] = useState(false);
   const { toast } = useToast();
 
-  // Form States
-  const [selectedCategories, setSelectedCategories] = useState<string[]>([]);
-  const [deliveryModel, setDeliveryModel] = useState<"delivery" | "pickup" | null>(null);
+  const [businessType, setBusinessType] = useState("");
 
   // Step 1: Owner Details
   const [fullName, setFullName] = useState("");
@@ -48,10 +41,10 @@ export default function SignupFlow() {
   const [businessName, setBusinessName] = useState("");
   const [gstin, setGstin] = useState("");
   const [pincode, setPincode] = useState("");
-  const [city, setCity] = useState("");
+  const [region, setRegion] = useState("");
   const [fullAddress, setFullAddress] = useState("");
 
-  // Step 5: Payment Setup
+  // Step 4: Payment Setup
   const [upiId, setUpiId] = useState("");
   const [qrCodeUrl, setQrCodeUrl] = useState(null); // future file upload
 
@@ -64,14 +57,6 @@ export default function SignupFlow() {
   };
 
   const prevStep = () => setStep(step - 1);
-
-  const toggleCategory = (cat: string) => {
-    if (selectedCategories.includes(cat)) {
-      setSelectedCategories(selectedCategories.filter(c => c !== cat));
-    } else {
-      setSelectedCategories([...selectedCategories, cat]);
-    }
-  };
 
   const sendOtp = async () => {
     if (mobile.length !== 10) {
@@ -151,18 +136,33 @@ const data = res.data;
   };
 
   const submitRegistration = async () => {
+    if (!region) {
+      toast({
+        title: "Region required",
+        description: "Please go back to Business Details and select your region.",
+        variant: "destructive",
+      });
+      return;
+    }
+    if (!businessType) {
+      toast({
+        title: "Business type required",
+        description: "Please go back and select your business type.",
+        variant: "destructive",
+      });
+      return;
+    }
     const payload = {
       fullName,
       email,
       mobile,
       password,
-      categories: selectedCategories,
+      businessType,
       businessName,
       gstin,
       pincode,
-      city,
+      region,
       fullAddress,
-      deliveryModel: deliveryModel?.toUpperCase(),
       upiId,
       qrCodeUrl
     };
@@ -249,30 +249,34 @@ const data = res.data;
           </div>
         );
 
-      case 2: // Industry Selection
+
+      case 2: // Business type
         return (
           <div className="space-y-6 animate-in fade-in slide-in-from-right-8 duration-500">
             <div className="text-center mb-8">
               <h2 className="text-2xl font-display font-bold text-gray-900">What business do you run?</h2>
-              <p className="text-gray-500 mt-1">Select one or more categories that apply.</p>
+              <p className="text-gray-500 mt-1">Select the option that best describes your business.</p>
             </div>
-            <div className="flex flex-wrap gap-3 justify-center">
-              {categories.map((cat) => (
-                <button
-                  key={cat}
-                  onClick={() => toggleCategory(cat)}
-                  className={cn(
-                    "px-4 py-2 rounded-full text-sm font-medium transition-all duration-200 border",
-                    selectedCategories.includes(cat)
-                      ? "bg-primary text-white border-primary shadow-md shadow-orange-200 transform scale-105"
-                      : "bg-white text-gray-600 border-gray-200 hover:border-primary/50 hover:bg-orange-50"
-                  )}
-                >
-                  {cat}
-                </button>
-              ))}
+            <div className="space-y-2">
+              <label className="text-sm font-medium text-gray-700">Business type</label>
+              <Select value={businessType || undefined} onValueChange={setBusinessType}>
+                <SelectTrigger className="h-11 w-full">
+                  <SelectValue placeholder="Select business type" />
+                </SelectTrigger>
+                <SelectContent>
+                  {WHOLESALER_BUSINESS_TYPES.map((t) => (
+                    <SelectItem key={t} value={t}>
+                      {t}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
             </div>
-            <Button onClick={nextStep} disabled={selectedCategories.length === 0} className="w-full h-12 mt-6 bg-primary hover:bg-primary/90">
+            <Button
+              onClick={nextStep}
+              disabled={!businessType}
+              className="w-full h-12 mt-6 bg-primary hover:bg-primary/90"
+            >
               Continue
             </Button>
           </div>
@@ -300,8 +304,19 @@ const data = res.data;
                   <Input value={pincode} onChange={(e) => setPincode(e.target.value)} placeholder="500081" className="h-11" />
                 </div>
                 <div className="space-y-2">
-                  <label className="text-sm font-medium text-gray-700">City</label>
-                  <Input value={city} onChange={(e) => setCity(e.target.value)} placeholder="Hyderabad" className="h-11" />
+                  <label className="text-sm font-medium text-gray-700">Select Region</label>
+                  <Select value={region || undefined} onValueChange={setRegion}>
+                    <SelectTrigger className="h-11 w-full">
+                      <SelectValue placeholder="Choose your operating region" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {WHOLESALER_REGIONS.map((r) => (
+                        <SelectItem key={r} value={r}>
+                          {r}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
                 </div>
               </div>
               <div className="space-y-2">
@@ -309,65 +324,17 @@ const data = res.data;
                 <Input value={fullAddress} onChange={(e) => setFullAddress(e.target.value)} placeholder="Shop No, Street, Area" className="h-11" />
               </div>
             </div>
-            <Button onClick={nextStep} className="w-full h-12 bg-primary hover:bg-primary/90">
+            <Button
+              onClick={nextStep}
+              disabled={!region}
+              className="w-full h-12 bg-primary hover:bg-primary/90"
+            >
               Continue
             </Button>
           </div>
         );
 
-      case 4: // Delivery Model
-        return (
-          <div className="space-y-6 animate-in fade-in slide-in-from-right-8 duration-500">
-            <div className="text-center mb-8">
-              <h2 className="text-2xl font-display font-bold text-gray-900">How do you deliver?</h2>
-              <p className="text-gray-500 mt-1">Choose your primary delivery model.</p>
-            </div>
-
-            <div className="grid gap-4">
-              <div
-                onClick={() => setDeliveryModel("delivery")}
-                className={cn(
-                  "cursor-pointer p-5 rounded-xl border-2 transition-all flex items-start gap-4 hover:shadow-md",
-                  deliveryModel === "delivery"
-                    ? "border-primary bg-orange-50/50"
-                    : "border-gray-100 bg-white hover:border-primary/30"
-                )}
-              >
-                <div className={cn("h-12 w-12 rounded-full flex items-center justify-center shrink-0", deliveryModel === "delivery" ? "bg-primary text-white" : "bg-gray-100 text-gray-500")}>
-                  <Truck className="h-6 w-6" />
-                </div>
-                <div>
-                  <h3 className="font-bold text-gray-900">I deliver goods</h3>
-                  <p className="text-sm text-gray-500 mt-1">I have vehicles/staff to deliver orders to retailers' shops.</p>
-                </div>
-              </div>
-
-              <div
-                onClick={() => setDeliveryModel("pickup")}
-                className={cn(
-                  "cursor-pointer p-5 rounded-xl border-2 transition-all flex items-start gap-4 hover:shadow-md",
-                  deliveryModel === "pickup"
-                    ? "border-primary bg-orange-50/50"
-                    : "border-gray-100 bg-white hover:border-primary/30"
-                )}
-              >
-                <div className={cn("h-12 w-12 rounded-full flex items-center justify-center shrink-0", deliveryModel === "pickup" ? "bg-primary text-white" : "bg-gray-100 text-gray-500")}>
-                  <Store className="h-6 w-6" />
-                </div>
-                <div>
-                  <h3 className="font-bold text-gray-900">Retailers pick up</h3>
-                  <p className="text-sm text-gray-500 mt-1">Retailers come to my shop/godown to pick up their orders.</p>
-                </div>
-              </div>
-            </div>
-
-            <Button onClick={nextStep} disabled={!deliveryModel} className="w-full h-12 mt-4 bg-primary hover:bg-primary/90">
-              Continue
-            </Button>
-          </div>
-        );
-
-      case 5: // Payment Setup
+      case 4: // Payment Setup
         return (
           <div className="space-y-6 animate-in fade-in slide-in-from-right-8 duration-500">
             <div className="text-center mb-8">
@@ -405,7 +372,7 @@ const data = res.data;
           </div>
         );
 
-      case 6: // Success
+      case 5: // Success
         return (
           <div className="space-y-8 text-center animate-in fade-in zoom-in duration-500 py-8">
             <div className="relative inline-block">
@@ -442,25 +409,25 @@ const data = res.data;
     <div className="min-h-screen bg-gray-50 flex flex-col items-center justify-center p-4">
       <div className="w-full max-w-md">
         <div className="mb-6 flex items-center justify-between">
-          {step > 1 && step < 6 ? (
+          {step > 1 && step < 5 ? (
             <Button variant="ghost" size="sm" onClick={prevStep} className="text-gray-500 hover:text-gray-900 -ml-2">
               <ArrowLeft className="h-4 w-4 mr-1" /> Back
             </Button>
           ) : <div />}
 
-          {step < 6 && (
+          {step < 5 && (
             <div className="text-sm font-medium text-gray-400">
-              Step {step} of 5
+              Step {step} of 4
             </div>
           )}
         </div>
 
         <Card className="border-gray-200 shadow-xl shadow-gray-200/50 overflow-hidden">
-          {step < 6 && (
+          {step < 5 && (
             <div className="h-1 bg-gray-100 w-full">
               <div
                 className="h-full bg-primary transition-all duration-500 ease-out"
-                style={{ width: `${(step / 5) * 100}%` }}
+                style={{ width: `${(step / 4) * 100}%` }}
               />
             </div>
           )}

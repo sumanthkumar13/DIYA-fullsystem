@@ -68,6 +68,8 @@ public class Payment {
     public enum PaymentMode {
         UPI,
         CASH,
+        BANK_TRANSFER,
+        CHEQUE,
         NEFT,
         NET_BANKING,
         RTGS

@@ -60,3 +60,47 @@ export async function toggleProductVisibility(
   });
   return res.data;
 }
+
+export async function fetchProduct(productId: string) {
+  const res = await api.get(`/wholesaler/products/${productId}`);
+  return res.data;
+}
+
+export async function updateProduct(productId: string, payload: Record<string, unknown>) {
+  const res = await api.put(`/wholesaler/products/${productId}`, payload);
+  return res.data;
+}
+
+export async function deleteProduct(productId: string) {
+  await api.delete(`/wholesaler/products/${productId}`);
+}
+
+export type RetailerVisibilityRow = {
+  retailerId: string;
+  name: string;
+  visible: boolean;
+};
+
+export async function fetchProductRetailerVisibility(
+  productId: string
+): Promise<RetailerVisibilityRow[]> {
+  const res = await api.get(`/wholesaler/products/${productId}/retailer-visibility`);
+  return Array.isArray(res.data) ? res.data : [];
+}
+
+export async function saveProductRetailerVisibility(
+  productId: string,
+  hiddenRetailerIds: string[]
+) {
+  await api.put(`/wholesaler/products/${productId}/retailer-visibility`, {
+    hiddenRetailerIds,
+  });
+}
+
+export async function patchProductQuick(
+  productId: string,
+  patch: { mrp?: number; stock?: number }
+) {
+  const res = await api.put(`/wholesaler/products/${productId}`, patch);
+  return res.data;
+}

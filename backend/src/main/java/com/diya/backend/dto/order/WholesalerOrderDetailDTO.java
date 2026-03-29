@@ -18,9 +18,12 @@ public class WholesalerOrderDetailDTO {
     private String paymentStatus;
     private String paymentMode;
     private Integer creditDays;
+    /** Due date = order placed date + credit days (wholesaler view). */
     private LocalDateTime dueDate;
     private Boolean isOverdue;
     private BigDecimal outstandingAmount;
+    /** Credit amount allocated for this order (approved on credit). */
+    private BigDecimal creditGiven;
     private LocalDateTime placedAt;
 
     private BigDecimal subtotal;

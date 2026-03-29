@@ -1,9 +1,11 @@
 package com.diya.backend.dto.product;
 
+import com.diya.backend.entity.TaxType;
 import lombok.Builder;
 import lombok.Getter;
 import lombok.Setter;
 
+import java.math.BigDecimal;
 import java.util.UUID;
 
 @Getter @Setter
@@ -26,4 +28,11 @@ public class ProductResponseDTO {
     private String subcategoryName;
     private Boolean isActive;             // maps from entity.active
     private Boolean visibleToRetailer;
+    private String hsnCode;
+    private BigDecimal gstRate;
+    private TaxType taxType;
+    private String baseUnit;
+    private String sellingUnit;
+    private Integer unitsPerSelling;
+    private Boolean priceIncludesTax;
 }

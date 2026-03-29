@@ -1,24 +1,29 @@
-import { useState } from "react";
+import { Fragment, useState } from "react";
 import { useRoute, Link } from "wouter";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { 
-  ArrowLeft, 
-  Printer, 
-  Download, 
-  CheckCircle2, 
-  Package, 
-  Truck, 
-  AlertTriangle, 
-  Edit2, 
-  Phone, 
-  MessageCircle, 
+import {
+  ArrowLeft,
+  Printer,
+  Download,
+  CheckCircle2,
+  Package,
+  Truck,
+  AlertTriangle,
+  Edit2,
+  Phone,
+  MessageCircle,
   MapPin,
   CreditCard,
   Info,
   Clock,
-  XCircle
+  XCircle,
+  ChevronDown,
+  Check,
+  X,
+  Loader2,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
@@ -41,7 +46,14 @@ import {
 } from "@/components/ui/dialog";
 import { useToast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
-import { fetchOrderDetail, acceptOrder, rejectOrder, updateOrderStatus, editOrder } from "@/services/order";
+import {
+  fetchOrderDetail,
+  acceptOrder,
+  rejectOrder,
+  updateOrderStatus,
+  editOrder,
+  patchOrderCredit,
+} from "@/services/order";
 import { finalizeInvoice } from "@/services/invoice";
 
 // Map backend status to UI status
@@ -196,6 +208,11 @@ export default function OrderDetail() {
     },
   });
 
+  const [creditEditField, setCreditEditField] = useState<null | "given" | "days">(null);
+  const [creditGivenDraft, setCreditGivenDraft] = useState("");
+  const [creditDaysDraft, setCreditDaysDraft] = useState("");
+  const [creditSaving, setCreditSaving] = useState(false);
+
   const finalizeInvoiceMutation = useMutation({
     mutationFn: () => finalizeInvoice(orderId),
     onSuccess: () => {
@@ -226,6 +243,16 @@ export default function OrderDetail() {
   const [editOpen, setEditOpen] = useState(false);
   const [editReason, setEditReason] = useState("");
   const [editDraft, setEditDraft] = useState<Record<string, { qty: string; price: string }>>({});
+  const [expandedItemIds, setExpandedItemIds] = useState<Set<string>>(new Set());
+
+  const toggleItemExpand = (id: string) => {
+    setExpandedItemIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
 
   if (isLoading) {
     return (
@@ -264,6 +291,63 @@ export default function OrderDetail() {
   const orderItems = order.items || [];
   const hasShortage = orderItems.some((it: any) => (it.orderedQty ?? 0) > (it.availableStock ?? 0));
   const placedDate = formatDate(order.placedAt);
+  const creditGiven = Number((order as any).creditGiven ?? 0);
+  const orderCreditDays = Number(order.creditDays ?? 0);
+  const dueRaw = order.dueDate as string | null | undefined;
+  const dueDateLabel =
+    dueRaw && orderCreditDays > 0
+      ? new Date(dueRaw).toLocaleDateString("en-IN", {
+          day: "numeric",
+          month: "short",
+          year: "numeric",
+        })
+      : orderCreditDays > 0 && order.placedAt
+        ? new Date(
+            new Date(order.placedAt).getTime() + orderCreditDays * 86400000
+          ).toLocaleDateString("en-IN", {
+            day: "numeric",
+            month: "short",
+            year: "numeric",
+          })
+        : "—";
+
+  const canEditCredit =
+    order.status !== "CANCELLED" && order.status !== "REJECTED";
+
+  async function saveCreditField(field: "given" | "days") {
+    setCreditSaving(true);
+    try {
+      if (field === "given") {
+        const n = parseFloat(creditGivenDraft);
+        if (Number.isNaN(n) || n < 0) {
+          toast({ title: "Enter a valid amount", variant: "destructive" });
+          return;
+        }
+        await patchOrderCredit(orderId, { approvedCreditAmount: n });
+      } else {
+        const d = parseInt(creditDaysDraft, 10);
+        if (Number.isNaN(d) || d < 0) {
+          toast({ title: "Enter valid credit days", variant: "destructive" });
+          return;
+        }
+        await patchOrderCredit(orderId, { creditDays: d });
+      }
+      await queryClient.invalidateQueries({ queryKey: ["order-detail", orderId] });
+      setCreditEditField(null);
+      toast({
+        title: "Credit updated",
+        className: "bg-green-50 border-green-200 text-green-800",
+      });
+    } catch (e: any) {
+      toast({
+        title: "Update failed",
+        description: e?.response?.data?.message || e?.message,
+        variant: "destructive",
+      });
+    } finally {
+      setCreditSaving(false);
+    }
+  }
 
   return (
     <div className="space-y-6 pb-12">
@@ -619,12 +703,138 @@ export default function OrderDetail() {
                   </div>
                 </div>
                 
-                <div className="bg-orange-50 rounded-xl p-4 border border-orange-100 min-w-[200px]">
-                  <p className="text-xs text-orange-800 font-medium mb-1 flex items-center gap-1">
-                    <AlertTriangle className="h-3 w-3" /> Outstanding Due
+                <div className="bg-orange-50 rounded-xl p-4 border border-orange-100 min-w-[240px] space-y-3">
+                  <p className="text-xs text-orange-800 font-medium flex items-center gap-1">
+                    <AlertTriangle className="h-3 w-3 shrink-0" /> Outstanding Due
                   </p>
-                  <p className="text-2xl font-bold text-orange-700">₹0</p>
-                  <p className="text-xs text-orange-600 mt-1">Payment status: {order.paymentStatus || "UNPAID"}</p>
+                  <div className="space-y-2 text-sm">
+                    <div className="flex justify-between gap-2">
+                      <span className="text-orange-800/80">Outstanding</span>
+                      <span className="font-bold text-orange-700">
+                        {formatAmount(Number(order.outstandingAmount ?? 0))}
+                      </span>
+                    </div>
+                    <div className="flex justify-between items-center gap-2">
+                      <span className="text-orange-800/80">Credit given</span>
+                      {creditEditField === "given" ? (
+                        <span className="flex items-center gap-1">
+                          <Input
+                            className="h-7 w-24 text-right text-sm border-orange-200"
+                            type="number"
+                            min={0}
+                            step={0.01}
+                            value={creditGivenDraft}
+                            onChange={(e) => setCreditGivenDraft(e.target.value)}
+                            autoFocus
+                          />
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="icon"
+                            className="h-7 w-7 text-green-700"
+                            disabled={creditSaving}
+                            onClick={() => saveCreditField("given")}
+                          >
+                            {creditSaving ? (
+                              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                            ) : (
+                              <Check className="h-3.5 w-3.5" />
+                            )}
+                          </Button>
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="icon"
+                            className="h-7 w-7"
+                            disabled={creditSaving}
+                            onClick={() => setCreditEditField(null)}
+                          >
+                            <X className="h-3.5 w-3.5" />
+                          </Button>
+                        </span>
+                      ) : (
+                        <span className="flex items-center gap-1 font-medium text-orange-900">
+                          {formatAmount(creditGiven)}
+                          {canEditCredit && (
+                            <button
+                              type="button"
+                              className="p-0.5 rounded hover:bg-orange-100 text-orange-700"
+                              aria-label="Edit credit given"
+                              onClick={() => {
+                                setCreditGivenDraft(String(creditGiven));
+                                setCreditEditField("given");
+                              }}
+                            >
+                              <Edit2 className="h-3 w-3" />
+                            </button>
+                          )}
+                        </span>
+                      )}
+                    </div>
+                    <div className="flex justify-between items-center gap-2">
+                      <span className="text-orange-800/80">Credit days</span>
+                      {creditEditField === "days" ? (
+                        <span className="flex items-center gap-1">
+                          <Input
+                            className="h-7 w-16 text-right text-sm border-orange-200"
+                            type="number"
+                            min={0}
+                            value={creditDaysDraft}
+                            onChange={(e) => setCreditDaysDraft(e.target.value)}
+                            autoFocus
+                          />
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="icon"
+                            className="h-7 w-7 text-green-700"
+                            disabled={creditSaving}
+                            onClick={() => saveCreditField("days")}
+                          >
+                            {creditSaving ? (
+                              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                            ) : (
+                              <Check className="h-3.5 w-3.5" />
+                            )}
+                          </Button>
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="icon"
+                            className="h-7 w-7"
+                            disabled={creditSaving}
+                            onClick={() => setCreditEditField(null)}
+                          >
+                            <X className="h-3.5 w-3.5" />
+                          </Button>
+                        </span>
+                      ) : (
+                        <span className="flex items-center gap-1 font-medium text-orange-900">
+                          {orderCreditDays}
+                          {canEditCredit && (
+                            <button
+                              type="button"
+                              className="p-0.5 rounded hover:bg-orange-100 text-orange-700"
+                              aria-label="Edit credit days"
+                              onClick={() => {
+                                setCreditDaysDraft(String(orderCreditDays));
+                                setCreditEditField("days");
+                              }}
+                            >
+                              <Edit2 className="h-3 w-3" />
+                            </button>
+                          )}
+                        </span>
+                      )}
+                    </div>
+                    <div className="flex justify-between gap-2 pt-1 border-t border-orange-200/60">
+                      <span className="text-orange-800/80">Due date</span>
+                      <span className="font-medium text-orange-900">{dueDateLabel}</span>
+                    </div>
+                  </div>
+                  <p className="text-xs text-orange-600">
+                    Payment: {order.paymentStatus || "UNPAID"}
+                  </p>
                 </div>
               </div>
             </CardContent>
@@ -639,48 +849,113 @@ export default function OrderDetail() {
               <Table>
                 <TableHeader>
                   <TableRow className="hover:bg-transparent">
-                    <TableHead className="w-[40%]">Product</TableHead>
-                    <TableHead className="text-center">Ordered</TableHead>
-                    <TableHead className="text-center">Stock</TableHead>
-                    <TableHead className="text-center">Reserved</TableHead>
-                    <TableHead className="text-center">Available</TableHead>
-                    <TableHead className="text-right">Rate</TableHead>
-                    <TableHead className="text-right">Total</TableHead>
+                    <TableHead className="w-10" aria-hidden />
+                    <TableHead>Product</TableHead>
+                    <TableHead className="text-right min-w-[200px]">Line</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
                   {orderItems.length > 0 ? (
-                    orderItems.map((item: any, index: number) => (
-                      (() => {
-                        const orderedQty = item.orderedQty ?? 0;
-                        const available = item.availableStock ?? 0;
-                        const shortage = orderedQty > available;
-                        return (
-                      <TableRow key={index}>
-                        <TableCell>
-                          <div className="font-medium text-gray-900 flex items-center gap-2">
-                            <span>{item.productNameSnapshot || "Unknown Product"}</span>
-                            {shortage && (
-                              <Badge variant="outline" className="bg-yellow-50 text-yellow-800 border-yellow-200 text-[10px]">
-                                Short
-                              </Badge>
-                            )}
-                          </div>
-                          <div className="text-xs text-gray-500">{item.unitSnapshot || "pcs"}</div>
-                        </TableCell>
-                        <TableCell className="text-center">{orderedQty}</TableCell>
-                        <TableCell className="text-center">{item.currentStock ?? 0}</TableCell>
-                        <TableCell className="text-center">{item.currentReservedStock ?? 0}</TableCell>
-                        <TableCell className={cn("text-center font-medium", shortage ? "text-yellow-800" : "")}>{available}</TableCell>
-                        <TableCell className="text-right">{formatAmount(item.unitPriceSnapshot)}</TableCell>
-                        <TableCell className="text-right font-medium">{formatAmount(item.lineTotal)}</TableCell>
-                      </TableRow>
-                        );
-                      })()
-                    ))
+                    orderItems.map((item: any, index: number) => {
+                      const rowKey = String(item.orderItemId ?? `idx-${index}`);
+                      const orderedQty = item.orderedQty ?? 0;
+                      const available = item.availableStock ?? 0;
+                      const shortage = orderedQty > available;
+                      const unit = item.unitSnapshot || "pcs";
+                      const name = item.productNameSnapshot || "Unknown Product";
+                      const isOpen = expandedItemIds.has(rowKey);
+                      return (
+                        <Fragment key={rowKey}>
+                          <TableRow
+                            className="cursor-pointer hover:bg-muted/50"
+                            onClick={() => toggleItemExpand(rowKey)}
+                            onKeyDown={(e) => {
+                              if (e.key === "Enter" || e.key === " ") {
+                                e.preventDefault();
+                                toggleItemExpand(rowKey);
+                              }
+                            }}
+                            tabIndex={0}
+                            aria-expanded={isOpen}
+                          >
+                            <TableCell className="w-10 align-middle py-3">
+                              <ChevronDown
+                                className={cn(
+                                  "h-4 w-4 text-gray-500 shrink-0 transition-transform duration-200",
+                                  isOpen && "rotate-180"
+                                )}
+                                aria-hidden
+                              />
+                            </TableCell>
+                            <TableCell className="align-middle">
+                              <div className="font-medium text-gray-900 flex flex-wrap items-center gap-2">
+                                <span>
+                                  {name}{" "}
+                                  <span className="text-gray-500 font-normal">({unit})</span>
+                                </span>
+                                {shortage && (
+                                  <Badge
+                                    variant="outline"
+                                    className="bg-yellow-50 text-yellow-800 border-yellow-200 text-[10px]"
+                                  >
+                                    Short
+                                  </Badge>
+                                )}
+                              </div>
+                            </TableCell>
+                            <TableCell className="text-right align-middle">
+                              <div className="text-sm text-gray-600">
+                                Qty: {orderedQty}
+                                <span className="text-gray-300 mx-2">|</span>
+                                Rate: {formatAmount(item.unitPriceSnapshot)}
+                                <span className="text-gray-300 mx-2">|</span>
+                                Total:{" "}
+                                <span className="font-medium text-gray-900">
+                                  {formatAmount(item.lineTotal)}
+                                </span>
+                              </div>
+                            </TableCell>
+                          </TableRow>
+                          {isOpen && (
+                            <TableRow className="bg-gray-50/80 hover:bg-gray-50/80 border-t border-gray-100">
+                              <TableCell colSpan={3} className="py-3 px-4 pl-12">
+                                <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">
+                                  Inventory
+                                </p>
+                                <div className="flex flex-wrap gap-x-8 gap-y-1 text-sm text-gray-700">
+                                  <span>
+                                    Stock:{" "}
+                                    <span className="font-medium text-gray-900">
+                                      {item.currentStock ?? 0}
+                                    </span>
+                                  </span>
+                                  <span>
+                                    Reserved:{" "}
+                                    <span className="font-medium text-gray-900">
+                                      {item.currentReservedStock ?? 0}
+                                    </span>
+                                  </span>
+                                  <span>
+                                    Available:{" "}
+                                    <span
+                                      className={cn(
+                                        "font-medium",
+                                        shortage ? "text-yellow-800" : "text-gray-900"
+                                      )}
+                                    >
+                                      {available}
+                                    </span>
+                                  </span>
+                                </div>
+                              </TableCell>
+                            </TableRow>
+                          )}
+                        </Fragment>
+                      );
+                    })
                   ) : (
                     <TableRow>
-                      <TableCell colSpan={7} className="text-center text-gray-500 py-8">
+                      <TableCell colSpan={3} className="text-center text-gray-500 py-8">
                         No items found
                       </TableCell>
                     </TableRow>

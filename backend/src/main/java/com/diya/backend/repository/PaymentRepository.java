@@ -21,4 +21,6 @@ public interface PaymentRepository extends JpaRepository<Payment, UUID> {
 
     // ✅ new
     List<Payment> findByWholesalerAndStatus(Wholesaler wholesaler, Payment.PaymentStatus status);
+
+    List<Payment> findByRetailerOrderByCreatedAtDesc(Retailer retailer);
 }

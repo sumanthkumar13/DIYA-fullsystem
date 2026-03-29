@@ -1,21 +1,21 @@
-import { useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Switch } from "@/components/ui/switch";
 import { useToast } from "@/hooks/use-toast";
 import { useWholesalerVisibility } from "@/hooks/useWholesalerVisibility";
 import { AddPaymentModal } from "@/components/payments/AddPaymentModal";
+import { AddRetailerModal } from "@/components/retailers/AddRetailerModal";
+import { CreateOrderModal } from "@/components/orders/CreateOrderModal";
 
 import {
-  ArrowUpRight,
   Clock,
   CreditCard,
   Package,
   AlertCircle,
   CheckCircle2,
-  Plus,
   MapPin,
-  ChevronDown,
   TrendingUp,
-  Users
+  Users,
+  Loader2
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -28,45 +28,76 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { cn } from "@/lib/utils";
-import { useDashboardKpi, useDashboardTerritory, useDashboardActivity } from "@/hooks/useDashboard";
+import {
+  useDashboardKpi,
+  useDashboardActivity,
+  useTerritoryPerformance,
+  useActiveRegions,
+} from "@/hooks/useDashboard";
+import type { TerritoryPerformanceRow } from "@/services/analytics";
+import { useAuth } from "@/context/AuthContext";
+import { getGreeting, getUserDisplayName } from "@/lib/greeting";
 
 export default function Dashboard() {
   const [addPaymentOpen, setAddPaymentOpen] = useState(false);
-  const { data: kpi } = useDashboardKpi();
-  const { data: territory } = useDashboardTerritory();
+  const [addRetailerOpen, setAddRetailerOpen] = useState(false);
+  const [createOrderOpen, setCreateOrderOpen] = useState(false);
+  const [kpiRegion, setKpiRegion] = useState<string>("all");
+  const { data: kpi } = useDashboardKpi(kpiRegion);
+  const { data: activeRegions = [], isLoading: activeRegionsLoading } = useActiveRegions();
+  const [territorySort, setTerritorySort] = useState<"revenue" | "risk">("revenue");
+  const { data: territoryRows, isLoading: territoryLoading, isError: territoryError } =
+    useTerritoryPerformance(territorySort);
   const { data: activity } = useDashboardActivity();
+
+  const visibleTerritoryRows = useMemo(() => {
+    if (!territoryRows?.length) return [];
+    if (!activeRegions.length) return [];
+    const allowed = new Set(activeRegions);
+    return territoryRows.filter((r) => allowed.has(r.region));
+  }, [territoryRows, activeRegions]);
+
+  useEffect(() => {
+    if (
+      kpiRegion !== "all" &&
+      !activeRegionsLoading &&
+      activeRegions.length > 0 &&
+      !activeRegions.includes(kpiRegion)
+    ) {
+      setKpiRegion("all");
+    }
+  }, [kpiRegion, activeRegions, activeRegionsLoading]);
   const { toast } = useToast();
   const { mode, loading: visibilityLoading, saving, setVisibility } = useWholesalerVisibility();
+  const { user } = useAuth();
+
+  const greeting = getGreeting();
+  const userName = getUserDisplayName(user);
 
   return (
     <div className="space-y-6">
       {/* Top Controls */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div className="space-y-1">
-          <h1 className="text-2xl font-display font-bold text-gray-900">Good Morning, Vijay ☀️</h1>
+          <h1 className="text-2xl font-display font-bold text-gray-900">
+            {userName ? `${greeting}, ${userName}` : greeting}
+          </h1>
           <p className="text-sm text-gray-500">Here's what's happening in your business today.</p>
         </div>
 
-        <div className="flex items-center gap-2 bg-white p-1 rounded-xl shadow-sm border border-gray-100">
-          <MapPin className="h-4 w-4 text-primary ml-2" />
-          <Select defaultValue="all">
-            <SelectTrigger className="w-[140px] border-0 bg-transparent focus:ring-0 font-medium text-gray-700 shadow-none h-8">
-              <SelectValue placeholder="Select State" />
+        <div className="flex items-center gap-2 bg-white px-2 py-1 rounded-xl shadow-sm border border-gray-100 max-w-full">
+          <MapPin className="h-4 w-4 text-primary shrink-0 ml-1" aria-hidden />
+          <Select value={kpiRegion} onValueChange={setKpiRegion} disabled={activeRegionsLoading}>
+            <SelectTrigger className="min-w-[10rem] max-w-[220px] border-0 bg-transparent focus:ring-0 font-medium text-gray-700 shadow-none h-9">
+              <SelectValue placeholder={activeRegionsLoading ? "Loading regions…" : "Region filter"} />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="all">All States</SelectItem>
-              <SelectItem value="telangana">Telangana</SelectItem>
-              <SelectItem value="andhra">Andhra Pradesh</SelectItem>
-            </SelectContent>
-          </Select>
-          <div className="h-4 w-px bg-gray-200" />
-          <Select defaultValue="hyd">
-            <SelectTrigger className="w-[140px] border-0 bg-transparent focus:ring-0 font-medium text-gray-700 shadow-none h-8">
-              <SelectValue placeholder="Select District" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="hyd">Hyderabad</SelectItem>
-              <SelectItem value="rangareddy">Ranga Reddy</SelectItem>
+              <SelectItem value="all">All regions</SelectItem>
+              {activeRegions.map((r) => (
+                <SelectItem key={r} value={r}>
+                  {r}
+                </SelectItem>
+              ))}
             </SelectContent>
           </Select>
         </div>
@@ -118,43 +149,92 @@ export default function Dashboard() {
         <div className="lg:col-span-2 space-y-6">
 
           {/* Territory Heatmap Placeholder */}
-          <Card className="border-none shadow-sm bg-white overflow-hidden">
-            <CardHeader className="border-b border-gray-100 pb-3">
-              <div className="flex items-center justify-between">
+          <Card className="border-none shadow-sm bg-white overflow-hidden flex flex-col max-h-[min(28rem,65vh)]">
+            <CardHeader className="border-b border-gray-100 pb-3 shrink-0">
+              <div className="flex items-center justify-between gap-2">
                 <CardTitle className="text-base font-semibold flex items-center gap-2">
-                  <TrendingUp className="h-4 w-4 text-primary" />
+                  <TrendingUp className="h-4 w-4 text-primary shrink-0" />
                   Territory Performance
                 </CardTitle>
-                <div className="flex gap-2 text-xs font-medium">
-                  <span className="flex items-center gap-1"><span className="h-2 w-2 rounded-full bg-green-500"></span> Gold</span>
-                  <span className="flex items-center gap-1"><span className="h-2 w-2 rounded-full bg-yellow-500"></span> Silver</span>
-                  <span className="flex items-center gap-1"><span className="h-2 w-2 rounded-full bg-red-500"></span> Risk</span>
+                <div className="flex gap-3 text-xs font-medium text-gray-600 shrink-0">
+                  <span className="flex items-center gap-1">
+                    <span className="h-2 w-2 rounded-full bg-green-500" /> Gold
+                  </span>
+                  <span className="flex items-center gap-1">
+                    <span className="h-2 w-2 rounded-full bg-yellow-500" /> Silver
+                  </span>
                 </div>
               </div>
             </CardHeader>
-            <CardContent className="p-6">
-              <div className="h-64 w-full bg-gray-50 rounded-xl border-2 border-dashed border-gray-200 flex flex-col items-center justify-center text-gray-400">
-                <MapPin className="h-10 w-10 mb-2 opacity-20" />
-                <p className="text-sm">Interactive Territory Map Visualization</p>
-                <p className="text-xs opacity-60">(Shows revenue heat & risk zones)</p>
+            <CardContent className="p-0 flex flex-col min-h-0 flex-1">
+              <div className="px-6 pt-4 pb-3 shrink-0 border-b border-gray-50 space-y-3">
+                <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+                  <p className="text-sm text-gray-500">
+                    Regions where you have retailers (not affected by the KPI filter above).
+                  </p>
+                  <div className="flex rounded-lg border border-gray-200 bg-gray-50 p-0.5 w-full sm:w-auto shrink-0">
+                    <Button
+                      type="button"
+                      variant={territorySort === "revenue" ? "secondary" : "ghost"}
+                      size="sm"
+                      className="flex-1 sm:flex-none h-8 text-xs"
+                      onClick={() => setTerritorySort("revenue")}
+                    >
+                      By revenue
+                    </Button>
+                    <Button
+                      type="button"
+                      variant={territorySort === "risk" ? "secondary" : "ghost"}
+                      size="sm"
+                      className="flex-1 sm:flex-none h-8 text-xs"
+                      onClick={() => setTerritorySort("risk")}
+                    >
+                      By risk
+                    </Button>
+                  </div>
+                </div>
               </div>
-
-              <div className="grid grid-cols-3 gap-4 mt-6">
-                <div className="p-3 bg-gray-50 rounded-lg">
-                  <p className="text-xs text-gray-500 mb-1">Top Performing Area</p>
-                  <p className="font-semibold text-gray-900">{territory?.topArea?.name}</p>
-                  <p className="text-green-600 font-medium text-sm mt-1">₹{territory?.topArea?.value}</p>
-                </div>
-                <div className="p-3 bg-gray-50 rounded-lg">
-                  <p className="text-xs text-gray-500 mb-1">Highest Risk Area</p>
-                  <p className="font-semibold text-gray-900">{territory?.highestRiskArea?.name}</p>
-                  <p className="text-red-600 font-medium text-sm mt-1">₹{territory?.highestRiskArea?.value}</p>
-                </div>
-                <div className="p-3 bg-gray-50 rounded-lg">
-                  <p className="text-xs text-gray-500 mb-1">Active Retailers</p>
-                  <p className="font-semibold text-gray-900">{territory?.activeRetailers} / {territory?.totalRetailers}</p>
-                  <p className="text-xs text-blue-600 mt-1">78% Active</p>
-                </div>
+              <div className="px-6 py-4 overflow-y-auto min-h-0 flex-1 overscroll-contain">
+                {territoryLoading && (
+                  <div className="flex items-center justify-center py-16 text-gray-500 gap-2">
+                    <Loader2 className="h-5 w-5 animate-spin" />
+                    <span className="text-sm">Loading territory data…</span>
+                  </div>
+                )}
+                {territoryError && !territoryLoading && (
+                  <p className="text-sm text-red-600 text-center py-8">
+                    Could not load territory performance. Please refresh or try again.
+                  </p>
+                )}
+                {!territoryLoading && !territoryError && activeRegionsLoading && (
+                  <div className="flex items-center justify-center py-12 text-gray-500 gap-2 text-sm">
+                    <Loader2 className="h-4 w-4 animate-spin" /> Loading regions…
+                  </div>
+                )}
+                {!territoryLoading &&
+                  !territoryError &&
+                  !activeRegionsLoading &&
+                  activeRegions.length === 0 && (
+                    <p className="text-sm text-gray-500 text-center py-12">
+                      Add retailers with a region to see territory cards here.
+                    </p>
+                  )}
+                {!territoryLoading &&
+                  !territoryError &&
+                  !activeRegionsLoading &&
+                  activeRegions.length > 0 &&
+                  visibleTerritoryRows.length === 0 && (
+                    <p className="text-sm text-gray-500 text-center py-12">
+                      No territory metrics for your regions yet.
+                    </p>
+                  )}
+                {!territoryLoading && !territoryError && !activeRegionsLoading && visibleTerritoryRows.length > 0 && (
+                  <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-4">
+                    {visibleTerritoryRows.map((row) => (
+                      <TerritoryRegionCard key={row.region} row={row} />
+                    ))}
+                  </div>
+                )}
               </div>
             </CardContent>
           </Card>
@@ -213,7 +293,7 @@ export default function Dashboard() {
 
 
           {/* Quick Actions */}
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
             <Button
               onClick={() => setAddPaymentOpen(true)}
               className="h-auto py-4 flex flex-col gap-2 bg-white border border-gray-200 shadow-sm hover:bg-gray-50 text-gray-900 hover:border-primary/50 transition-all group"
@@ -224,23 +304,25 @@ export default function Dashboard() {
               </div>
               <span className="font-medium">Add Payment</span>
             </Button>
-            <Button className="h-auto py-4 flex flex-col gap-2 bg-white border border-gray-200 shadow-sm hover:bg-gray-50 text-gray-900 hover:border-primary/50 transition-all group" variant="ghost">
+            <Button
+              className="h-auto py-4 flex flex-col gap-2 bg-white border border-gray-200 shadow-sm hover:bg-gray-50 text-gray-900 hover:border-primary/50 transition-all group"
+              variant="ghost"
+              onClick={() => setCreateOrderOpen(true)}
+            >
               <div className="h-10 w-10 rounded-full bg-blue-100 flex items-center justify-center group-hover:scale-110 transition-transform">
                 <Package className="h-5 w-5 text-blue-600" />
               </div>
               <span className="font-medium">Create Order</span>
             </Button>
-            <Button className="h-auto py-4 flex flex-col gap-2 bg-white border border-gray-200 shadow-sm hover:bg-gray-50 text-gray-900 hover:border-primary/50 transition-all group" variant="ghost">
+            <Button
+              onClick={() => setAddRetailerOpen(true)}
+              className="h-auto py-4 flex flex-col gap-2 bg-white border border-gray-200 shadow-sm hover:bg-gray-50 text-gray-900 hover:border-primary/50 transition-all group"
+              variant="ghost"
+            >
               <div className="h-10 w-10 rounded-full bg-orange-100 flex items-center justify-center group-hover:scale-110 transition-transform">
                 <Users className="h-5 w-5 text-orange-600" />
               </div>
               <span className="font-medium">Add Retailer</span>
-            </Button>
-            <Button className="h-auto py-4 flex flex-col gap-2 bg-white border border-gray-200 shadow-sm hover:bg-gray-50 text-gray-900 hover:border-primary/50 transition-all group" variant="ghost">
-              <div className="h-10 w-10 rounded-full bg-purple-100 flex items-center justify-center group-hover:scale-110 transition-transform">
-                <ArrowUpRight className="h-5 w-5 text-purple-600" />
-              </div>
-              <span className="font-medium">View Reports</span>
             </Button>
           </div>
         </div>
@@ -276,7 +358,62 @@ export default function Dashboard() {
       </div>
 
       <AddPaymentModal open={addPaymentOpen} onClose={() => setAddPaymentOpen(false)} />
+      <CreateOrderModal open={createOrderOpen} onClose={() => setCreateOrderOpen(false)} />
+      <AddRetailerModal open={addRetailerOpen} onClose={() => setAddRetailerOpen(false)} />
     </div>
+  );
+}
+
+function formatTerritoryRupee(n: number) {
+  const v = Number.isFinite(n) ? Math.round(n) : 0;
+  return `₹${v.toLocaleString("en-IN")}`;
+}
+
+function TerritoryRegionCard({ row }: { row: TerritoryPerformanceRow }) {
+  const border =
+    row.status === "GOLD"
+      ? "border-l-emerald-500"
+      : row.status === "RISK"
+        ? "border-l-red-500"
+        : "border-l-amber-400";
+  const badgeClass =
+    row.status === "GOLD"
+      ? "bg-emerald-50 text-emerald-800 border-emerald-200"
+      : row.status === "RISK"
+        ? "bg-red-50 text-red-800 border-red-200"
+        : "bg-amber-50 text-amber-900 border-amber-200";
+
+  return (
+    <Card className={cn("border border-gray-100 shadow-sm border-l-4 bg-white", border)}>
+      <CardContent className="p-4 space-y-3">
+        <div className="flex items-start justify-between gap-2">
+          <h3 className="font-display font-semibold text-gray-900 leading-tight">{row.region}</h3>
+          <Badge variant="outline" className={cn("text-[10px] uppercase tracking-wide shrink-0", badgeClass)}>
+            {row.status}
+          </Badge>
+        </div>
+        <div className="space-y-2 text-sm">
+          <div className="flex justify-between gap-2">
+            <span className="text-gray-500">Revenue</span>
+            <span className="font-semibold text-gray-900">{formatTerritoryRupee(row.revenue)}</span>
+          </div>
+          <div className="flex justify-between gap-2">
+            <span className="text-gray-500">Outstanding</span>
+            <span className="font-semibold text-orange-700">{formatTerritoryRupee(row.outstanding)}</span>
+          </div>
+          <div className="flex justify-between gap-2">
+            <span className="text-gray-500">Overdue</span>
+            <span className="font-semibold text-red-600">{formatTerritoryRupee(row.overdue)}</span>
+          </div>
+          <div className="flex justify-between gap-2 pt-1 border-t border-gray-100">
+            <span className="text-gray-500">Active retailers</span>
+            <span className="font-medium text-gray-900">
+              {row.activeRetailers} / {row.totalRetailers}
+            </span>
+          </div>
+        </div>
+      </CardContent>
+    </Card>
   );
 }
 

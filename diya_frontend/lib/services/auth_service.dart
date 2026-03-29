@@ -8,22 +8,72 @@ class AuthService {
 
   static const _tokenKey = 'jwt_token';
 
-  Future<Map<String, dynamic>> login(String identifier, String password) async {
+  /// Step 1: phone-first login – determine flow
+  Future<Map<String, dynamic>> loginPhone(String phone) async {
     final response = await _dio.post(
-      '/api/auth/login',
-      data: {'identifier': identifier, 'password': password},
+      '/api/retailer/login-phone',
+      data: {'phone': phone},
     );
 
     final res = response.data as Map<String, dynamic>;
+    print("loginPhone response: $res");
+    return res;
+  }
 
-    if (res['success'] != true) {
-      throw Exception(res['message'] ?? 'Login failed');
+  /// Request OTP for retailer claim (returns OTP in dev)
+  Future<Map<String, dynamic>> requestRetailerOtp(String phone) async {
+    final response = await _dio.post(
+      '/api/retailer/request-otp',
+      data: {'phone': phone},
+    );
+    final res = response.data as Map<String, dynamic>;
+    print("requestRetailerOtp response: $res");
+    return res;
+  }
+
+  /// Verify OTP and set password in a single backend call
+  Future<Map<String, dynamic>> verifyRetailerOtp(
+      String phone, String otp, String password) async {
+    final response = await _dio.post(
+      '/api/retailer/verify-otp',
+      data: {'phone': phone, 'otp': otp, 'password': password},
+    );
+    final res = response.data as Map<String, dynamic>;
+    print("verifyRetailerOtp response: $res");
+    return res;
+  }
+
+  /// Set retailer password and receive JWT token
+  Future<Map<String, dynamic>> setRetailerPassword(
+      String phone, String password) async {
+    final response = await _dio.post(
+      '/api/retailer/set-password',
+      data: {'phone': phone, 'password': password},
+    );
+
+    final res = response.data as Map<String, dynamic>;
+    print("setRetailerPassword response: $res");
+
+    final token = res['token'];
+    if (token == null || token is! String || token.isEmpty) {
+      throw Exception("Set password failed: token missing");
     }
 
-    final data = (res['data'] as Map<String, dynamic>?);
-    if (data == null) throw Exception("Login failed: missing data");
+    await _storage.write(key: _tokenKey, value: token);
+    return res;
+  }
 
-    final token = data['token'];
+  /// Step 2 (if PASSWORD_LOGIN_REQUIRED): login with phone + password
+  Future<Map<String, dynamic>> loginWithPassword(String phone, String password) async {
+    final response = await _dio.post(
+      '/api/retailer/login',
+      data: {'phone': phone, 'password': password},
+    );
+
+    final res = response.data as Map<String, dynamic>;
+    print("loginWithPassword response: $res");
+
+    final token = res['token'];
     if (token == null || token is! String || token.isEmpty) {
       throw Exception("Login failed: token missing");
     }
@@ -31,7 +81,7 @@ class AuthService {
     // ✅ Save token for interceptor
     await _storage.write(key: _tokenKey, value: token);
 
-    return data;
+    return res;
   }
 
   /// ✅ Updated: Save JWT token after successful registration

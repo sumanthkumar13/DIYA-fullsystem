@@ -3,11 +3,13 @@ package com.diya.backend.controller;
 import com.diya.backend.dto.product.*;
 import com.diya.backend.service.ProductService;
 import lombok.RequiredArgsConstructor;
+import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.data.domain.Page;
 
+import java.util.List;
 import java.util.UUID;
 
 @RestController
@@ -48,5 +50,28 @@ public class WholesalerProductController {
     public ProductResponseDTO update(@PathVariable UUID id, @RequestBody ProductUpdateRequest req) {
         Authentication auth = SecurityContextHolder.getContext().getAuthentication();
         return productService.updateProduct(getIdentifier(auth), getAuthType(auth), id, req);
+    }
+
+    @DeleteMapping("/{id}")
+    public ResponseEntity<Void> delete(@PathVariable UUID id) {
+        Authentication auth = SecurityContextHolder.getContext().getAuthentication();
+        productService.deleteProductForWholesaler(getIdentifier(auth), getAuthType(auth), id);
+        return ResponseEntity.noContent().build();
+    }
+
+    @GetMapping("/{id}/retailer-visibility")
+    public List<ProductRetailerVisibilityRowDTO> getRetailerVisibility(@PathVariable UUID id) {
+        Authentication auth = SecurityContextHolder.getContext().getAuthentication();
+        return productService.getProductRetailerVisibility(getIdentifier(auth), getAuthType(auth), id);
+    }
+
+    @PutMapping("/{id}/retailer-visibility")
+    public ResponseEntity<Void> setRetailerVisibility(
+            @PathVariable UUID id, @RequestBody ProductRetailerVisibilityUpdateRequest req) {
+        Authentication auth = SecurityContextHolder.getContext().getAuthentication();
+        productService.setProductRetailerVisibility(
+                getIdentifier(auth), getAuthType(auth), id,
+                req.getHiddenRetailerIds() != null ? req.getHiddenRetailerIds() : List.of());
+        return ResponseEntity.noContent().build();
     }
 }

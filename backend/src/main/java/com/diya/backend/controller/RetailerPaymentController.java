@@ -1,6 +1,9 @@
 package com.diya.backend.controller;
 
 import com.diya.backend.entity.Payment;
+import com.diya.backend.entity.Retailer;
+import com.diya.backend.repository.PaymentRepository;
+import com.diya.backend.repository.RetailerRepository;
 import com.diya.backend.service.PaymentService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
@@ -9,6 +12,7 @@ import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.web.bind.annotation.*;
 
 import java.math.BigDecimal;
+import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 
@@ -18,6 +22,8 @@ import java.util.UUID;
 public class RetailerPaymentController {
 
     private final PaymentService paymentService;
+    private final RetailerRepository retailerRepository;
+    private final PaymentRepository paymentRepository;
 
     // ✅ Retailer marks a payment for an order (CASH / UPI / NEFT / NET_BANKING)
     @PostMapping
@@ -39,5 +45,20 @@ public class RetailerPaymentController {
         Payment payment = paymentService.recordPayment(identifier, orderId, amount, mode, reference, note);
 
         return ResponseEntity.ok(payment);
+    }
+
+    // ✅ Retailer payment history
+    @GetMapping
+    public ResponseEntity<List<Payment>> getRetailerPayments() {
+        Authentication auth = SecurityContextHolder.getContext().getAuthentication();
+        String identifier = auth.getName(); // email OR phone
+
+        Retailer retailer = identifier.contains("@")
+                ? retailerRepository.findByUserEmail(identifier)
+                        .orElseThrow(() -> new RuntimeException("Retailer not found"))
+                : retailerRepository.findByUserPhone(identifier)
+                        .orElseThrow(() -> new RuntimeException("Retailer not found"));
+
+        return ResponseEntity.ok(paymentRepository.findByRetailerOrderByCreatedAtDesc(retailer));
     }
 }

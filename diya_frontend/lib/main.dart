@@ -5,6 +5,8 @@ import 'screens/splash/splash_screen.dart';
 import 'screens/auth/welcome_screen.dart';
 import 'screens/auth/login_screen.dart';
 import 'screens/auth/signup_screen.dart';
+import 'screens/auth/otp_screen.dart';
+import 'screens/auth/create_password_screen.dart';
 
 import 'screens/connect/connect_screen.dart';
 import 'screens/home/retailer_dashboard.dart';
@@ -39,6 +41,8 @@ class DiyaApp extends StatelessWidget {
         '/welcome': (_) => const WelcomeScreen(),
         '/login': (_) => const LoginScreen(),
         '/signup': (_) => const SignupScreen(),
+        '/otp': (_) => const OtpScreen(),
+        '/create-password': (_) => const CreatePasswordScreen(),
 
         '/connect': (_) => RetailerShell(
               current: NavTab.home,

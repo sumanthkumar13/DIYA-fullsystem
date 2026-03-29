@@ -24,6 +24,9 @@ public class ProductService {
     private static final int DEFAULT_LOW_STOCK_THRESHOLD = 20;
     private final RetailerRepository retailerRepository;
     private final ConnectionService connectionService;
+    private final ProductRetailerHideRepository productRetailerHideRepository;
+    private final CartItemRepository cartItemRepository;
+    private final ConnectionRepository connectionRepository;
 
     @Transactional
     public ProductResponseDTO createProduct(String identifier, String authType, ProductCreateRequest req) {
@@ -128,7 +131,10 @@ public class ProductService {
             throw new RuntimeException("Product does not belong to this wholesaler");
         }
 
-        if (!p.isActive() || !p.isVisibleToRetailer()) {
+        if (!p.isActive() || !p.isVisibleToRetailer() || p.isDeleted()) {
+            throw new RuntimeException("Product not available");
+        }
+        if (productRetailerHideRepository.existsByProduct_IdAndRetailer_Id(productId, retailer.getId())) {
             throw new RuntimeException("Product not available");
         }
 
@@ -183,20 +189,17 @@ public class ProductService {
         // 🔥 Most important filter: wholesalerId must match + visibleToRetailer +
         // active
         if (subcategoryId != null) {
-            productsPage = productRepository
-                    .findByWholesalerIdAndSubcategoryIdAndVisibleToRetailerTrueAndActiveTrue(
-                            wholesaler.getId(), subcategoryId, pageable);
+            productsPage = productRepository.findRetailerCatalogBySubcategory(
+                    wholesaler.getId(), subcategoryId, retailer.getId(), pageable);
         } else if (categoryId != null) {
-            productsPage = productRepository
-                    .findByWholesalerIdAndCategoryIdAndVisibleToRetailerTrueAndActiveTrue(
-                            wholesaler.getId(), categoryId, pageable);
+            productsPage = productRepository.findRetailerCatalogByCategory(
+                    wholesaler.getId(), categoryId, retailer.getId(), pageable);
         } else if (search != null && !search.isBlank()) {
-            productsPage = productRepository
-                    .findByWholesalerIdAndNameContainingIgnoreCaseAndVisibleToRetailerTrueAndActiveTrue(
-                            wholesaler.getId(), search, pageable);
+            productsPage = productRepository.findRetailerCatalogSearch(
+                    wholesaler.getId(), retailer.getId(), search.trim(), pageable);
         } else {
-            productsPage = productRepository
-                    .findByWholesalerIdAndVisibleToRetailerTrueAndActiveTrue(wholesaler.getId(), pageable);
+            productsPage = productRepository.findRetailerCatalogAll(
+                    wholesaler.getId(), retailer.getId(), pageable);
         }
 
         return productsPage.map(this::toDto);
@@ -207,6 +210,8 @@ public class ProductService {
         Product p = productRepository.findById(id).orElseThrow(() -> new RuntimeException("Product not found"));
         if (!p.getWholesaler().getId().equals(wholesaler.getId()))
             throw new RuntimeException("Access denied");
+        if (p.isDeleted())
+            throw new RuntimeException("Product not found");
         return toDto(p);
     }
 
@@ -217,6 +222,8 @@ public class ProductService {
         Product p = productRepository.findById(productId).orElseThrow(() -> new RuntimeException("Product not found"));
         if (!p.getWholesaler().getId().equals(wholesaler.getId()))
             throw new RuntimeException("Access denied");
+        if (p.isDeleted())
+            throw new RuntimeException("Product not found");
 
         if (req.getCategoryId() != null) {
             Category cat = categoryRepository.findById(req.getCategoryId())
@@ -297,20 +304,92 @@ public class ProductService {
         // ✅ FIX: if subcategoryId is present, use it (needed for showing products under
         // subcategory)
         if (subcategoryId != null) {
-            productsPage = productRepository.findByWholesalerIdAndSubcategoryId(
+            productsPage = productRepository.findByWholesalerIdAndSubcategoryIdAndDeletedFalse(
                     wholesaler.getId(), subcategoryId, pageable);
         } else if (categoryId != null) {
-            productsPage = productRepository.findByWholesalerIdAndCategoryId(
+            productsPage = productRepository.findByWholesalerIdAndCategoryIdAndDeletedFalse(
                     wholesaler.getId(), categoryId, pageable);
         } else if (search != null && !search.isBlank()) {
-            productsPage = productRepository
-                    .findByWholesalerIdAndNameContainingIgnoreCaseOrWholesalerIdAndSkuIgnoreCase(
-                            wholesaler.getId(), search, wholesaler.getId(), search, pageable);
+            productsPage = productRepository.searchByWholesalerDeletedFalse(
+                    wholesaler.getId(), search.trim(), pageable);
         } else {
-            productsPage = productRepository.findByWholesalerId(wholesaler.getId(), pageable);
+            productsPage = productRepository.findByWholesalerIdAndDeletedFalse(wholesaler.getId(), pageable);
         }
 
         return productsPage.map(this::toDto);
+    }
+
+    public List<ProductRetailerVisibilityRowDTO> getProductRetailerVisibility(
+            String identifier, String authType, UUID productId) {
+        Wholesaler wholesaler = resolveWholesaler(identifier, authType);
+        Product p = productRepository.findById(productId).orElseThrow(() -> new RuntimeException("Product not found"));
+        if (!p.getWholesaler().getId().equals(wholesaler.getId()) || p.isDeleted())
+            throw new RuntimeException("Access denied");
+
+        List<Connection> approved = connectionRepository.findByWholesalerAndStatusOrderByRequestedAtDesc(
+                wholesaler, Connection.Status.APPROVED);
+        List<ProductRetailerVisibilityRowDTO> rows = new ArrayList<>();
+        for (Connection conn : approved) {
+            Retailer r = conn.getRetailer();
+            String name = r.getUser() != null && r.getUser().getName() != null
+                    ? r.getUser().getName()
+                    : (r.getShopName() != null ? r.getShopName() : "Retailer");
+            boolean hidden = productRetailerHideRepository.existsByProduct_IdAndRetailer_Id(productId, r.getId());
+            rows.add(ProductRetailerVisibilityRowDTO.builder()
+                    .retailerId(r.getId())
+                    .name(name)
+                    .visible(!hidden)
+                    .build());
+        }
+        return rows;
+    }
+
+    @Transactional
+    public void setProductRetailerVisibility(
+            String identifier, String authType, UUID productId, List<UUID> hiddenRetailerIds) {
+        Wholesaler wholesaler = resolveWholesaler(identifier, authType);
+        Product p = productRepository.findById(productId).orElseThrow(() -> new RuntimeException("Product not found"));
+        if (!p.getWholesaler().getId().equals(wholesaler.getId()) || p.isDeleted())
+            throw new RuntimeException("Access denied");
+
+        Set<UUID> allowedRetailers = connectionRepository
+                .findByWholesalerAndStatusOrderByRequestedAtDesc(wholesaler, Connection.Status.APPROVED)
+                .stream()
+                .map(c -> c.getRetailer().getId())
+                .collect(java.util.stream.Collectors.toSet());
+
+        productRetailerHideRepository.deleteByProduct_Id(productId);
+
+        if (hiddenRetailerIds == null)
+            return;
+        for (UUID rid : hiddenRetailerIds) {
+            if (rid == null || !allowedRetailers.contains(rid))
+                continue;
+            Retailer ret = retailerRepository.findById(rid).orElse(null);
+            if (ret == null)
+                continue;
+            productRetailerHideRepository.save(ProductRetailerHide.builder()
+                    .product(p)
+                    .retailer(ret)
+                    .build());
+        }
+    }
+
+    @Transactional
+    public void deleteProductForWholesaler(String identifier, String authType, UUID productId) {
+        Wholesaler wholesaler = resolveWholesaler(identifier, authType);
+        Product p = productRepository.findById(productId).orElseThrow(() -> new RuntimeException("Product not found"));
+        if (!p.getWholesaler().getId().equals(wholesaler.getId()))
+            throw new RuntimeException("Access denied");
+        if (p.isDeleted())
+            return;
+
+        cartItemRepository.deleteByProduct_Id(productId);
+        productRetailerHideRepository.deleteByProduct_Id(productId);
+        p.setDeleted(true);
+        p.setActive(false);
+        p.setVisibleToRetailer(false);
+        productRepository.save(p);
     }
 
     /**
@@ -428,6 +507,13 @@ public class ProductService {
                 .subcategoryName(p.getSubcategory() == null ? null : p.getSubcategory().getName())
                 .isActive(p.isActive())
                 .visibleToRetailer(p.isVisibleToRetailer())
+                .hsnCode(p.getHsnCode())
+                .gstRate(p.getGstRate())
+                .taxType(p.getTaxType())
+                .baseUnit(p.getBaseUnit())
+                .sellingUnit(p.getSellingUnit())
+                .unitsPerSelling(p.getUnitsPerSelling())
+                .priceIncludesTax(p.getPriceIncludesTax())
                 .build();
     }
 

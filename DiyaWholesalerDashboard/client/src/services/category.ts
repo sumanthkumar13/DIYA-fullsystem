@@ -5,6 +5,14 @@ export async function fetchCategories() {
   return res.data;
 }
 
+/**
+ * Public category list for signup / onboarding (no auth required)
+ */
+export async function fetchPublicCategories() {
+  const res = await api.get("/public/categories");
+  return res.data;
+}
+
 export async function createCategory(name: string) {
   const res = await api.post("/wholesaler/categories", { name });
   return res.data;

@@ -12,6 +12,17 @@ export interface OrderListItem {
   exposure?: string;
 }
 
+export interface CreateOrderItemPayload {
+  productId: string;
+  quantity: number;
+}
+
+export interface CreateOrderPayload {
+  retailerId: string;
+  items: CreateOrderItemPayload[];
+  notes?: string;
+}
+
 /**
  * Fetch orders for logged-in wholesaler
  * Backend: GET /api/wholesaler/orders
@@ -43,6 +54,15 @@ export async function fetchOrders(
 
   const res = await api.get("/wholesaler/orders", { params });
   return res.data || [];
+}
+
+/**
+ * Create order for a retailer (wholesaler-initiated).
+ * Backend: POST /api/wholesaler/orders
+ */
+export async function createOrder(payload: CreateOrderPayload) {
+  const res = await api.post("/wholesaler/orders", payload);
+  return res.data;
 }
 
 /**
@@ -81,6 +101,14 @@ export async function rejectOrder(orderId: string) {
  */
 export async function fetchOrderDetail(orderId: string) {
   const res = await api.get(`/wholesaler/orders/${orderId}`);
+  return res.data;
+}
+
+export async function patchOrderCredit(
+  orderId: string,
+  body: { creditDays?: number; approvedCreditAmount?: number }
+) {
+  const res = await api.patch(`/wholesaler/orders/${orderId}/credit`, body);
   return res.data;
 }
 

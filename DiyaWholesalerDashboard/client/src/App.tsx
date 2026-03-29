@@ -23,6 +23,8 @@ import AddProductPage from "@/pages/product-new";
 import CategoriesPage from "@/pages/categories";
 import CategoryDetailPage from "./pages/CategoryDetailPage";
 import ConnectionRequestsPage from "@/pages/connection-requests";
+import PaymentsPage from "@/pages/payments";
+
 
 
 function AppLayout({ children }: { children: React.ReactNode }) {
@@ -128,6 +130,12 @@ function Router() {
       <Route path="/settings">
         <AppLayout>
           <SettingsPage />
+        </AppLayout>
+      </Route>
+
+      <Route path="/payments">
+        <AppLayout>
+          <PaymentsPage />
         </AppLayout>
       </Route>
 

@@ -2,6 +2,8 @@ package com.diya.backend.repository;
 
 import com.diya.backend.entity.Wholesaler;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
 
 import java.util.List;
@@ -15,10 +17,11 @@ public interface WholesalerRepository extends JpaRepository<Wholesaler, UUID> {
 
     Optional<Wholesaler> findByUserId(UUID userId);
 
-    Optional<Wholesaler> findByUserPhone(String phone);
+    @Query("SELECT w FROM Wholesaler w WHERE w.user.phone = :phone")
+    Optional<Wholesaler> findByUserPhone(@Param("phone") String phone);
 
-    // restore old convenience method used across services
-    Optional<Wholesaler> findByUserEmail(String email);
+    @Query("SELECT w FROM Wholesaler w WHERE w.user.email = :email")
+    Optional<Wholesaler> findByUserEmail(@Param("email") String email);
 
     boolean existsByHandle(String handle);
 

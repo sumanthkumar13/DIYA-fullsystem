@@ -3,6 +3,7 @@ package com.diya.backend.service;
 import com.diya.backend.dto.WholesalerSettingsDTO;
 import com.diya.backend.entity.User;
 import com.diya.backend.entity.Wholesaler;
+import com.diya.backend.util.BusinessTypeCatalog;
 import com.diya.backend.repository.UserRepository;
 import com.diya.backend.repository.WholesalerRepository;
 import lombok.RequiredArgsConstructor;
@@ -39,6 +40,7 @@ public class WholesalerSettingsService {
                 u != null ? u.getPhone() : null,
                 w.getAddress(),
                 w.getGstin(),
+                w.getBusinessType(),
                 w.getVisibilityMode(),
                 u != null ? u.getEmail() : null
         );
@@ -57,6 +59,13 @@ public class WholesalerSettingsService {
         }
         if (dto.getGstin() != null) {
             w.setGstin(dto.getGstin());
+        }
+        if (dto.getBusinessType() != null) {
+            if (dto.getBusinessType().isBlank()) {
+                throw new RuntimeException("Business type cannot be empty");
+            }
+            BusinessTypeCatalog.requireValidBusinessType(dto.getBusinessType());
+            w.setBusinessType(dto.getBusinessType().trim());
         }
         if (dto.getVisibilityMode() != null) {
             w.setVisibilityMode(dto.getVisibilityMode());

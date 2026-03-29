@@ -20,22 +20,47 @@ public class DashboardService {
         private final PaymentRepository paymentRepository;
         private final RetailerRepository retailerRepository;
         private final LedgerEntryRepository ledgerRepository;
+        private final ConnectionRepository connectionRepository;
 
-        // ------------------------------------------------------
-        // KPI SECTION
-        // ------------------------------------------------------
-        public DashboardKpiDTO getKpiData(String identifier, String authType) {
+        /**
+         * Distinct non-empty {@link Retailer#getRegion()} among APPROVED connections for this wholesaler.
+         */
+        public List<String> getActiveRetailerRegions(String identifier, String authType) {
                 Wholesaler wholesaler = getWholesaler(identifier, authType);
+                Set<String> regions = new TreeSet<>();
+                for (Connection c : connectionRepository.findByWholesalerAndStatusOrderByRequestedAtDesc(
+                                wholesaler, Connection.Status.APPROVED)) {
+                        Retailer r = c.getRetailer();
+                        if (r == null) {
+                                continue;
+                        }
+                        String reg = com.diya.backend.util.RegionCatalog.normalize(r.getRegion());
+                        if (!reg.isEmpty()) {
+                                regions.add(reg);
+                        }
+                }
+                return new ArrayList<>(regions);
+        }
+
+        /**
+         * @param regionFilter null, blank, or "all" = all connected retailers; otherwise match
+         *                     {@link Retailer#getRegion()} (trimmed) for APPROVED connections only.
+         */
+        public DashboardKpiDTO getKpiData(String identifier, String authType, String regionFilter) {
+                Wholesaler wholesaler = getWholesaler(identifier, authType);
+                Set<UUID> retailerScope = resolveRetailerScope(wholesaler, regionFilter);
 
                 LocalDate today = LocalDate.now();
 
                 int newOrdersToday = (int) orderRepository
                                 .findByWholesaler(wholesaler)
                                 .stream()
+                                .filter(o -> retailerScope == null || retailerScope.contains(o.getRetailer().getId()))
                                 .filter(o -> o.getPlacedAt().toLocalDate().isEqual(today))
                                 .count();
 
                 BigDecimal paymentsToday = paymentRepository.findByWholesaler(wholesaler).stream()
+                                .filter(p -> retailerScope == null || retailerScope.contains(p.getRetailer().getId()))
                                 .filter(p -> p.getStatus() == Payment.PaymentStatus.CONFIRMED)
                                 .filter(p -> p.getConfirmedAt() != null
                                                 && p.getConfirmedAt().toLocalDate().isEqual(today))
@@ -45,15 +70,18 @@ public class DashboardService {
                 int pendingOrders = (int) orderRepository
                                 .findByWholesaler(wholesaler)
                                 .stream()
+                                .filter(o -> retailerScope == null || retailerScope.contains(o.getRetailer().getId()))
                                 .filter(o -> o.getStatus() == Order.Status.PLACED)
                                 .count();
 
                 BigDecimal credit = ledgerRepository.findByWholesaler(wholesaler).stream()
+                                .filter(l -> retailerScope == null || retailerScope.contains(l.getRetailer().getId()))
                                 .filter(l -> l.getEntryType() == LedgerEntry.EntryType.CREDIT)
                                 .map(LedgerEntry::getAmount)
                                 .reduce(BigDecimal.ZERO, BigDecimal::add);
 
                 BigDecimal debit = ledgerRepository.findByWholesaler(wholesaler).stream()
+                                .filter(l -> retailerScope == null || retailerScope.contains(l.getRetailer().getId()))
                                 .filter(l -> l.getEntryType() == LedgerEntry.EntryType.DEBIT)
                                 .map(LedgerEntry::getAmount)
                                 .reduce(BigDecimal.ZERO, BigDecimal::add);
@@ -66,11 +94,32 @@ public class DashboardService {
                                 .build();
         }
 
+        /** null = no filter; empty set = no retailers match region */
+        private Set<UUID> resolveRetailerScope(Wholesaler wholesaler, String regionFilter) {
+                if (regionFilter == null || regionFilter.isBlank()
+                                || "all".equalsIgnoreCase(regionFilter.trim())) {
+                        return null;
+                }
+                String want = regionFilter.trim();
+                Set<UUID> ids = new HashSet<>();
+                for (Connection c : connectionRepository.findByWholesalerAndStatusOrderByRequestedAtDesc(
+                                wholesaler, Connection.Status.APPROVED)) {
+                        Retailer r = c.getRetailer();
+                        if (r == null) {
+                                continue;
+                        }
+                        if (want.equals(com.diya.backend.util.RegionCatalog.normalize(r.getRegion()))) {
+                                ids.add(r.getId());
+                        }
+                }
+                return ids;
+        }
+
         // ------------------------------------------------------
         // TERRITORY SECTION
         // ------------------------------------------------------
         public TerritoryDTO getTerritoryStats(String identifier, String authType) {
-                Wholesaler wholesaler = getWholesaler(identifier, authType);
+                getWholesaler(identifier, authType);
 
                 List<Retailer> retailers = retailerRepository.findAll();
 

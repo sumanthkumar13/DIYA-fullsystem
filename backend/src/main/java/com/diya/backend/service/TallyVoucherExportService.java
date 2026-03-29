@@ -23,13 +23,20 @@ public class TallyVoucherExportService {
 
     private static final DateTimeFormatter TALLY_DATE = DateTimeFormatter.ofPattern("yyyyMMdd");
     private static final String CREATED_MARKER = "<CREATED>1</CREATED>";
+    private static final String SALES_LEDGER = "Sales";
+    private static final String OUTPUT_CGST_LEDGER = "Output CGST";
+    private static final String OUTPUT_SGST_LEDGER = "Output SGST";
+    private static final String PARTY_PARENT_GROUP = "Sundry Debtors";
+    private static final String SALES_PARENT_GROUP = "Sales Accounts";
+    private static final String TAX_PARENT_GROUP = "Duties & Taxes";
 
     private final InvoiceRepository invoiceRepository;
     private final TallyLedgerService tallyLedgerService;
     private final TallyGatewayService tallyGatewayService;
 
     /**
-     * Export invoice to Tally. Ensures party, sales, and tax ledgers exist, then sends voucher XML.
+     * Export invoice to Tally. Ensures party, sales, and tax ledgers exist, then
+     * sends voucher XML.
      * Idempotent: skips if already exported (tallyExported = true).
      */
     @Transactional
@@ -54,8 +61,10 @@ public class TallyVoucherExportService {
     }
 
     private String getRetailerDisplayName(Retailer retailer) {
-        if (retailer == null) return "Retailer";
-        if (retailer.getUser() != null && retailer.getUser().getName() != null && !retailer.getUser().getName().isBlank()) {
+        if (retailer == null)
+            return "Retailer";
+        if (retailer.getUser() != null && retailer.getUser().getName() != null
+                && !retailer.getUser().getName().isBlank()) {
             return retailer.getUser().getName();
         }
         if (retailer.getShopName() != null && !retailer.getShopName().isBlank()) {
@@ -72,11 +81,15 @@ public class TallyVoucherExportService {
         String date = invoice.getInvoiceDate().toLocalDate().format(TALLY_DATE);
         String retailerName = getRetailerDisplayName(invoice.getRetailer());
         String retailerNameEscaped = escapeXml(retailerName);
+        String orderNumber = invoice.getOrder() != null ? invoice.getOrder().getOrderNumber() : null;
+        UUID retailerId = invoice.getRetailer() != null ? invoice.getRetailer().getId() : null;
 
         BigDecimal grandTotal = invoice.getGrandTotal() != null ? invoice.getGrandTotal() : BigDecimal.ZERO;
         BigDecimal totalTaxable = invoice.getTotalTaxable() != null ? invoice.getTotalTaxable() : BigDecimal.ZERO;
         BigDecimal totalCgst = invoice.getTotalCgst() != null ? invoice.getTotalCgst() : BigDecimal.ZERO;
         BigDecimal totalSgst = invoice.getTotalSgst() != null ? invoice.getTotalSgst() : BigDecimal.ZERO;
+        BigDecimal debitTotal = grandTotal;
+        BigDecimal creditTotal = totalTaxable.add(totalCgst).add(totalSgst);
 
         String grandTotalStr = grandTotal.toPlainString();
         String totalTaxableStr = totalTaxable.toPlainString();
@@ -84,67 +97,139 @@ public class TallyVoucherExportService {
         String totalSgstStr = totalSgst.toPlainString();
 
         String xml = """
-            <ENVELOPE>
-             <HEADER>
-              <TALLYREQUEST>IMPORT</TALLYREQUEST>
-             </HEADER>
-             <BODY>
-              <IMPORTDATA>
-               <REQUESTDESC>
-                <REPORTNAME>Vouchers</REPORTNAME>
-               </REQUESTDESC>
-               <REQUESTDATA>
-                <TALLYMESSAGE xmlns:UDF="TallyUDF">
-                 <VOUCHER VCHTYPE="Sales" ACTION="Create">
-                  <DATE>%s</DATE>
-                  <VOUCHERNUMBER>%s</VOUCHERNUMBER>
-                  <NARRATION>Sales via Diya</NARRATION>
-                  <PARTYLEDGERNAME>%s</PARTYLEDGERNAME>
-                  <ALLLEDGERENTRIES.LIST>
-                   <LEDGERNAME>%s</LEDGERNAME>
-                   <ISDEEMEDPOSITIVE>Yes</ISDEEMEDPOSITIVE>
-                   <AMOUNT>-%s</AMOUNT>
-                  </ALLLEDGERENTRIES.LIST>
-                  <ALLLEDGERENTRIES.LIST>
-                   <LEDGERNAME>Sales</LEDGERNAME>
-                   <ISDEEMEDPOSITIVE>No</ISDEEMEDPOSITIVE>
-                   <AMOUNT>%s</AMOUNT>
-                  </ALLLEDGERENTRIES.LIST>
-                  <ALLLEDGERENTRIES.LIST>
-                   <LEDGERNAME>Output CGST</LEDGERNAME>
-                   <ISDEEMEDPOSITIVE>No</ISDEEMEDPOSITIVE>
-                   <AMOUNT>%s</AMOUNT>
-                  </ALLLEDGERENTRIES.LIST>
-                  <ALLLEDGERENTRIES.LIST>
-                   <LEDGERNAME>Output SGST</LEDGERNAME>
-                   <ISDEEMEDPOSITIVE>No</ISDEEMEDPOSITIVE>
-                   <AMOUNT>%s</AMOUNT>
-                  </ALLLEDGERENTRIES.LIST>
-                 </VOUCHER>
-                </TALLYMESSAGE>
-               </REQUESTDATA>
-              </IMPORTDATA>
-             </BODY>
-            </ENVELOPE>
-            """.formatted(
+                <ENVELOPE>
+                 <HEADER>
+                  <TALLYREQUEST>IMPORT</TALLYREQUEST>
+                 </HEADER>
+                 <BODY>
+                  <IMPORTDATA>
+                   <REQUESTDESC>
+                    <REPORTNAME>Vouchers</REPORTNAME>
+                   </REQUESTDESC>
+                   <REQUESTDATA>
+                    <TALLYMESSAGE xmlns:UDF="TallyUDF">
+                     <VOUCHER VCHTYPE="Sales" ACTION="Create">
+                      <DATE>%s</DATE>
+                      <VOUCHERNUMBER>%s</VOUCHERNUMBER>
+                      <NARRATION>Sales via Diya</NARRATION>
+                      <PARTYLEDGERNAME>%s</PARTYLEDGERNAME>
+                      <ALLLEDGERENTRIES.LIST>
+                       <LEDGERNAME>%s</LEDGERNAME>
+                       <ISDEEMEDPOSITIVE>Yes</ISDEEMEDPOSITIVE>
+                       <AMOUNT>-%s</AMOUNT>
+                      </ALLLEDGERENTRIES.LIST>
+                      <ALLLEDGERENTRIES.LIST>
+                       <LEDGERNAME>%s</LEDGERNAME>
+                       <ISDEEMEDPOSITIVE>No</ISDEEMEDPOSITIVE>
+                       <AMOUNT>%s</AMOUNT>
+                      </ALLLEDGERENTRIES.LIST>
+                      <ALLLEDGERENTRIES.LIST>
+                       <LEDGERNAME>%s</LEDGERNAME>
+                       <ISDEEMEDPOSITIVE>No</ISDEEMEDPOSITIVE>
+                       <AMOUNT>%s</AMOUNT>
+                      </ALLLEDGERENTRIES.LIST>
+                      <ALLLEDGERENTRIES.LIST>
+                       <LEDGERNAME>%s</LEDGERNAME>
+                       <ISDEEMEDPOSITIVE>No</ISDEEMEDPOSITIVE>
+                       <AMOUNT>%s</AMOUNT>
+                      </ALLLEDGERENTRIES.LIST>
+                     </VOUCHER>
+                    </TALLYMESSAGE>
+                   </REQUESTDATA>
+                  </IMPORTDATA>
+                 </BODY>
+                </ENVELOPE>
+                """.formatted(
                 date,
                 escapeXml(invoiceNumber),
                 retailerNameEscaped,
                 retailerNameEscaped,
                 grandTotalStr,
+                SALES_LEDGER,
+                totalTaxableStr,
+                OUTPUT_CGST_LEDGER,
+                totalCgstStr,
+                OUTPUT_SGST_LEDGER,
+                totalSgstStr);
+
+        log.info("""
+                ===== TALLY EXPORT DEBUG START =====
+                Call chain:
+                InvoiceController.exportToTally()
+                -> InvoiceService.ensureInvoiceAccess()
+                -> TallyVoucherExportService.exportSalesVoucher()
+                -> TallyLedgerService.ensurePartyLedger()
+                -> TallyLedgerService.ensureSalesLedger()
+                -> TallyLedgerService.ensureTaxLedgers()
+                -> TallyVoucherExportService.sendVoucherXml()
+                -> TallyGatewayService.postXmlAndGetResponse()
+
+                Invoice data used for voucher:
+                invoiceId = {}
+                invoiceNumber = {}
+                invoiceDate = {}
+                grandTotal = {}
+                totalTaxable = {}
+                totalCgst = {}
+                totalSgst = {}
+                retailerName = {}
+                retailerId = {}
+                orderNumber = {}
+
+                Ledger names used:
+                Party Ledger = {}
+                Party Parent Group = {}
+                Sales Ledger = {}
+                Sales Parent Group = {}
+                CGST Ledger = {}
+                CGST Parent Group = {}
+                SGST Ledger = {}
+                SGST Parent Group = {}
+
+                Voucher balance:
+                Debit Total = {}
+                Credit Total = {}
+
+                FINAL VOUCHER XML SENT TO TALLY:
+                {}
+                ===== TALLY EXPORT DEBUG END =====
+                """,
+                invoice.getId(),
+                invoiceNumber,
+                date,
+                grandTotalStr,
                 totalTaxableStr,
                 totalCgstStr,
-                totalSgstStr
-            );
+                totalSgstStr,
+                retailerName,
+                retailerId,
+                orderNumber,
+                retailerName,
+                PARTY_PARENT_GROUP,
+                SALES_LEDGER,
+                SALES_PARENT_GROUP,
+                OUTPUT_CGST_LEDGER,
+                TAX_PARENT_GROUP,
+                OUTPUT_SGST_LEDGER,
+                TAX_PARENT_GROUP,
+                debitTotal.toPlainString(),
+                creditTotal.toPlainString(),
+                xml);
 
         String response = tallyGatewayService.postXmlAndGetResponse(xml);
+        log.info("""
+                ===== RAW TALLY RESPONSE START =====
+                {}
+                ===== RAW TALLY RESPONSE END =====
+                """, response);
         if (response == null || !response.contains(CREATED_MARKER)) {
             throw new RuntimeException("Tally rejected voucher");
         }
     }
 
     private static String escapeXml(String value) {
-        if (value == null) return "";
+        if (value == null)
+            return "";
         return value
                 .replace("&", "&amp;")
                 .replace("<", "&lt;")

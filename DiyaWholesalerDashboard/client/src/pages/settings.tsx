@@ -4,6 +4,7 @@ import { useToast } from "@/hooks/use-toast";
 import {
   getWholesalerSettings,
   updateWholesalerSettings,
+  changeWholesalerPassword,
 } from "@/services/wholesalerSettings";
 import {
   User,
@@ -23,6 +24,14 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/com
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { WHOLESALER_BUSINESS_TYPES } from "@/lib/businessTypes";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import avatarImage from "@assets/generated_images/professional_business_avatar_for_a_wholesaler.png";
 import { tallyPing } from "@/services/tally";
@@ -40,6 +49,12 @@ export default function SettingsPage() {
   const [businessName, setBusinessName] = useState("");
   const [gstin, setGstin] = useState("");
   const [address, setAddress] = useState("");
+  const [businessType, setBusinessType] = useState("");
+
+  const [currentPassword, setCurrentPassword] = useState("");
+  const [newPassword, setNewPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
+  const [passwordSaving, setPasswordSaving] = useState(false);
 
   useEffect(() => {
     if (!data) return;
@@ -48,6 +63,7 @@ export default function SettingsPage() {
     setBusinessName(data.businessName ?? "");
     setGstin(data.gstin ?? "");
     setAddress(data.address ?? "");
+    setBusinessType(data.businessType ?? "");
   }, [data]);
 
   const saveMutation = useMutation({
@@ -59,13 +75,65 @@ export default function SettingsPage() {
   });
 
   const handleSave = () => {
-    saveMutation.mutate({
+    const payload: Parameters<typeof updateWholesalerSettings>[0] = {
       businessName: businessName || null,
       ownerName: ownerName || null,
       phone: phone || null,
       address: address || null,
       gstin: gstin || null,
-    });
+    };
+    const trimmedType = businessType.trim();
+    if (trimmedType) {
+      payload.businessType = trimmedType;
+    }
+    saveMutation.mutate(payload);
+  };
+
+  const handleChangePassword = async () => {
+    if (!currentPassword) {
+      toast({
+        title: "Current password required",
+        description: "Enter your current password.",
+        variant: "destructive",
+      });
+      return;
+    }
+    if (newPassword !== confirmPassword) {
+      toast({
+        title: "Passwords do not match",
+        description: "New password and confirmation must be the same.",
+        variant: "destructive",
+      });
+      return;
+    }
+    if (newPassword.length < 6) {
+      toast({
+        title: "Password too short",
+        description: "New password must be at least 6 characters.",
+        variant: "destructive",
+      });
+      return;
+    }
+    setPasswordSaving(true);
+    try {
+      await changeWholesalerPassword({
+        currentPassword,
+        newPassword,
+      });
+      toast({ title: "Password updated", description: "You can use your new password on next login." });
+      setCurrentPassword("");
+      setNewPassword("");
+      setConfirmPassword("");
+    } catch (err: any) {
+      const data = err?.response?.data;
+      const msg =
+        (typeof data?.message === "string" && data.message) ||
+        (typeof data === "string" ? data : null) ||
+        "Could not update password. Check your current password.";
+      toast({ title: "Update failed", description: msg, variant: "destructive" });
+    } finally {
+      setPasswordSaving(false);
+    }
   };
 
   const disabled = isLoading;
@@ -218,9 +286,27 @@ export default function SettingsPage() {
                         disabled={disabled}
                       />
                     </div>
-                    <div className="space-y-2">
-                      <Label>Category</Label>
-                      <Input defaultValue="FMCG Distributor" />
+                    <div className="space-y-2 md:col-span-2">
+                      <Label>Business type</Label>
+                      <Select
+                        value={businessType || undefined}
+                        onValueChange={setBusinessType}
+                        disabled={disabled}
+                      >
+                        <SelectTrigger className="w-full">
+                          <SelectValue placeholder="Select business type" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {WHOLESALER_BUSINESS_TYPES.map((t) => (
+                            <SelectItem key={t} value={t}>
+                              {t}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                      <p className="text-xs text-gray-500">
+                        Shown for your records. Legacy accounts can set this once here.
+                      </p>
                     </div>
                   </div>
 
@@ -303,22 +389,54 @@ export default function SettingsPage() {
                 </CardHeader>
                 <CardContent className="space-y-6">
                   <div className="space-y-2">
-                    <Label>Current Password</Label>
-                    <Input type="password" />
+                    <Label htmlFor="currentPassword">Current Password</Label>
+                    <Input
+                      id="currentPassword"
+                      type="password"
+                      autoComplete="current-password"
+                      value={currentPassword}
+                      onChange={(e) => setCurrentPassword(e.target.value)}
+                      disabled={disabled || passwordSaving}
+                    />
                   </div>
                   <div className="grid md:grid-cols-2 gap-4">
                     <div className="space-y-2">
-                      <Label>New Password</Label>
-                      <Input type="password" />
+                      <Label htmlFor="newPassword">New Password</Label>
+                      <Input
+                        id="newPassword"
+                        type="password"
+                        autoComplete="new-password"
+                        value={newPassword}
+                        onChange={(e) => setNewPassword(e.target.value)}
+                        disabled={disabled || passwordSaving}
+                      />
                     </div>
                     <div className="space-y-2">
-                      <Label>Confirm New Password</Label>
-                      <Input type="password" />
+                      <Label htmlFor="confirmPassword">Confirm New Password</Label>
+                      <Input
+                        id="confirmPassword"
+                        type="password"
+                        autoComplete="new-password"
+                        value={confirmPassword}
+                        onChange={(e) => setConfirmPassword(e.target.value)}
+                        disabled={disabled || passwordSaving}
+                      />
                     </div>
                   </div>
                   <div className="flex justify-end">
-                    <Button className="bg-primary hover:bg-primary/90 text-white gap-2">
-                      Update Password
+                    <Button
+                      type="button"
+                      className="bg-primary hover:bg-primary/90 text-white gap-2"
+                      onClick={handleChangePassword}
+                      disabled={disabled || passwordSaving}
+                    >
+                      {passwordSaving ? (
+                        <>
+                          <Loader2 className="h-4 w-4 animate-spin" /> Updating…
+                        </>
+                      ) : (
+                        "Update Password"
+                      )}
                     </Button>
                   </div>
                 </CardContent>

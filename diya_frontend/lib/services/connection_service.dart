@@ -45,4 +45,34 @@ class ConnectionService {
       options: Options(headers: await _authHeaders()),
     );
   }
+
+  // ==========================================================
+  // WHOLESALER: pending connection requests
+  // ==========================================================
+  Future<List<ConnectionResponseDTO>> pendingRequestsForWholesaler() async {
+    final res = await _dio.get(
+      "/api/wholesaler/connections/requests",
+      options: Options(headers: await _authHeaders()),
+    );
+
+    return (res.data as List<dynamic>)
+        .map((e) => ConnectionResponseDTO.fromJson(e as Map<String, dynamic>))
+        .toList();
+  }
+
+  // ==========================================================
+  // WHOLESALER: update connection status
+  // ==========================================================
+  Future<ConnectionResponseDTO> updateConnectionStatus({
+    required String connectionId,
+    required String status,
+  }) async {
+    final res = await _dio.put(
+      "/api/wholesaler/connections/$connectionId",
+      data: {"status": status},
+      options: Options(headers: await _authHeaders()),
+    );
+
+    return ConnectionResponseDTO.fromJson(res.data as Map<String, dynamic>);
+  }
 }

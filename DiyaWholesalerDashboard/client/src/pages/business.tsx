@@ -7,7 +7,11 @@ import {
   Filter,
   Package,
   Eye,
-  EyeOff,
+  Trash2,
+  Check,
+  X,
+  Minus,
+  Loader2,
 } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
@@ -25,8 +29,11 @@ import {
 import { Switch } from "@/components/ui/switch";
 import {
   fetchProducts,
-  toggleProductActive,
   toggleProductVisibility,
+  patchProductQuick,
+  deleteProduct,
+  fetchProductRetailerVisibility,
+  saveProductRetailerVisibility,
 } from "@/services/product";
 import {
   fetchCategories,
@@ -34,6 +41,25 @@ import {
   fetchSubcategoriesByCategory,
   fetchChildren,
 } from "@/services/category";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogFooter,
+} from "@/components/ui/dialog";
+import { Checkbox } from "@/components/ui/checkbox";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+import { useToast } from "@/hooks/use-toast";
 
 
 
@@ -56,11 +82,32 @@ type Product = {
 
 export default function MyBusiness() {
   const [, setLocation] = useLocation();
+  const { toast } = useToast();
   const [searchQuery, setSearchQuery] = useState("");
   const [products, setProducts] = useState<Product[]>([]);
   const [page, setPage] = useState(0);
   const [loading, setLoading] = useState(false);
   const [categories, setCategories] = useState<any[]>([]);
+
+  const [mrpEditId, setMrpEditId] = useState<string | null>(null);
+  const [mrpDraft, setMrpDraft] = useState("");
+  const [mrpSaving, setMrpSaving] = useState(false);
+
+  const [stockEditId, setStockEditId] = useState<string | null>(null);
+  const [stockDraft, setStockDraft] = useState("");
+  const [stockSaving, setStockSaving] = useState(false);
+  const [stockBumpId, setStockBumpId] = useState<string | null>(null);
+
+  const [visProductId, setVisProductId] = useState<string | null>(null);
+  const [visRows, setVisRows] = useState<
+    { retailerId: string; name: string; visible: boolean }[]
+  >([]);
+  const [visChecks, setVisChecks] = useState<Record<string, boolean>>({});
+  const [visLoading, setVisLoading] = useState(false);
+  const [visSaving, setVisSaving] = useState(false);
+
+  const [deleteProductId, setDeleteProductId] = useState<string | null>(null);
+  const [deleteLoading, setDeleteLoading] = useState(false);
 
   useEffect(() => {
     fetchCategories().then(setCategories);
@@ -82,15 +129,6 @@ export default function MyBusiness() {
     }
   }
 
-  const handleToggleActive = async (productId: string, active: boolean) => {
-    try {
-      await toggleProductActive(productId, active);
-      load(); // always re-sync with backend truth
-    } catch (error) {
-      console.error("Failed to toggle active status", error);
-    }
-  };
-
   const handleToggleVisibility = async (
     productId: string,
     visible: boolean
@@ -100,8 +138,119 @@ export default function MyBusiness() {
       load();
     } catch (error) {
       console.error("Failed to toggle visibility", error);
+      toast({
+        title: "Update failed",
+        variant: "destructive",
+      });
     }
   };
+
+  async function openVisibilityModal(productId: string) {
+    setVisProductId(productId);
+    setVisLoading(true);
+    setVisRows([]);
+    try {
+      const rows = await fetchProductRetailerVisibility(productId);
+      setVisRows(rows);
+      const m: Record<string, boolean> = {};
+      rows.forEach((r) => {
+        m[r.retailerId] = r.visible;
+      });
+      setVisChecks(m);
+    } catch {
+      toast({ title: "Could not load retailers", variant: "destructive" });
+      setVisProductId(null);
+    } finally {
+      setVisLoading(false);
+    }
+  }
+
+  async function saveVisibilityModal() {
+    if (!visProductId) return;
+    const hidden = visRows
+      .filter((r) => !visChecks[r.retailerId])
+      .map((r) => r.retailerId);
+    setVisSaving(true);
+    try {
+      await saveProductRetailerVisibility(visProductId, hidden);
+      toast({
+        title: "Visibility saved",
+        className: "bg-green-50 border-green-200 text-green-800",
+      });
+      setVisProductId(null);
+    } catch {
+      toast({ title: "Save failed", variant: "destructive" });
+    } finally {
+      setVisSaving(false);
+    }
+  }
+
+  async function saveMrp(productId: string) {
+    const v = parseFloat(mrpDraft);
+    if (Number.isNaN(v) || v < 0) {
+      toast({ title: "Enter a valid MRP", variant: "destructive" });
+      return;
+    }
+    setMrpSaving(true);
+    try {
+      await patchProductQuick(productId, { mrp: v });
+      setMrpEditId(null);
+      load();
+    } catch {
+      toast({ title: "Could not update MRP", variant: "destructive" });
+    } finally {
+      setMrpSaving(false);
+    }
+  }
+
+  async function saveStock(productId: string) {
+    const v = parseInt(stockDraft, 10);
+    if (Number.isNaN(v) || v < 0) {
+      toast({ title: "Enter a valid stock count", variant: "destructive" });
+      return;
+    }
+    setStockSaving(true);
+    try {
+      await patchProductQuick(productId, { stock: v });
+      setStockEditId(null);
+      load();
+    } catch {
+      toast({ title: "Could not update stock", variant: "destructive" });
+    } finally {
+      setStockSaving(false);
+    }
+  }
+
+  async function bumpStock(productId: string, current: number, delta: number) {
+    const next = Math.max(0, current + delta);
+    setStockBumpId(productId);
+    try {
+      await patchProductQuick(productId, { stock: next });
+      load();
+    } catch {
+      toast({ title: "Could not update stock", variant: "destructive" });
+    } finally {
+      setStockBumpId(null);
+    }
+  }
+
+  async function confirmDelete() {
+    if (!deleteProductId) return;
+    setDeleteLoading(true);
+    try {
+      await deleteProduct(deleteProductId);
+      toast({
+        title: "Product removed",
+        className: "bg-green-50 border-green-200 text-green-800",
+      });
+      setDeleteProductId(null);
+      load();
+    } catch {
+      toast({ title: "Delete failed", variant: "destructive" });
+    } finally {
+      setDeleteLoading(false);
+    }
+  }
 
   return (
     <div className="space-y-6">
@@ -159,7 +308,7 @@ export default function MyBusiness() {
                 <TableRow>
                   <TableHead className="w-[300px]">Product Name</TableHead>
                   <TableHead>Category</TableHead>
-                  <TableHead>Price</TableHead>
+                  <TableHead>MRP</TableHead>
                   <TableHead>Stock</TableHead>
                   <TableHead>Status</TableHead>
                   <TableHead className="text-right">Actions</TableHead>
@@ -205,16 +354,155 @@ export default function MyBusiness() {
                       </Badge>
                     </TableCell>
 
-                    <TableCell>
-                      <div>₹{product.price}</div>
-                      {product.mrp && (
-                        <div className="text-xs text-gray-400 line-through">
-                          ₹{product.mrp}
+                    <TableCell className="align-middle">
+                      {mrpEditId === product.id ? (
+                        <div className="flex items-center gap-1 flex-wrap">
+                          <span className="text-gray-500 text-sm">₹</span>
+                          <Input
+                            className="h-8 w-20 bg-white border-gray-200"
+                            type="number"
+                            min={0}
+                            step={0.01}
+                            value={mrpDraft}
+                            onChange={(e) => setMrpDraft(e.target.value)}
+                            autoFocus
+                            onKeyDown={(e) => {
+                              if (e.key === "Enter") saveMrp(product.id);
+                              if (e.key === "Escape") setMrpEditId(null);
+                            }}
+                          />
+                          <Button
+                            type="button"
+                            size="icon"
+                            variant="ghost"
+                            className="h-8 w-8 text-green-600"
+                            disabled={mrpSaving}
+                            onClick={() => saveMrp(product.id)}
+                          >
+                            {mrpSaving ? (
+                              <Loader2 className="h-4 w-4 animate-spin" />
+                            ) : (
+                              <Check className="h-4 w-4" />
+                            )}
+                          </Button>
+                          <Button
+                            type="button"
+                            size="icon"
+                            variant="ghost"
+                            className="h-8 w-8"
+                            disabled={mrpSaving}
+                            onClick={() => setMrpEditId(null)}
+                          >
+                            <X className="h-4 w-4" />
+                          </Button>
                         </div>
+                      ) : (
+                        <button
+                          type="button"
+                          className="text-left font-medium text-gray-900 hover:text-primary hover:underline underline-offset-2"
+                          onClick={() => {
+                            setMrpEditId(product.id);
+                            setMrpDraft(
+                              product.mrp != null ? String(product.mrp) : ""
+                            );
+                          }}
+                        >
+                          {product.mrp != null ? `₹${product.mrp}` : "—"}
+                        </button>
                       )}
                     </TableCell>
 
-                    <TableCell>{product.stock}</TableCell>
+                    <TableCell className="align-middle">
+                      {stockEditId === product.id ? (
+                        <div className="flex items-center gap-1">
+                          <Input
+                            className="h-8 w-16 bg-white border-gray-200"
+                            type="number"
+                            min={0}
+                            value={stockDraft}
+                            onChange={(e) => setStockDraft(e.target.value)}
+                            autoFocus
+                            onKeyDown={(e) => {
+                              if (e.key === "Enter") saveStock(product.id);
+                              if (e.key === "Escape") setStockEditId(null);
+                            }}
+                          />
+                          <Button
+                            type="button"
+                            size="icon"
+                            variant="ghost"
+                            className="h-8 w-8 text-green-600"
+                            disabled={stockSaving}
+                            onClick={() => saveStock(product.id)}
+                          >
+                            {stockSaving ? (
+                              <Loader2 className="h-4 w-4 animate-spin" />
+                            ) : (
+                              <Check className="h-4 w-4" />
+                            )}
+                          </Button>
+                          <Button
+                            type="button"
+                            size="icon"
+                            variant="ghost"
+                            className="h-8 w-8"
+                            disabled={stockSaving}
+                            onClick={() => setStockEditId(null)}
+                          >
+                            <X className="h-4 w-4" />
+                          </Button>
+                        </div>
+                      ) : (
+                        <div className="flex items-center gap-1 justify-start">
+                          <Button
+                            type="button"
+                            variant="outline"
+                            size="icon"
+                            className="h-7 w-7 shrink-0 border-gray-200"
+                            disabled={stockBumpId === product.id}
+                            onClick={() =>
+                              bumpStock(
+                                product.id,
+                                product.stock ?? 0,
+                                -1
+                              )
+                            }
+                          >
+                            <Minus className="h-3 w-3" />
+                          </Button>
+                          <button
+                            type="button"
+                            className="min-w-[2rem] text-center text-sm font-medium tabular-nums hover:text-primary"
+                            onClick={() => {
+                              setStockEditId(product.id);
+                              setStockDraft(String(product.stock ?? 0));
+                            }}
+                          >
+                            {stockBumpId === product.id ? (
+                              <Loader2 className="h-4 w-4 animate-spin inline" />
+                            ) : (
+                              product.stock ?? 0
+                            )}
+                          </button>
+                          <Button
+                            type="button"
+                            variant="outline"
+                            size="icon"
+                            className="h-7 w-7 shrink-0 border-gray-200"
+                            disabled={stockBumpId === product.id}
+                            onClick={() =>
+                              bumpStock(
+                                product.id,
+                                product.stock ?? 0,
+                                1
+                              )
+                            }
+                          >
+                            <Plus className="h-3 w-3" />
+                          </Button>
+                        </div>
+                      )}
+                    </TableCell>
 
                     <TableCell>
                       <StatusBadge
@@ -226,34 +514,53 @@ export default function MyBusiness() {
                     </TableCell>
 
                     <TableCell className="text-right">
-                      <div className="flex justify-end gap-2">
+                      <div className="flex justify-end items-center gap-1 flex-wrap">
                         <Button
                           variant="ghost"
                           size="icon"
-                          onClick={() =>
-                            handleToggleVisibility(
-                              product.id,
-                              !product.visibleToRetailer
-                            )
-                          }
+                          className="h-8 w-8 text-gray-600"
+                          title="Who can see this product"
+                          onClick={() => openVisibilityModal(product.id)}
                         >
-                          {product.visibleToRetailer ? (
-                            <Eye className="h-4 w-4" />
-                          ) : (
-                            <EyeOff className="h-4 w-4" />
-                          )}
+                          <Eye className="h-4 w-4" />
                         </Button>
 
-                        <Button variant="ghost" size="icon">
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="h-8 w-8 text-gray-600"
+                          title="Edit product"
+                          onClick={() =>
+                            setLocation(`/products/edit/${product.id}`)
+                          }
+                        >
                           <Edit2 className="h-4 w-4" />
                         </Button>
 
-                        <Switch
-                          checked={product.isActive}
-                          onCheckedChange={(val) =>
-                            handleToggleActive(product.id, val)
-                          }
-                        />
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="h-8 w-8 text-gray-600 hover:text-red-600"
+                          title="Delete product"
+                          onClick={() => setDeleteProductId(product.id)}
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </Button>
+
+                        <div
+                          className="flex items-center gap-1.5 pl-1 border-l border-gray-200 ml-0.5"
+                          title="Visible to all retailers (catalog)"
+                        >
+                          <span className="text-xs text-gray-500 hidden sm:inline max-w-[4rem] leading-tight text-right">
+                            Global
+                          </span>
+                          <Switch
+                            checked={!!product.visibleToRetailer}
+                            onCheckedChange={(val) =>
+                              handleToggleVisibility(product.id, val)
+                            }
+                          />
+                        </div>
                       </div>
                     </TableCell>
                   </TableRow>
@@ -310,6 +617,108 @@ export default function MyBusiness() {
           </div>
         </TabsContent>
       </Tabs>
+
+      <Dialog
+        open={!!visProductId}
+        onOpenChange={(open) => !open && setVisProductId(null)}
+      >
+        <DialogContent className="sm:max-w-md bg-white border-gray-200 rounded-xl">
+          <DialogHeader>
+            <DialogTitle className="text-gray-900">Retailer visibility</DialogTitle>
+            <p className="text-sm text-gray-500">
+              Checked retailers can see this product in their catalog (when global
+              visibility is on).
+            </p>
+          </DialogHeader>
+          <div className="max-h-[320px] overflow-y-auto space-y-2 py-2">
+            {visLoading && (
+              <p className="text-sm text-gray-500 flex items-center gap-2">
+                <Loader2 className="h-4 w-4 animate-spin" /> Loading…
+              </p>
+            )}
+            {!visLoading && visRows.length === 0 && (
+              <p className="text-sm text-gray-500">
+                No connected retailers yet. Approve connections to manage
+                visibility per retailer.
+              </p>
+            )}
+            {!visLoading &&
+              visRows.map((r) => (
+                <label
+                  key={r.retailerId}
+                  className="flex items-center gap-3 rounded-lg border border-gray-100 px-3 py-2 hover:bg-gray-50 cursor-pointer"
+                >
+                  <Checkbox
+                    checked={!!visChecks[r.retailerId]}
+                    onCheckedChange={(c) =>
+                      setVisChecks((prev) => ({
+                        ...prev,
+                        [r.retailerId]: c === true,
+                      }))
+                    }
+                  />
+                  <span className="text-sm font-medium text-gray-900">
+                    {r.name}
+                  </span>
+                </label>
+              ))}
+          </div>
+          <DialogFooter className="gap-2 sm:gap-0">
+            <Button
+              variant="outline"
+              onClick={() => setVisProductId(null)}
+              disabled={visSaving}
+            >
+              Cancel
+            </Button>
+            <Button
+              className="bg-primary hover:bg-primary/90 text-white"
+              onClick={saveVisibilityModal}
+              disabled={visLoading || visSaving || visRows.length === 0}
+            >
+              {visSaving ? (
+                <>
+                  <Loader2 className="h-4 w-4 animate-spin mr-2" />
+                  Saving…
+                </>
+              ) : (
+                "Save"
+              )}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <AlertDialog
+        open={!!deleteProductId}
+        onOpenChange={(open) => !open && !deleteLoading && setDeleteProductId(null)}
+      >
+        <AlertDialogContent className="bg-white border-gray-200 rounded-xl">
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete product?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Are you sure you want to delete this product?
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={deleteLoading}>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-red-600 hover:bg-red-700 focus:ring-red-600"
+              disabled={deleteLoading}
+              onClick={(e) => {
+                e.preventDefault();
+                confirmDelete();
+              }}
+            >
+              {deleteLoading ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                "Delete"
+              )}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }
@@ -382,10 +791,12 @@ function TreeNode({
   }
 
   async function loadProducts() {
-    if (level <= 0) return;
     setProductsLoading(true);
     try {
-      const res = await fetchProducts(0, 50, undefined, undefined, id);
+      const res =
+        level === 0
+          ? await fetchProducts(0, 50, undefined, id, undefined)
+          : await fetchProducts(0, 50, undefined, undefined, id);
       setProducts(res?.content || []);
     } catch (e) {
       console.error(e);
@@ -467,10 +878,13 @@ function TreeNode({
   }
 
   function goToAddProductHere() {
-    if (level <= 0) return;
-    setLocation(
-      `/products/new?categoryId=${categoryRootId}&subcategoryId=${id}`
-    );
+    if (level === 0) {
+      setLocation(`/products/new?categoryId=${id}`);
+    } else {
+      setLocation(
+        `/products/new?categoryId=${categoryRootId}&subcategoryId=${id}`
+      );
+    }
   }
 
   return (
@@ -486,19 +900,17 @@ function TreeNode({
         </div>
 
         <div className="flex items-center gap-2">
-          {level > 0 && (
-            <Button
-              size="sm"
-              variant="outline"
-              className="h-8"
-              onClick={(e) => {
-                e.stopPropagation();
-                goToAddProductHere();
-              }}
-            >
-              + Product
-            </Button>
-          )}
+          <Button
+            size="sm"
+            variant="outline"
+            className="h-8"
+            onClick={(e) => {
+              e.stopPropagation();
+              goToAddProductHere();
+            }}
+          >
+            + Product
+          </Button>
 
           {level > 0 && (
             <Button
@@ -519,44 +931,42 @@ function TreeNode({
       {open && (
         <div className="px-4 pb-4">
           {/* PRODUCTS */}
-          {level > 0 && (
-            <div className="mt-3 rounded-lg bg-gray-50 border p-3">
-              <div className="flex items-center justify-between">
-                <p className="text-sm font-semibold">
-                  Products{" "}
-                  <span className="text-xs font-normal text-gray-500">
-                    {productsLoading ? "" : `(${products.length})`}
-                  </span>
-                </p>
-              </div>
-
-              {productsLoading && (
-                <p className="text-xs text-gray-400 mt-2">Loading…</p>
-              )}
-
-              {!productsLoading && products.length === 0 && (
-                <p className="text-xs text-gray-400 mt-2">
-                  No products added yet.
-                </p>
-              )}
-
-              {!productsLoading && products.length > 0 && (
-                <div className="mt-2 space-y-1">
-                  {products.map((p: any) => (
-                    <div
-                      key={p.id}
-                      className="flex justify-between text-sm bg-white border rounded px-3 py-2"
-                    >
-                      <span className="font-medium">{p.name}</span>
-                      <span className="text-xs text-gray-500">
-                        Stock: {p.stock ?? 0}
-                      </span>
-                    </div>
-                  ))}
-                </div>
-              )}
+          <div className="mt-3 rounded-lg bg-gray-50 border p-3">
+            <div className="flex items-center justify-between">
+              <p className="text-sm font-semibold">
+                Products{" "}
+                <span className="text-xs font-normal text-gray-500">
+                  {productsLoading ? "" : `(${products.length})`}
+                </span>
+              </p>
             </div>
-          )}
+
+            {productsLoading && (
+              <p className="text-xs text-gray-400 mt-2">Loading…</p>
+            )}
+
+            {!productsLoading && products.length === 0 && (
+              <p className="text-xs text-gray-400 mt-2">
+                No products added yet.
+              </p>
+            )}
+
+            {!productsLoading && products.length > 0 && (
+              <div className="mt-2 space-y-1">
+                {products.map((p: any) => (
+                  <div
+                    key={p.id}
+                    className="flex justify-between text-sm bg-white border rounded px-3 py-2"
+                  >
+                    <span className="font-medium">{p.name}</span>
+                    <span className="text-xs text-gray-500">
+                      Stock: {p.stock ?? 0}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
 
           {/* CHILDREN */}
           <div className="mt-3 space-y-2">

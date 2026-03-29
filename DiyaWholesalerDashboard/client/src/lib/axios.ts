@@ -1,8 +1,8 @@
 import axios from "axios";
 
 const api = axios.create({
-  // baseURL: "http://localhost:8081/api", // local development URL
-  baseURL: "https://diya-fullsystem.onrender.com/api", // render.com URL
+  baseURL: "http://localhost:8081/api", // local development URL
+  // baseURL: "https://diya-fullsystem.onrender.com/api", // render.com URL
 });
 
 /** ✅ Never attach token for these endpoints */
@@ -41,7 +41,10 @@ api.interceptors.response.use(
     const status = error?.response?.status;
     const url = error?.config?.url || "";
 
-    // ✅ Don't redirect for auth endpoints
+    // ✅ Only redirect to login for actual authentication failures
+    // 401 Unauthorized - token is invalid/expired
+    // 403 Forbidden - user is authenticated but not authorized
+    // Don't redirect for other errors (4xx, 5xx) as they should be handled by the page
     if (!isPublicEndpoint(url) && (status === 401 || status === 403)) {
       localStorage.removeItem("token");
       if (typeof window !== "undefined") window.location.href = "/login";

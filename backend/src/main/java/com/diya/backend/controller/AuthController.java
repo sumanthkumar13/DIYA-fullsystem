@@ -15,16 +15,19 @@ import java.util.Map;
 @RestController
 @RequestMapping("/api/auth")
 @RequiredArgsConstructor
-@CrossOrigin(origins = "*", allowedHeaders = "*", methods = {RequestMethod.GET, RequestMethod.POST, RequestMethod.PUT, RequestMethod.DELETE, RequestMethod.OPTIONS})
+@CrossOrigin(origins = "*", allowedHeaders = "*", methods = { RequestMethod.GET, RequestMethod.POST, RequestMethod.PUT,
+        RequestMethod.DELETE, RequestMethod.OPTIONS })
 
 public class AuthController {
 
     private final AuthService authService;
 
-    /* ----------------------------------------------------
-     *  SEND OTP
-     *  Expects JSON: { "phone": "9876543210" }
-     * ---------------------------------------------------- */
+    /*
+     * ----------------------------------------------------
+     * SEND OTP
+     * Expects JSON: { "phone": "9876543210" }
+     * ----------------------------------------------------
+     */
     @PostMapping("/send-otp")
     public ResponseEntity<Map<String, Object>> sendOtp(@RequestBody Map<String, String> req) {
         String phone = req.get("phone");
@@ -49,10 +52,12 @@ public class AuthController {
         }
     }
 
-    /* ----------------------------------------------------
-     *  VERIFY OTP
-     *  Expects JSON: { "phone": "9876543210", "otp": "123456" }
-     * ---------------------------------------------------- */
+    /*
+     * ----------------------------------------------------
+     * VERIFY OTP
+     * Expects JSON: { "phone": "9876543210", "otp": "123456" }
+     * ----------------------------------------------------
+     */
     @PostMapping("/verify-otp")
     public ResponseEntity<Map<String, Object>> verifyOtp(@RequestBody Map<String, String> req) {
         String phone = req.get("phone");
@@ -82,11 +87,44 @@ public class AuthController {
         }
     }
 
-    /* ----------------------------------------------------
-     *  REGISTER WHOLESALER (FINAL ONBOARDING)
-     *  Expects JSON matching RegisterWholesalerRequest
-     *  Returns AuthResponse inside data
-     * ---------------------------------------------------- */
+    /*
+     * ----------------------------------------------------
+     * SET PASSWORD / ACTIVATE ACCOUNT
+     * Expects JSON: { "phone": "9876543210", "newPassword": "secret" }
+     * ----------------------------------------------------
+     */
+    @PostMapping("/set-password")
+    public ResponseEntity<Map<String, Object>> setPassword(@RequestBody Map<String, String> req) {
+        String phone = req.get("phone");
+        String newPassword = req.get("newPassword");
+        Map<String, Object> resp = new HashMap<>();
+
+        if (phone == null || phone.isBlank() || newPassword == null || newPassword.isBlank()) {
+            resp.put("success", false);
+            resp.put("message", "Phone and new password are required");
+            return ResponseEntity.badRequest().body(resp);
+        }
+
+        try {
+            AuthResponse auth = authService.setPassword(phone, newPassword);
+            resp.put("success", true);
+            resp.put("message", "Password set successfully");
+            resp.put("data", auth);
+            return ResponseEntity.ok(resp);
+        } catch (Exception e) {
+            resp.put("success", false);
+            resp.put("message", e.getMessage() == null ? "Set password failed" : e.getMessage());
+            return ResponseEntity.badRequest().body(resp);
+        }
+    }
+
+    /*
+     * ----------------------------------------------------
+     * REGISTER WHOLESALER (FINAL ONBOARDING)
+     * Expects JSON matching RegisterWholesalerRequest
+     * Returns AuthResponse inside data
+     * ----------------------------------------------------
+     */
     @PostMapping("/register")
     public ResponseEntity<Map<String, Object>> registerWholesaler(@RequestBody RegisterWholesalerRequest req) {
         Map<String, Object> resp = new HashMap<>();
@@ -103,9 +141,11 @@ public class AuthController {
         }
     }
 
-    /* ----------------------------------------------------
-     *  REGISTER RETAILER
-     * ---------------------------------------------------- */
+    /*
+     * ----------------------------------------------------
+     * REGISTER RETAILER
+     * ----------------------------------------------------
+     */
     @PostMapping("/register-retailer")
     public ResponseEntity<Map<String, Object>> registerRetailer(@RequestBody RegisterRetailerRequest req) {
         Map<String, Object> resp = new HashMap<>();
@@ -122,10 +162,12 @@ public class AuthController {
         }
     }
 
-    /* ----------------------------------------------------
-     *  LOGIN
-     *  Expects JSON matching LoginRequest (phone & password)
-     * ---------------------------------------------------- */
+    /*
+     * ----------------------------------------------------
+     * LOGIN
+     * Expects JSON matching LoginRequest (phone & password)
+     * ----------------------------------------------------
+     */
     @PostMapping("/login")
     public ResponseEntity<Map<String, Object>> login(@RequestBody LoginRequest req) {
         Map<String, Object> resp = new HashMap<>();

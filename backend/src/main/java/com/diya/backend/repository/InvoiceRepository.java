@@ -16,6 +16,8 @@ public interface InvoiceRepository extends JpaRepository<Invoice, UUID> {
 
     Optional<Invoice> findByOrderId(UUID orderId);
 
+    boolean existsByOrderId(UUID orderId);
+
     List<Invoice> findByOrder(Order order);
 
     @Query("SELECT i FROM Invoice i WHERE i.invoiceNumber LIKE CONCAT(:prefix, '%') ORDER BY i.invoiceNumber DESC")

@@ -8,9 +8,14 @@ import com.diya.backend.repository.UserRepository;
 import com.diya.backend.repository.WholesalerRepository;
 import com.diya.backend.entity.Retailer;
 import com.diya.backend.repository.RetailerRepository;
+import com.diya.backend.util.BusinessTypeCatalog;
+import com.diya.backend.util.RegionCatalog;
+
+import java.util.List;
 import lombok.RequiredArgsConstructor;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.security.SecureRandom;
 import java.util.Locale;
@@ -88,6 +93,21 @@ public class AuthService {
      */
     public AuthResponse registerWholesaler(RegisterWholesalerRequest req) {
 
+        String region = req.getRegion();
+        if (region == null || region.isBlank()) {
+            region = req.getCity();
+        }
+        RegionCatalog.requireValidRegion(region);
+        region = region.trim();
+
+        BusinessTypeCatalog.requireValidBusinessType(req.getBusinessType());
+        String businessType = req.getBusinessType().trim();
+
+        List<String> categories = req.getCategories();
+        if (categories == null || categories.isEmpty()) {
+            categories = List.of(businessType);
+        }
+
         // Check mobile uniqueness
         userRepository.findByPhone(req.getMobile()).ifPresent(u -> {
             throw new RuntimeException("Mobile number already registered");
@@ -115,11 +135,10 @@ public class AuthService {
             count++;
         }
 
-        // Delivery model mapping
         Wholesaler.DeliveryModel deliveryEnum = Wholesaler.DeliveryModel.DELIVERY;
-        if (req.getDeliveryModel() != null) {
+        if (req.getDeliveryModel() != null && !req.getDeliveryModel().isBlank()) {
             try {
-                deliveryEnum = Wholesaler.DeliveryModel.valueOf(req.getDeliveryModel().toUpperCase());
+                deliveryEnum = Wholesaler.DeliveryModel.valueOf(req.getDeliveryModel().trim().toUpperCase());
             } catch (Exception ignored) {
             }
         }
@@ -132,12 +151,14 @@ public class AuthService {
                 .user(user)
                 .handle(handle)
                 .businessName(req.getBusinessName())
+                .businessType(businessType)
                 .gstin(req.getGstin())
-                .city(req.getCity())
+                .city(region)
+                .region(region)
                 .state("Not Provided")
                 .pincode(req.getPincode())
                 .address(req.getFullAddress())
-                .categories(req.getCategories())
+                .categories(categories)
                 .deliveryModel(deliveryEnum)
                 .upiId(req.getUpiId())
                 .upiQrImage(req.getQrCodeUrl())
@@ -171,8 +192,11 @@ public class AuthService {
      */
     public AuthResponse registerRetailer(RegisterRetailerRequest req) {
 
-        // Validate phone/email uniqueness
+        // Validate phone/email uniqueness across both User and Retailer tables
         userRepository.findByPhone(req.getPhone()).ifPresent(u -> {
+            throw new RuntimeException("Phone already registered");
+        });
+        retailerRepository.findByPhoneContact(req.getPhone()).ifPresent(r -> {
             throw new RuntimeException("Phone already registered");
         });
 
@@ -202,7 +226,14 @@ public class AuthService {
                 .city(req.getCity())
                 .state(req.getState() != null ? req.getState() : "Not Provided")
                 .phoneContact(req.getPhone())
+                .password(user.getPassword())
                 .isActive(true)
+                .gstNumber(req.getGstin())
+                .accountStatus(Retailer.AccountStatus.ACTIVE)
+                // Self-signup retailers already have a verified account & password
+                .accountClaimed(true)
+                .otpVerified(true)
+                .claimedAt(java.time.LocalDateTime.now())
                 .build();
 
         retailerRepository.save(retailer);
@@ -214,7 +245,8 @@ public class AuthService {
 
         // Generate token
         String identifier = authType.equals("PHONE") ? req.getPhone() : req.getEmail();
-        System.out.println("[AUTHSERVICE] Generating token for registerRetailer - identifier: " + identifier + ", authType: " + authType);
+        System.out.println("[AUTHSERVICE] Generating token for registerRetailer - identifier: " + identifier
+                + ", authType: " + authType);
         String token = jwtUtil.generateToken(
                 identifier,
                 authType,
@@ -240,34 +272,183 @@ public class AuthService {
         String identifier = req.getIdentifier();
         String password = req.getPassword();
 
-        User user;
-
-        if (identifier.contains("@")) {
-            user = userRepository.findByEmail(identifier)
-                    .orElseThrow(() -> new RuntimeException("Invalid email or password"));
-        } else {
-            user = userRepository.findByPhone(identifier)
-                    .orElseThrow(() -> new RuntimeException("Invalid phone number or password"));
+        if (identifier == null || identifier.isBlank()) {
+            throw new RuntimeException("Phone number or email is required");
         }
+
+        // Email login (existing behavior)
+        if (identifier.contains("@")) {
+            if (password == null || password.isBlank()) {
+                throw new RuntimeException("Password required");
+            }
+
+            User user = userRepository.findByEmail(identifier)
+                    .orElseThrow(() -> new RuntimeException("Invalid email or password"));
+
+            if (!passwordEncoder.matches(password, user.getPassword())) {
+                throw new RuntimeException("Invalid credentials");
+            }
+
+            String token = generateTokenForUser(identifier, "EMAIL", user);
+            return AuthResponse.builder()
+                    .token(token)
+                    .name(user.getName())
+                    .role(user.getRole().name())
+                    .authType("EMAIL")
+                    .build();
+        }
+
+        // Phone login
+        if (password == null || password.isBlank()) {
+            // If a user already exists, require password
+            if (userRepository.findByPhone(identifier).isPresent()) {
+                throw new RuntimeException("Password required");
+            }
+
+            // Otherwise, check if this phone belongs to an invited retailer
+            Retailer retailer = retailerRepository.findByPhoneContact(identifier)
+                    .orElseThrow(() -> new RuntimeException("Retailer not registered"));
+
+            if (retailer.getAccountStatus() == Retailer.AccountStatus.INVITED
+                    || retailer.getAccountStatus() == Retailer.AccountStatus.CREATED_BY_WHOLESALER) {
+                // Trigger activation flow
+                sendOtp(identifier);
+                retailer.setAccountStatus(Retailer.AccountStatus.ACTIVATION_REQUIRED);
+                retailerRepository.save(retailer);
+                return AuthResponse.builder()
+                        .role("RETAILER")
+                        .accountStatus("ACTIVATION_REQUIRED")
+                        .retailerId(retailer.getId())
+                        .build();
+            }
+
+            // Already active but no password provided
+            throw new RuntimeException("Password required");
+        }
+
+        // Password provided - normal login
+        User user = userRepository.findByPhone(identifier)
+                .orElseThrow(() -> {
+                    // If retailer exists but not activated, prompt activation
+                    retailerRepository.findByPhoneContact(identifier).ifPresent(r -> {
+                        if (r.getAccountStatus() == Retailer.AccountStatus.INVITED
+                                || r.getAccountStatus() == Retailer.AccountStatus.CREATED_BY_WHOLESALER) {
+                            throw new RuntimeException("Account activation required");
+                        }
+                    });
+                    return new RuntimeException("Invalid phone number or password");
+                });
 
         if (!passwordEncoder.matches(password, user.getPassword())) {
             throw new RuntimeException("Invalid credentials");
         }
 
-        String authType = identifier.contains("@") ? "EMAIL" : "PHONE";
+        String token = generateTokenForUser(identifier, "PHONE", user);
+        return AuthResponse.builder()
+                .token(token)
+                .name(user.getName())
+                .role(user.getRole().name())
+                .authType("PHONE")
+                .build();
+    }
 
-        System.out.println("[AUTHSERVICE] Generating token for login - identifier: " + identifier + ", authType: " + authType + ", role: " + user.getRole().name());
+    private String generateTokenForUser(String identifier, String authType, User user) {
+        System.out.println("[AUTHSERVICE] Generating token for login - identifier: " + identifier + ", authType: "
+                + authType + ", role: " + user.getRole().name());
         String token = jwtUtil.generateToken(
                 identifier,
                 authType,
                 user.getRole().name());
         System.out.println("[AUTHSERVICE] Token generated successfully");
+        return token;
+    }
+
+    public AuthResponse setPassword(String phone, String newPassword) {
+        if (phone == null || phone.isBlank()) {
+            throw new RuntimeException("Phone number is required");
+        }
+        if (newPassword == null || newPassword.isBlank() || newPassword.length() < 6) {
+            throw new RuntimeException("Password must be at least 6 characters");
+        }
+
+        if (!otpService.isVerified(phone)) {
+            throw new RuntimeException("OTP verification required");
+        }
+
+        Retailer retailer = retailerRepository.findByPhoneContact(phone)
+                .orElseThrow(() -> new RuntimeException("Retailer not registered"));
+
+        if (!(retailer.getAccountStatus() == Retailer.AccountStatus.INVITED
+                || retailer.getAccountStatus() == Retailer.AccountStatus.CREATED_BY_WHOLESALER
+                || retailer.getAccountStatus() == Retailer.AccountStatus.ACTIVATION_REQUIRED)) {
+            throw new RuntimeException("Retailer account is already active");
+        }
+
+        // Ensure we don't create duplicate users
+        if (userRepository.findByPhone(phone).isPresent()) {
+            throw new RuntimeException("User already exists with this phone");
+        }
+
+        User user = User.builder()
+                .name(retailer.getShopName() != null ? retailer.getShopName() : "Retailer")
+                .phone(phone)
+                .email(null)
+                .password(passwordEncoder.encode(newPassword))
+                .role(User.Role.RETAILER)
+                .isActive(true)
+                .build();
+
+        userRepository.save(user);
+
+        retailer.setUser(user);
+        retailer.setPassword(passwordEncoder.encode(newPassword));
+        retailer.setAccountStatus(Retailer.AccountStatus.ACTIVE);
+        retailerRepository.save(retailer);
+
+        otpService.consumeVerified(phone);
+
+        String token = jwtUtil.generateToken(phone, "PHONE", "RETAILER");
 
         return AuthResponse.builder()
                 .token(token)
                 .name(user.getName())
-                .role(user.getRole().name())
-                .authType(authType)
+                .role("RETAILER")
+                .authType("PHONE")
+                .retailerId(retailer.getId())
+                .accountStatus("ACTIVE")
                 .build();
+    }
+
+    /**
+     * Logged-in wholesaler changes password (JWT subject = phone or email).
+     */
+    @Transactional
+    public void changePasswordForWholesaler(String identifier, String currentPassword, String newPassword) {
+        if (currentPassword == null || currentPassword.isBlank()) {
+            throw new RuntimeException("Current password is required");
+        }
+        if (newPassword == null || newPassword.isBlank()) {
+            throw new RuntimeException("New password is required");
+        }
+        if (newPassword.length() < 6) {
+            throw new RuntimeException("New password must be at least 6 characters");
+        }
+
+        User user = identifier.contains("@")
+                ? userRepository.findByEmail(identifier)
+                        .orElseThrow(() -> new RuntimeException("User not found"))
+                : userRepository.findByPhone(identifier)
+                        .orElseThrow(() -> new RuntimeException("User not found"));
+
+        if (user.getRole() != User.Role.WHOLESALER) {
+            throw new RuntimeException("Only wholesaler accounts can change password here");
+        }
+
+        if (!passwordEncoder.matches(currentPassword, user.getPassword())) {
+            throw new RuntimeException("Current password is incorrect");
+        }
+
+        user.setPassword(passwordEncoder.encode(newPassword));
+        userRepository.save(user);
     }
 }

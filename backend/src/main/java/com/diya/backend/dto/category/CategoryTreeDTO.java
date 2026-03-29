@@ -1,5 +1,6 @@
 package com.diya.backend.dto.category;
 
+import com.diya.backend.dto.product.ProductResponseDTO;
 import lombok.*;
 import java.util.*;
 
@@ -13,6 +14,9 @@ public class CategoryTreeDTO {
     private String name;
 
     @Builder.Default
+    private List<ProductResponseDTO> products = new ArrayList<>();
+
+    @Builder.Default
     private List<SubNode> subcategories = new ArrayList<>();
 
     @Getter
@@ -23,5 +27,8 @@ public class CategoryTreeDTO {
     public static class SubNode {
         private UUID id;
         private String name;
+
+        @Builder.Default
+        private List<ProductResponseDTO> products = new ArrayList<>();
     }
 }

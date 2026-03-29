@@ -25,6 +25,7 @@ import {
 } from "@/components/ui/select";
 import emptyStateImage from "@assets/generated_images/empty_state_illustration_for_orders.png";
 import { fetchOrders, OrderListItem } from "@/services/order";
+import { CreateOrderModal } from "@/components/orders/CreateOrderModal";
 
 // Map backend status to UI status
 function mapStatusToUI(status: string): string {
@@ -114,6 +115,7 @@ export default function Orders() {
   const [orders, setOrders] = useState<OrderListItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [createOrderOpen, setCreateOrderOpen] = useState(false);
 
   // Load orders from API
   useEffect(() => {
@@ -196,7 +198,10 @@ export default function Orders() {
             <Filter className="h-4 w-4" />
             Filters
           </Button>
-          <Button className="gap-2 bg-primary hover:bg-primary/90 text-white shadow-sm">
+          <Button
+            className="gap-2 bg-primary hover:bg-primary/90 text-white shadow-sm"
+            onClick={() => setCreateOrderOpen(true)}
+          >
             <Package className="h-4 w-4" />
             Create Order
           </Button>
@@ -340,6 +345,11 @@ export default function Orders() {
           <Button variant="ghost" className="text-gray-500 hover:text-gray-900">Load More Orders</Button>
         </div>
       )}
+      <CreateOrderModal
+        open={createOrderOpen}
+        onClose={() => setCreateOrderOpen(false)}
+        onCreated={loadOrders}
+      />
     </div>
   );
 }

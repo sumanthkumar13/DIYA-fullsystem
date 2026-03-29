@@ -7,6 +7,8 @@ import com.diya.backend.dto.order.WholesalerOrderDetailDTO;
 import com.diya.backend.dto.order.WholesalerOrderItemDetailDTO;
 import com.diya.backend.dto.order.WholesalerOrderAcceptRequest;
 import com.diya.backend.dto.order.WholesalerOrderEditRequest;
+import com.diya.backend.dto.order.WholesalerOrderCreditPatchRequest;
+import com.diya.backend.dto.order.WholesalerCreateOrderRequest;
 import com.diya.backend.entity.*;
 import com.diya.backend.repository.*;
 import com.diya.backend.util.OrderPrefixUtil;
@@ -329,15 +331,134 @@ public class OrderService {
     }
 
     // ==========================================================
+    // WHOLESALER: Direct create order for a retailer
+    // ==========================================================
+    @Transactional
+    public Order createOrderForWholesaler(String identifier, WholesalerCreateOrderRequest req) {
+        if (req == null || req.getRetailerId() == null || req.getItems() == null || req.getItems().isEmpty()) {
+            throw new RuntimeException("Retailer and at least one item are required");
+        }
+
+        Wholesaler wholesaler = identifier.contains("@")
+                ? wholesalerRepository.findByUserEmail(identifier)
+                        .orElseThrow(() -> new RuntimeException("Wholesaler not found"))
+                : wholesalerRepository.findByUserPhone(identifier)
+                        .orElseThrow(() -> new RuntimeException("Wholesaler not found"));
+
+        Retailer retailer = retailerRepository.findById(req.getRetailerId())
+                .orElseThrow(() -> new RuntimeException("Retailer not found"));
+
+        // Ensure connection between wholesaler and retailer exists
+        connectionService.ensureRetailerConnectedToWholesaler(retailer, wholesaler);
+
+        BigDecimal subtotal = BigDecimal.ZERO;
+
+        java.util.List<WholesalerCreateOrderRequest.Item> items = req.getItems();
+        if (items == null || items.isEmpty()) {
+            throw new RuntimeException("At least one item is required");
+        }
+
+        // Pre-validate items and compute subtotal
+        for (WholesalerCreateOrderRequest.Item item : items) {
+            if (item == null || item.getProductId() == null) {
+                throw new RuntimeException("productId is required for each item");
+            }
+            if (item.getQuantity() == null || item.getQuantity() <= 0) {
+                throw new RuntimeException("Quantity must be > 0 for each item");
+            }
+
+            Product p = productRepository.findById(item.getProductId())
+                    .orElseThrow(() -> new RuntimeException("Product not found: " + item.getProductId()));
+
+            int qty = item.getQuantity();
+            BigDecimal lineTotal = BigDecimal.valueOf(p.getPrice())
+                    .multiply(BigDecimal.valueOf(qty))
+                    .setScale(SCALE, ROUNDING);
+            subtotal = subtotal.add(lineTotal);
+        }
+
+        subtotal = subtotal.setScale(SCALE, ROUNDING);
+        BigDecimal tax = subtotal.multiply(GST_RATE).setScale(SCALE, ROUNDING);
+        BigDecimal total = subtotal.add(tax).add(DELIVERY_CHARGE).setScale(SCALE, ROUNDING);
+
+        Order order = Order.builder()
+                .wholesaler(wholesaler)
+                .retailer(retailer)
+                .orderNumber("TEMP")
+                .status(Order.Status.PLACED)
+                .paymentStatus(Order.PaymentStatus.UNPAID)
+                .placedAt(LocalDateTime.now())
+                .subtotal(subtotal)
+                .taxAmount(tax)
+                .deliveryCharge(DELIVERY_CHARGE)
+                .totalAmount(total)
+                .build();
+
+        order = orderRepository.save(order);
+
+        for (WholesalerCreateOrderRequest.Item item : items) {
+            Product p = productRepository.findById(item.getProductId())
+                    .orElseThrow(() -> new RuntimeException("Product not found: " + item.getProductId()));
+
+            int qty = item.getQuantity();
+
+            int stock = p.getStock() == null ? 0 : p.getStock();
+            int reserved = p.getReservedStock() == null ? 0 : p.getReservedStock();
+            int available = Math.max(0, stock - reserved);
+
+            double unitPrice = p.getPrice();
+            double lineTotal = unitPrice * qty;
+
+            String unitSnapshot = (p.getUnit() == null || p.getUnit().trim().isEmpty())
+                    ? "pcs"
+                    : p.getUnit().trim();
+
+            OrderItem oi = OrderItem.builder()
+                    .order(order)
+                    .product(p)
+                    .productIdSnapshot(p.getId())
+                    .productNameSnapshot(p.getName())
+                    .unitSnapshot(unitSnapshot)
+                    .qty(qty)
+                    .unitPriceSnapshot(unitPrice)
+                    .lineTotal(lineTotal)
+                    .build();
+
+            orderItemRepository.save(oi);
+
+            int reserveQty = Math.min(qty, available);
+            p.setReservedStock(reserved + reserveQty);
+            productRepository.save(p);
+        }
+
+        int nextSeq = Optional.ofNullable(wholesaler.getOrderSequence()).orElse(0) + 1;
+        String prefix = OrderPrefixUtil.buildPrefix(wholesaler);
+        String orderNum = OrderPrefixUtil.formatOrderNumber(prefix, nextSeq);
+
+        order.setOrderNumber(orderNum);
+        orderRepository.save(order);
+
+        wholesaler.setOrderSequence(nextSeq);
+        wholesalerRepository.save(wholesaler);
+
+        return order;
+    }
+
+    // ==========================================================
     // RETAILER: Orders list
     // ==========================================================
     public List<OrderListItemDTO> getOrdersForRetailer(String identifier) {
 
-        Retailer retailer = identifier.contains("@")
-                ? retailerRepository.findByUserEmail(identifier)
-                        .orElseThrow(() -> new RuntimeException("Retailer not found"))
-                : retailerRepository.findByUserPhone(identifier)
-                        .orElseThrow(() -> new RuntimeException("Retailer not found"));
+        Retailer retailer;
+        if (identifier != null && identifier.contains("@")) {
+            retailer = retailerRepository.findByUserEmail(identifier).orElse(null);
+        } else {
+            retailer = retailerRepository.findByPhoneContact(identifier)
+                    .orElseGet(() -> retailerRepository.findByUserPhone(identifier).orElse(null));
+        }
+        if (retailer == null) {
+            throw new RuntimeException("Retailer not found");
+        }
 
         List<Order> orders = orderRepository.findByRetailer(retailer);
 
@@ -363,11 +484,16 @@ public class OrderService {
     // ==========================================================
     public Order getRetailerOrderDetails(String identifier, UUID orderId) {
 
-        Retailer retailer = identifier.contains("@")
-                ? retailerRepository.findByUserEmail(identifier)
-                        .orElseThrow(() -> new RuntimeException("Retailer not found"))
-                : retailerRepository.findByUserPhone(identifier)
-                        .orElseThrow(() -> new RuntimeException("Retailer not found"));
+        Retailer retailer;
+        if (identifier != null && identifier.contains("@")) {
+            retailer = retailerRepository.findByUserEmail(identifier).orElse(null);
+        } else {
+            retailer = retailerRepository.findByPhoneContact(identifier)
+                    .orElseGet(() -> retailerRepository.findByUserPhone(identifier).orElse(null));
+        }
+        if (retailer == null) {
+            throw new RuntimeException("Retailer not found");
+        }
 
         Order order = orderRepository.findById(orderId)
                 .orElseThrow(() -> new RuntimeException("Order not found"));
@@ -382,11 +508,16 @@ public class OrderService {
     @Transactional
     public Order retailerCancelOrder(String identifier, UUID orderId) {
 
-        Retailer retailer = identifier.contains("@")
-                ? retailerRepository.findByUserEmail(identifier)
-                        .orElseThrow(() -> new RuntimeException("Retailer not found"))
-                : retailerRepository.findByUserPhone(identifier)
-                        .orElseThrow(() -> new RuntimeException("Retailer not found"));
+        Retailer retailer;
+        if (identifier != null && identifier.contains("@")) {
+            retailer = retailerRepository.findByUserEmail(identifier).orElse(null);
+        } else {
+            retailer = retailerRepository.findByPhoneContact(identifier)
+                    .orElseGet(() -> retailerRepository.findByUserPhone(identifier).orElse(null));
+        }
+        if (retailer == null) {
+            throw new RuntimeException("Retailer not found");
+        }
 
         Order order = orderRepository.findById(orderId)
                 .orElseThrow(() -> new RuntimeException("Order not found"));
@@ -500,20 +631,41 @@ public class OrderService {
 
         BigDecimal total = order.getTotalAmount() == null ? BigDecimal.ZERO : order.getTotalAmount();
         BigDecimal outstanding = total.subtract(paidAmount).max(BigDecimal.ZERO);
-        boolean isOverdue = order.getDueDate() != null
-                && java.time.LocalDateTime.now().isAfter(order.getDueDate())
+
+        Integer cd = order.getCreditDays() != null ? order.getCreditDays() : 0;
+        java.time.LocalDateTime placed = order.getPlacedAt();
+        java.time.LocalDateTime displayDue = (placed != null && cd > 0)
+                ? placed.plusDays(cd)
+                : (order.getDueDate() != null ? order.getDueDate() : null);
+        boolean isOverdue = displayDue != null
+                && java.time.LocalDateTime.now().isAfter(displayDue)
                 && outstanding.compareTo(BigDecimal.ZERO) > 0;
+
+        BigDecimal creditGiven = order.getApprovedCreditAmount() != null
+                ? order.getApprovedCreditAmount()
+                : BigDecimal.ZERO;
+
+        // Display payment status from order total vs confirmed payments (real-time)
+        String displayPaymentStatus;
+        if (outstanding.compareTo(BigDecimal.ZERO) <= 0) {
+            displayPaymentStatus = "PAID";
+        } else if (paidAmount.compareTo(BigDecimal.ZERO) > 0) {
+            displayPaymentStatus = "PARTIAL";
+        } else {
+            displayPaymentStatus = "UNPAID";
+        }
 
         return WholesalerOrderDetailDTO.builder()
                 .id(order.getId())
                 .orderNumber(order.getOrderNumber())
                 .status(order.getStatus() != null ? order.getStatus().name() : null)
-                .paymentStatus(order.getPaymentStatus() != null ? order.getPaymentStatus().name() : null)
+                .paymentStatus(displayPaymentStatus)
                 .paymentMode(order.getPaymentMode() != null ? order.getPaymentMode().name() : null)
-                .creditDays(order.getCreditDays() == null ? 0 : order.getCreditDays())
-                .dueDate(order.getDueDate())
+                .creditDays(cd)
+                .dueDate(displayDue)
                 .isOverdue(isOverdue)
                 .outstandingAmount(outstanding)
+                .creditGiven(creditGiven)
                 .placedAt(order.getPlacedAt())
                 .subtotal(order.getSubtotal())
                 .taxAmount(order.getTaxAmount())
@@ -523,6 +675,55 @@ public class OrderService {
                 .items(items)
                 .invoiceId(invoiceRepository.findByOrderId(order.getId()).map(Invoice::getId).orElse(null))
                 .build();
+    }
+
+    @Transactional
+    public WholesalerOrderDetailDTO wholesalerPatchOrderCredit(
+            String identifier, String authType, UUID orderId, WholesalerOrderCreditPatchRequest req) {
+        if (req == null) {
+            throw new RuntimeException("Request body required");
+        }
+        Wholesaler wholesaler = identifier.contains("@")
+                ? wholesalerRepository.findByUserEmail(identifier)
+                        .orElseThrow(() -> new RuntimeException("Wholesaler not found"))
+                : wholesalerRepository.findByUserPhone(identifier)
+                        .orElseThrow(() -> new RuntimeException("Wholesaler not found"));
+
+        Order order = orderRepository.findById(orderId)
+                .orElseThrow(() -> new RuntimeException("Order not found"));
+        if (!order.getWholesaler().getId().equals(wholesaler.getId())) {
+            throw new RuntimeException("Access denied");
+        }
+        if (order.getStatus() == Order.Status.CANCELLED || order.getStatus() == Order.Status.REJECTED) {
+            throw new RuntimeException("Cannot edit credit on cancelled or rejected orders");
+        }
+
+        if (req.getCreditDays() != null) {
+            int d = req.getCreditDays();
+            if (d < 0) {
+                throw new RuntimeException("creditDays cannot be negative");
+            }
+            order.setCreditDays(d);
+            if (order.getPlacedAt() != null && d > 0) {
+                order.setDueDate(order.getPlacedAt().plusDays(d));
+            } else {
+                order.setDueDate(null);
+            }
+        }
+        if (req.getApprovedCreditAmount() != null) {
+            BigDecimal cap = order.getTotalAmount() != null ? order.getTotalAmount() : BigDecimal.ZERO;
+            BigDecimal amt = req.getApprovedCreditAmount();
+            if (amt.compareTo(BigDecimal.ZERO) < 0) {
+                amt = BigDecimal.ZERO;
+            }
+            if (amt.compareTo(cap) > 0) {
+                amt = cap;
+            }
+            order.setApprovedCreditAmount(amt);
+        }
+
+        orderRepository.save(order);
+        return getWholesalerOrderDetailDto(identifier, authType, orderId);
     }
 
     // ==========================================================
@@ -714,7 +915,8 @@ public class OrderService {
                 throw new RuntimeException("creditDays must be > 0 for CREDIT orders");
             }
             order.setCreditDays(creditDays);
-            order.setDueDate(acceptedAt.plusDays(creditDays));
+            java.time.LocalDateTime placed = order.getPlacedAt() != null ? order.getPlacedAt() : acceptedAt;
+            order.setDueDate(placed.plusDays(creditDays));
             order.setCreditDueDate(LocalDateTime.now().plusDays(creditDays));
         }
 

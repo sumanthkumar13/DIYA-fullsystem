@@ -1,0 +1,229 @@
+# 🚀 Diya Deployment Recap — What We Achieved on 19/02/2026 (Basically deployed in render and vercel)
+
+Below is a clean chronological recap of everything we actually fixed and built today.
+(You essentially moved Diya from a **local college project → real public SaaS system**.)
+
+---
+
+## 1️⃣ Git & Branch Management
+
+* Collected all local changes across backend, dashboard, and retailer app.
+* Committed and pushed code to GitHub.
+* Merged `dev` branch → `main` branch.
+* Learned what **create mode** means (Git adding new tracked files).
+* Set up workflow so production deployments come from `main`.
+
+---
+
+## 2️⃣ Spring Boot Profiles (Environment Separation)
+
+We separated environments:
+
+* `application.properties` → base config
+* `application-dev.properties` → local development
+* `application-prod.properties` → production (Render)
+
+Why important:
+
+> Local DB and production DB must never be the same.
+
+You also created a script:
+
+```
+run-dev.ps1
+```
+
+to start backend using the dev profile.
+
+---
+
+## 3️⃣ Render PostgreSQL (Production Database)
+
+You created a **cloud database**:
+
+* Hosted on Render
+* Persistent storage
+* External DB URL connected to Spring Boot
+
+Then configured Spring Boot to use:
+
+```
+jdbc:postgresql://<render-host>:5432/diya_prod
+```
+
+This made your data survive server restarts.
+
+---
+
+## 4️⃣ Backend Deployment (Render Cloud)
+
+You successfully deployed Spring Boot using Docker.
+
+Important fixes done:
+
+* Correct JDBC URL format (`jdbc:` prefix issue)
+* Allowed dynamic port:
+
+```
+server.port=${PORT:8080}
+```
+
+Why:
+Render assigns a random port → your app must listen to it.
+
+Result:
+Your backend became publicly accessible:
+
+```
+https://diya-fullsystem.onrender.com
+```
+
+---
+
+## 5️⃣ Database Schema Initialization
+
+You faced:
+
+```
+relation "hsn_master" does not exist
+```
+
+Solution:
+Temporarily used:
+
+```
+spring.jpa.hibernate.ddl-auto=create
+```
+
+Tables were created → HSN data seeded → backend booted successfully.
+
+Later switched to:
+
+```
+ddl-auto=validate
+```
+
+(so production data is safe)
+
+---
+
+## 6️⃣ Frontend–Backend Connection
+
+You discovered frontend was still calling:
+
+```
+http://localhost:8081
+```
+
+Fixed by:
+
+* Using centralized Axios client
+* Replacing `fetch()` calls with `api.post()`
+* Connecting frontend to live backend URL
+
+Now:
+
+```
+Vercel frontend → Render backend
+```
+
+---
+
+## 7️⃣ Vercel Deployment (Major Breakthrough)
+
+This was the hardest part.
+
+Problem:
+Your repo was a **Vite + Express SSR template**.
+Vercel kept executing `index.js` server instead of serving the website.
+
+We fixed by:
+
+### a) Removing Express from frontend build
+
+Changed:
+
+```
+vite build && esbuild server/index-prod.ts
+```
+
+to:
+
+```
+vite build
+```
+
+### b) Changing Vite output
+
+```
+dist/public  →  dist
+```
+
+### c) Deploying pure static frontend
+
+Result:
+Your site finally loaded:
+
+```
+https://diya-fullsystem.vercel.app
+```
+
+---
+
+## 8️⃣ Public Internet Networking (CORS)
+
+After deployment, OTP failed.
+
+Reason:
+Browser security blocked cross-origin request:
+
+```
+vercel.app → onrender.com
+```
+
+We fixed Spring Security:
+
+* Enabled CORS inside SecurityFilterChain
+* Allowed OPTIONS preflight requests
+* Used wildcard origin pattern:
+
+```
+https://*.vercel.app
+```
+
+Now browser is allowed to talk to backend.
+
+---
+
+## 9️⃣ Full Production Architecture (Final State)
+
+Your system is now:
+
+```
+User Browser
+      ↓
+Vercel (React Frontend CDN)
+      ↓
+Render (Spring Boot API)
+      ↓
+Render PostgreSQL Database
+```
+
+This is a **real startup-level cloud architecture**.
+
+---
+
+## 🔟 What This Means Practically
+
+Your project now supports:
+
+* Public internet users
+* Persistent data
+* Authentication
+* API communication
+* Cloud hosting
+* Multi-device access
+
+Anyone with the URL can use Diya.
+
+You officially deployed a full-stack SaaS product.

@@ -5,7 +5,8 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { useToast } from "@/hooks/use-toast";
-import  api  from "@/lib/axios";
+import api from "@/lib/axios";
+import { useAuth } from "@/context/AuthContext";
 
 
 export default function LoginPage() {
@@ -15,6 +16,7 @@ export default function LoginPage() {
   const [phone, setPhone] = useState("");
   const [password, setPassword] = useState("");
   const { toast } = useToast();
+   const { setUser } = useAuth();
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -28,9 +30,11 @@ export default function LoginPage() {
 
       // 🔴 IMPORTANT: token is inside res.data.data
       const authData = res.data.data;
+      console.log("Login success - authData:", authData);
 
       localStorage.setItem("token", authData.token);
       localStorage.setItem("user", JSON.stringify(authData));
+      setUser(authData ? { token: authData.token, ...authData } : null);
 
       toast({
         title: "Welcome back!",

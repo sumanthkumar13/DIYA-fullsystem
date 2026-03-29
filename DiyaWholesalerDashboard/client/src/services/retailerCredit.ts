@@ -1,6 +1,38 @@
 import api from "@/lib/api";
 
-export async function fetchRetailerCreditSummary(retailerId: string) {
-  const res = await api.get(`/ledger/wholesaler/retailer/${retailerId}/credit-summary`);
+export interface RetailerCreditSummary {
+  retailerId: string;
+  retailerName: string;
+  totalOutstanding: number;
+  creditGiven?: number;
+  creditLimit: number;
+  availableCredit: number;
+  overdueDays: number;
+  lastPaymentDate?: string | null;
+  lastOrderDate?: string | null;
+  shopName?: string;
+  phoneContact?: string;
+  address?: string;
+  city?: string;
+  state?: string;
+  proprietorName?: string;
+  totalCompletedPurchaseValue?: number;
+  tier?: string;
+}
+
+/** GET /api/wholesaler/retailers/{id}/credit-summary */
+export async function fetchRetailerCreditSummary(retailerId: string): Promise<RetailerCreditSummary> {
+  const res = await api.get(`/wholesaler/retailers/${retailerId}/credit-summary`);
+  return res.data;
+}
+
+/** PATCH /api/wholesaler/retailers/{id}/credit-limit — body { creditLimit: number | null } */
+export async function patchRetailerCreditLimit(
+  retailerId: string,
+  creditLimit: number | null
+): Promise<{ success: boolean; creditLimit?: number | null; message?: string }> {
+  const res = await api.patch(`/wholesaler/retailers/${retailerId}/credit-limit`, {
+    creditLimit,
+  });
   return res.data;
 }

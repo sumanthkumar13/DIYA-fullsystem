@@ -26,11 +26,12 @@ public class DashboardController {
     }
 
     @GetMapping("/kpi")
-    public DashboardKpiDTO getKpi() {
+    public DashboardKpiDTO getKpi(@RequestParam(required = false) String region) {
         Authentication auth = SecurityContextHolder.getContext().getAuthentication();
         return dashboardService.getKpiData(
                 getIdentifier(auth),
-                getAuthType(auth));
+                getAuthType(auth),
+                region);
     }
 
     @GetMapping("/territory")

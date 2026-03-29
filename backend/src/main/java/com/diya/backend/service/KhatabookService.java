@@ -24,14 +24,18 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
+import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.YearMonth;
 import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Objects;
+import java.util.Set;
 import java.util.UUID;
 import java.util.stream.Collectors;
 
@@ -101,8 +105,8 @@ public class KhatabookService {
 
     /**
      * Retailer-wise dues for Khatabook list: total due, overdue amount,
-     * last payment/order dates, overdue days. Only retailers with totalDue > 0,
-     * sorted by totalDue descending.
+     * last payment/order dates, overdue days. Includes all connected retailers;
+     * those without dues will have totalDue = 0.
      */
     @Transactional(readOnly = true)
     public List<RetailerDueDTO> getRetailerDues(UUID wholesalerId) {
@@ -124,7 +128,9 @@ public class KhatabookService {
             BigDecimal totalDue = entries.stream()
                     .map(e -> e.getEntryType() == LedgerEntry.EntryType.DEBIT ? e.getAmount() : e.getAmount().negate())
                     .reduce(BigDecimal.ZERO, BigDecimal::add);
-            if (totalDue == null || totalDue.compareTo(BigDecimal.ZERO) <= 0) continue;
+            if (totalDue == null) {
+                totalDue = BigDecimal.ZERO;
+            }
 
             BigDecimal overdueAmount = entries.stream()
                     .filter(e -> e.getEntryType() == LedgerEntry.EntryType.DEBIT
@@ -170,6 +176,40 @@ public class KhatabookService {
                     lastPayment.orElse(null),
                     lastOrder.orElse(null),
                     overdueDays
+            ));
+        }
+
+        // Also include retailers connected to this wholesaler even if they have no dues yet
+        List<Connection> approvedConnections = connectionRepository
+                .findByWholesalerAndStatusOrderByRequestedAtDesc(wholesaler, Connection.Status.APPROVED);
+
+        Set<UUID> existingIds = result.stream()
+                .map(RetailerDueDTO::getRetailerId)
+                .filter(Objects::nonNull)
+                .collect(Collectors.toSet());
+
+        for (Connection conn : approvedConnections) {
+            Retailer retailer = conn.getRetailer();
+            if (retailer == null || retailer.getId() == null) continue;
+            UUID retailerId = retailer.getId();
+            if (existingIds.contains(retailerId)) continue;
+
+            String retailerName = retailer.getUser() != null && retailer.getUser().getName() != null
+                    ? retailer.getUser().getName()
+                    : "";
+            String shopName = retailer.getShopName() != null ? retailer.getShopName() : "";
+            String phone = retailer.getPhoneContact() != null ? retailer.getPhoneContact() : "";
+
+            result.add(new RetailerDueDTO(
+                    retailerId,
+                    retailerName,
+                    shopName,
+                    phone,
+                    BigDecimal.ZERO,
+                    BigDecimal.ZERO,
+                    null,
+                    null,
+                    0L
             ));
         }
 
@@ -290,8 +330,8 @@ public class KhatabookService {
     }
 
     /**
-     * Credit summary for Retailer Profile: outstanding, overdue days,
-     * last payment/order, credit limit and available credit.
+     * Credit summary for Retailer Profile: credit given / outstanding / limit from orders + payments;
+     * profile fields from retailer row.
      */
     @Transactional(readOnly = true)
     public RetailerCreditSummaryDTO getRetailerCreditSummary(UUID wholesalerId, UUID retailerId) {
@@ -305,55 +345,127 @@ public class KhatabookService {
             throw new RuntimeException("Retailer not connected to wholesaler");
         }
 
-        List<LedgerEntry> entries = ledgerEntryRepository.findByWholesalerAndRetailer(wholesaler, retailer);
+        List<Order> orders = orderRepository.findByWholesaler(wholesaler).stream()
+                .filter(o -> o.getRetailer().getId().equals(retailerId))
+                .toList();
 
-        BigDecimal totalOutstanding = entries.stream()
-                .map(e -> e.getEntryType() == LedgerEntry.EntryType.DEBIT ? e.getAmount() : e.getAmount().negate())
-                .reduce(BigDecimal.ZERO, BigDecimal::add);
-        if (totalOutstanding == null) totalOutstanding = BigDecimal.ZERO;
-
-        int overdueDays = 0;
-        if (totalOutstanding.compareTo(BigDecimal.ZERO) > 0) {
-            Optional<LocalDateTime> oldestDebit = entries.stream()
-                    .filter(e -> e.getEntryType() == LedgerEntry.EntryType.DEBIT && e.getEntryDate() != null)
-                    .map(LedgerEntry::getEntryDate)
-                    .min(LocalDateTime::compareTo);
-            if (oldestDebit.isPresent()) {
-                overdueDays = (int) ChronoUnit.DAYS.between(
-                        oldestDebit.get().toLocalDate(),
-                        LocalDateTime.now().toLocalDate());
+        List<Payment> payments = paymentRepository.findByWholesalerAndRetailer(wholesaler, retailer);
+        Map<UUID, BigDecimal> paidByOrderId = new HashMap<>();
+        LocalDateTime lastPaymentAt = null;
+        for (Payment p : payments) {
+            if (p.getStatus() != Payment.PaymentStatus.CONFIRMED || p.getOrder() == null) {
+                continue;
+            }
+            UUID oid = p.getOrder().getId();
+            BigDecimal amt = p.getAmount() != null ? p.getAmount() : BigDecimal.ZERO;
+            paidByOrderId.merge(oid, amt, BigDecimal::add);
+            if (p.getConfirmedAt() != null) {
+                if (lastPaymentAt == null || p.getConfirmedAt().isAfter(lastPaymentAt)) {
+                    lastPaymentAt = p.getConfirmedAt();
+                }
             }
         }
 
-        Optional<LocalDateTime> lastPaymentDate = entries.stream()
-                .filter(e -> e.getEntryType() == LedgerEntry.EntryType.CREDIT && e.getEntryDate() != null)
-                .map(LedgerEntry::getEntryDate)
-                .max(LocalDateTime::compareTo);
+        BigDecimal totalOutstanding = BigDecimal.ZERO;
+        BigDecimal creditGiven = BigDecimal.ZERO;
+        int overdueDays = 0;
+        LocalDate today = LocalDate.now();
+        Optional<LocalDateTime> lastOrderDate = Optional.empty();
 
-        List<Order> wholesalerOrders = orderRepository.findByWholesaler(wholesaler);
-        Optional<LocalDateTime> lastOrderDate = wholesalerOrders.stream()
-                .filter(o -> o.getRetailer().getId().equals(retailerId) && o.getPlacedAt() != null)
-                .map(Order::getPlacedAt)
-                .max(LocalDateTime::compareTo);
+        for (Order o : orders) {
+            Order.Status st = o.getStatus();
+            if (st == Order.Status.CANCELLED || st == Order.Status.REJECTED) {
+                continue;
+            }
 
-        BigDecimal creditLimit = BigDecimal.valueOf(150000);
+            BigDecimal total = o.getTotalAmount() != null ? o.getTotalAmount() : BigDecimal.ZERO;
+            BigDecimal paid = paidByOrderId.getOrDefault(o.getId(), BigDecimal.ZERO);
+            BigDecimal out = total.subtract(paid).max(BigDecimal.ZERO);
+            totalOutstanding = totalOutstanding.add(out);
+
+            if (o.getPaymentMode() == Order.PaymentMode.CREDIT && st != Order.Status.PLACED) {
+                creditGiven = creditGiven.add(total);
+            }
+
+            if (o.getPlacedAt() != null) {
+                if (lastOrderDate.isEmpty() || o.getPlacedAt().isAfter(lastOrderDate.get())) {
+                    lastOrderDate = Optional.of(o.getPlacedAt());
+                }
+            }
+
+            java.time.LocalDateTime effDue = null;
+            if (o.getPlacedAt() != null && o.getCreditDays() != null && o.getCreditDays() > 0) {
+                effDue = o.getPlacedAt().plusDays(o.getCreditDays());
+            } else if (o.getDueDate() != null) {
+                effDue = o.getDueDate();
+            }
+            if (out.compareTo(BigDecimal.ZERO) > 0 && effDue != null) {
+                LocalDate due = effDue.toLocalDate();
+                if (due.isBefore(today)) {
+                    int d = (int) ChronoUnit.DAYS.between(due, today);
+                    overdueDays = Math.max(overdueDays, d);
+                }
+            }
+        }
+
+        BigDecimal creditLimit = retailer.getCreditLimit() != null ? retailer.getCreditLimit() : BigDecimal.ZERO;
         BigDecimal availableCredit = creditLimit.subtract(totalOutstanding);
-        if (availableCredit.compareTo(BigDecimal.ZERO) < 0) availableCredit = BigDecimal.ZERO;
+        if (availableCredit.compareTo(BigDecimal.ZERO) < 0) {
+            availableCredit = BigDecimal.ZERO;
+        }
 
         String retailerName = retailer.getUser() != null && retailer.getUser().getName() != null
                 ? retailer.getUser().getName()
                 : (retailer.getShopName() != null ? retailer.getShopName() : "Retailer");
+        String proprietorName = retailer.getUser() != null && retailer.getUser().getName() != null
+                ? retailer.getUser().getName()
+                : retailerName;
 
-        return new RetailerCreditSummaryDTO(
+        BigDecimal completedPurchase = orderRepository.sumCompletedOrderValueForRetailer(
+                wholesalerId,
                 retailerId,
-                retailerName,
-                totalOutstanding,
-                overdueDays,
-                lastPaymentDate.orElse(null),
-                lastOrderDate.orElse(null),
-                creditLimit,
-                availableCredit
-        );
+                java.util.List.of(Order.Status.DELIVERED, Order.Status.COMPLETED, Order.Status.INVOICED));
+        if (completedPurchase == null) {
+            completedPurchase = BigDecimal.ZERO;
+        }
+        String tier = tierFromCompletedPurchase(completedPurchase);
+
+        return RetailerCreditSummaryDTO.builder()
+                .retailerId(retailerId)
+                .retailerName(retailerName)
+                .totalOutstanding(totalOutstanding)
+                .creditGiven(creditGiven)
+                .creditLimit(creditLimit)
+                .availableCredit(availableCredit)
+                .overdueDays(overdueDays)
+                .lastPaymentDate(lastPaymentAt)
+                .lastOrderDate(lastOrderDate.orElse(null))
+                .shopName(retailer.getShopName() != null ? retailer.getShopName() : "")
+                .phoneContact(retailer.getPhoneContact() != null ? retailer.getPhoneContact() : "")
+                .address(retailer.getAddress() != null ? retailer.getAddress() : "")
+                .city(retailer.getCity() != null ? retailer.getCity() : "")
+                .state(retailer.getState() != null ? retailer.getState() : "")
+                .proprietorName(proprietorName)
+                .totalCompletedPurchaseValue(completedPurchase)
+                .tier(tier)
+                .build();
+    }
+
+    private static String tierFromCompletedPurchase(BigDecimal total) {
+        double v = total != null ? total.doubleValue() : 0;
+        if (v < 5000) {
+            return "BEGINNER";
+        }
+        if (v < 25000) {
+            return "BRONZE";
+        }
+        if (v < 100000) {
+            return "SILVER";
+        }
+        if (v < 500000) {
+            return "GOLD";
+        }
+        return "DIAMOND";
     }
 
     /**

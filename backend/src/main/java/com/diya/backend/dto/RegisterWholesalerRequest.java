@@ -17,20 +17,33 @@ public class RegisterWholesalerRequest {
     private String email;
     private String password;
 
-    // Step 2 — Categories
+    // Step 2 — Business type (required for new signups)
+    private String businessType;
+
+    /** @deprecated Prefer {@code businessType}. Kept for older clients. */
+    @Deprecated
     private List<String> categories;
 
     // Step 3 — Business Details
     private String businessName;
     private String gstin;
     private String pincode;
+    /** Required. Legacy clients may still send {@code city} — server maps it if region is blank. */
+    private String region;
+    /** @deprecated Use {@code region}. Kept for backward-compatible JSON. */
+    @Deprecated
     private String city;
     private String fullAddress;
 
-    // Step 4 — Delivery Model ("DELIVERY" / "PICKUP")
+    /**
+     * Optional. Defaults to {@code DELIVERY} on the server when omitted.
+     *
+     * @deprecated Signup no longer collects this; kept for older API clients.
+     */
+    @Deprecated
     private String deliveryModel;
 
-    // Step 5 — Payment Setup
+    // Payment Setup
     private String upiId;
     private String qrCodeUrl; // Optional (null if skipped)
 }

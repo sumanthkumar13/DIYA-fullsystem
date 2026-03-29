@@ -4,6 +4,8 @@ import com.diya.backend.entity.Product;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
 
 import java.util.*;
@@ -12,6 +14,10 @@ import java.util.*;
 public interface ProductRepository extends JpaRepository<Product, UUID> {
 
         List<Product> findByWholesalerId(UUID wholesalerId);
+
+        List<Product> findByWholesalerIdAndCategoryIdAndSubcategoryIsNull(UUID wholesalerId, UUID categoryId);
+
+        List<Product> findByWholesalerIdAndSubcategoryId(UUID wholesalerId, UUID subcategoryId);
 
         Page<Product> findByWholesalerId(UUID wholesalerId, Pageable pageable);
 
@@ -56,4 +62,53 @@ public interface ProductRepository extends JpaRepository<Product, UUID> {
         Page<Product> findByWholesalerIdAndNameContainingIgnoreCaseAndVisibleToRetailerTrueAndActiveTrue(
                         UUID wholesalerId, String search, Pageable pageable);
 
+        /* Wholesaler catalog (non-deleted) */
+        Page<Product> findByWholesalerIdAndDeletedFalse(UUID wholesalerId, Pageable pageable);
+
+        Page<Product> findByWholesalerIdAndSubcategoryIdAndDeletedFalse(UUID wholesalerId, UUID subcategoryId,
+                        Pageable pageable);
+
+        Page<Product> findByWholesalerIdAndCategoryIdAndDeletedFalse(UUID wholesalerId, UUID categoryId,
+                        Pageable pageable);
+
+        @Query("""
+                        SELECT p FROM Product p WHERE p.wholesaler.id = :wid AND p.deleted = false
+                        AND (LOWER(p.name) LIKE LOWER(CONCAT('%', :q, '%')) OR LOWER(p.sku) LIKE LOWER(CONCAT('%', :q, '%')))
+                        """)
+        Page<Product> searchByWholesalerDeletedFalse(@Param("wid") UUID wholesalerId, @Param("q") String q,
+                        Pageable pageable);
+
+        /* Retailer catalog: visible, active, not deleted, not hidden for retailer */
+        @Query("""
+                        SELECT p FROM Product p WHERE p.wholesaler.id = :wid AND p.visibleToRetailer = true
+                        AND p.active = true AND p.deleted = false
+                        AND NOT EXISTS (SELECT 1 FROM ProductRetailerHide h WHERE h.product.id = p.id AND h.retailer.id = :rid)
+                        """)
+        Page<Product> findRetailerCatalogAll(@Param("wid") UUID wholesalerId, @Param("rid") UUID retailerId,
+                        Pageable pageable);
+
+        @Query("""
+                        SELECT p FROM Product p WHERE p.wholesaler.id = :wid AND p.category.id = :cid
+                        AND p.visibleToRetailer = true AND p.active = true AND p.deleted = false
+                        AND NOT EXISTS (SELECT 1 FROM ProductRetailerHide h WHERE h.product.id = p.id AND h.retailer.id = :rid)
+                        """)
+        Page<Product> findRetailerCatalogByCategory(@Param("wid") UUID wholesalerId, @Param("cid") UUID categoryId,
+                        @Param("rid") UUID retailerId, Pageable pageable);
+
+        @Query("""
+                        SELECT p FROM Product p WHERE p.wholesaler.id = :wid AND p.subcategory.id = :sid
+                        AND p.visibleToRetailer = true AND p.active = true AND p.deleted = false
+                        AND NOT EXISTS (SELECT 1 FROM ProductRetailerHide h WHERE h.product.id = p.id AND h.retailer.id = :rid)
+                        """)
+        Page<Product> findRetailerCatalogBySubcategory(@Param("wid") UUID wholesalerId, @Param("sid") UUID subcategoryId,
+                        @Param("rid") UUID retailerId, Pageable pageable);
+
+        @Query("""
+                        SELECT p FROM Product p WHERE p.wholesaler.id = :wid AND p.visibleToRetailer = true
+                        AND p.active = true AND p.deleted = false
+                        AND NOT EXISTS (SELECT 1 FROM ProductRetailerHide h WHERE h.product.id = p.id AND h.retailer.id = :rid)
+                        AND LOWER(p.name) LIKE LOWER(CONCAT('%', :q, '%'))
+                        """)
+        Page<Product> findRetailerCatalogSearch(@Param("wid") UUID wholesalerId, @Param("rid") UUID retailerId,
+                        @Param("q") String q, Pageable pageable);
 }

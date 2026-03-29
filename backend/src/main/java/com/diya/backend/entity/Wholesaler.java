@@ -55,9 +55,17 @@ public class Wholesaler {
     @Column(nullable = false)
     private String businessName;
 
+    /** Standardized business type from signup / settings; null for legacy rows. */
+    @Column(length = 80)
+    private String businessType;
+
     private String gstin;
 
     private String city;
+
+    /** Standardized operating region (same vocabulary as retailer regions / analytics). */
+    @Column(length = 80)
+    private String region;
 
     private String state;
 

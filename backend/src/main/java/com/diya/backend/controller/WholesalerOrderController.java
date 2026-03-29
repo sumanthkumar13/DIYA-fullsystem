@@ -4,6 +4,8 @@ import com.diya.backend.dto.order.OrderListItemDTO;
 import com.diya.backend.dto.order.WholesalerOrderDetailDTO;
 import com.diya.backend.dto.order.WholesalerOrderAcceptRequest;
 import com.diya.backend.dto.order.WholesalerOrderEditRequest;
+import com.diya.backend.dto.order.WholesalerOrderCreditPatchRequest;
+import com.diya.backend.dto.order.WholesalerCreateOrderRequest;
 import com.diya.backend.entity.Order;
 import com.diya.backend.service.OrderService;
 import lombok.RequiredArgsConstructor;
@@ -13,6 +15,7 @@ import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 
 @RestController
@@ -40,6 +43,30 @@ public class WholesalerOrderController {
         return ResponseEntity.ok(list);
     }
 
+    // ✅ Create order directly from wholesaler dashboard
+    @PostMapping
+    public ResponseEntity<?> createOrder(@RequestBody WholesalerCreateOrderRequest req) {
+        try {
+            String identifier = SecurityContextHolder.getContext().getAuthentication().getName();
+            Order order = orderService.createOrderForWholesaler(identifier, req);
+            java.util.Map<String, Object> resp = new java.util.HashMap<>();
+            resp.put("success", true);
+            resp.put("orderId", order.getId());
+            resp.put("orderNumber", order.getOrderNumber());
+            return ResponseEntity.ok(resp);
+        } catch (RuntimeException e) {
+            java.util.Map<String, Object> errorResponse = new java.util.HashMap<>();
+            errorResponse.put("success", false);
+            errorResponse.put("message", e.getMessage() != null ? e.getMessage() : "Create order failed");
+            return ResponseEntity.badRequest().body(errorResponse);
+        } catch (Exception e) {
+            java.util.Map<String, Object> errorResponse = new java.util.HashMap<>();
+            errorResponse.put("success", false);
+            errorResponse.put("message", "Internal server error: " + e.getMessage());
+            return ResponseEntity.status(500).body(errorResponse);
+        }
+    }
+
     // ✅ Get order detail for wholesaler
     @GetMapping("/{orderId}")
     public ResponseEntity<WholesalerOrderDetailDTO> getOrderDetail(@PathVariable UUID orderId) {
@@ -49,6 +76,18 @@ public class WholesalerOrderController {
 
         WholesalerOrderDetailDTO dto = orderService.getWholesalerOrderDetailDto(identifier, authType, orderId);
         return ResponseEntity.ok(dto);
+    }
+
+    @PatchMapping("/{orderId}/credit")
+    public ResponseEntity<?> patchOrderCredit(
+            @PathVariable UUID orderId, @RequestBody WholesalerOrderCreditPatchRequest req) {
+        try {
+            String identifier = SecurityContextHolder.getContext().getAuthentication().getName();
+            String authType = identifier.contains("@") ? "EMAIL" : "PHONE";
+            return ResponseEntity.ok(orderService.wholesalerPatchOrderCredit(identifier, authType, orderId, req));
+        } catch (RuntimeException e) {
+            return ResponseEntity.badRequest().body(Map.of("message", e.getMessage() != null ? e.getMessage() : "Update failed"));
+        }
     }
 
     // ==========================================================

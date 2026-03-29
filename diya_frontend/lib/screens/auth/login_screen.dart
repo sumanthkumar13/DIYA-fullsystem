@@ -14,19 +14,82 @@ class LoginScreen extends ConsumerStatefulWidget {
 class _LoginScreenState extends ConsumerState<LoginScreen> {
   final _formKey = GlobalKey<FormState>();
 
-  final _identifier = TextEditingController();
-  final _password = TextEditingController();
+  final _phoneController = TextEditingController();
+  final _passwordController = TextEditingController();
 
   bool _loading = false;
+  bool _showPasswordField = false;
+  String? _loginStatus; // OTP_REQUIRED, PASSWORD_LOGIN_REQUIRED, NOT_REGISTERED
 
-  Future<void> _login() async {
+  Future<void> _handleContinue() async {
     if (!_formKey.currentState!.validate()) return;
+
+    final phone = _phoneController.text.trim();
+    if (phone.isEmpty) return;
+
+    setState(() => _loading = true);
+    Map<String, dynamic>? res;
+
+    try {
+      res = await ref.read(authProvider.notifier).loginPhone(phone);
+      print("Login phone raw response: $res");
+    } catch (e) {
+      print("loginPhone error: $e");
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text("Login failed. Please try again.")),
+      );
+      if (mounted) setState(() => _loading = false);
+      return;
+    } finally {
+      if (mounted) setState(() => _loading = false);
+    }
+
+    if (res == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text("Login failed. Please try again.")),
+      );
+      return;
+    }
+
+    final status = res['status']?.toString();
+    print("Login phone status: $status");
+    setState(() {
+      _loginStatus = status;
+    });
+
+    if (status == "OTP_REQUIRED") {
+      final retailerId = res['retailerId'];
+      Navigator.pushNamed(
+        context,
+        '/otp',
+        arguments: {'phone': phone, 'retailerId': retailerId},
+      );
+    } else if (status == "PASSWORD_LOGIN_REQUIRED") {
+      setState(() {
+        _showPasswordField = true;
+      });
+    } else if (status == "NOT_REGISTERED") {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text("Retailer not registered")),
+      );
+    } else {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text("Login failed. Please try again.")),
+      );
+    }
+  }
+
+  Future<void> _handlePasswordLogin() async {
+    if (!_showPasswordField) return;
+    final phone = _phoneController.text.trim();
+    final password = _passwordController.text.trim();
+    if (phone.isEmpty || password.isEmpty) return;
 
     setState(() => _loading = true);
 
     final ok = await ref
         .read(authProvider.notifier)
-        .login(_identifier.text.trim(), _password.text.trim());
+        .loginWithPassword(phone, password);
 
     setState(() => _loading = false);
 
@@ -48,8 +111,8 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
 
   @override
   void dispose() {
-    _identifier.dispose();
-    _password.dispose();
+    _phoneController.dispose();
+    _passwordController.dispose();
     super.dispose();
   }
 
@@ -91,12 +154,12 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                     const SizedBox(height: 26),
 
                     DiyaInput(
-                      label: "Phone / Email",
+                      label: "Phone Number",
                       hintText: "9876543210",
-                      controller: _identifier,
+                      controller: _phoneController,
                       validator: (v) {
                         final val = (v ?? '').trim();
-                        if (val.isEmpty) return "Enter phone/email";
+                        if (val.isEmpty) return "Enter phone number";
                         return null;
                       },
                       style: const TextStyle(
@@ -107,26 +170,32 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
 
                     const SizedBox(height: 14),
 
-                    DiyaInput(
-                      label: "Password",
-                      hintText: "••••••••",
-                      controller: _password,
-                      obscureText: true,
-                      validator: (v) {
-                        final val = (v ?? '').trim();
-                        if (val.isEmpty) return "Enter password";
-                        return null;
-                      },
-                    ),
+                    if (_showPasswordField)
+                      DiyaInput(
+                        label: "Password",
+                        hintText: "••••••••",
+                        controller: _passwordController,
+                        obscureText: true,
+                        validator: (v) {
+                          if (!_showPasswordField) return null;
+                          final val = (v ?? '').trim();
+                          if (val.isEmpty) return "Enter password";
+                          return null;
+                        },
+                      ),
 
                     const SizedBox(height: 22),
 
                     DiyaButton(
                       fullWidth: true,
                       size: DiyaButtonSize.lg,
-                      text: "Continue",
+                      text: _showPasswordField ? "Login" : "Continue",
                       isLoading: _loading,
-                      onPressed: _loading ? null : _login,
+                      onPressed: _loading
+                          ? null
+                          : () => _showPasswordField
+                              ? _handlePasswordLogin()
+                              : _handleContinue(),
                     ),
 
                     const Spacer(),

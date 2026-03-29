@@ -20,6 +20,7 @@ public class PaymentService {
     private final RetailerRepository retailerRepository;
     private final WholesalerRepository wholesalerRepository;
     private final LedgerEntryRepository ledgerEntryRepository;
+    private final LedgerService ledgerService;
 
     // ==========================================================
     // 1) Retailer records payment (UPI/CASH/NEFT/NETBANKING)
@@ -49,11 +50,17 @@ public class PaymentService {
             throw new RuntimeException("Access denied: Order not linked to this retailer");
         }
 
+        // Only allow recording payments after order is accepted (or later)
+        if (order.getStatus() == Order.Status.PLACED || order.getStatus() == Order.Status.REJECTED || order.getStatus() == Order.Status.CANCELLED) {
+            throw new RuntimeException("Cannot record payment for this order status");
+        }
+
         if (amount == null || amount.compareTo(BigDecimal.ZERO) <= 0) {
             throw new RuntimeException("Invalid payment amount");
         }
 
-        // do not accept payment greater than pending due (optional strict rule)
+        // Do not accept payment greater than due for this order (CONFIRMED payments only).
+        // This supports partial payments.
         BigDecimal alreadyConfirmed = paymentRepository.findByOrder(order).stream()
                 .filter(p -> p.getStatus() == Payment.PaymentStatus.CONFIRMED)
                 .map(Payment::getAmount)
@@ -111,10 +118,19 @@ public class PaymentService {
 
         // prevent double confirm
         if (payment.getStatus() == Payment.PaymentStatus.CONFIRMED) {
-            return payment;
+            throw new RuntimeException("Payment already confirmed");
         }
         if (payment.getStatus() == Payment.PaymentStatus.REJECTED) {
             throw new RuntimeException("Payment already rejected");
+        }
+
+        // Safety: don't allow confirming more than current outstanding for this retailer-wholesaler pair
+        java.math.BigDecimal outstanding = ledgerService.getOutstandingForPair(wholesaler, payment.getRetailer());
+        if (payment.getAmount() == null || payment.getAmount().compareTo(BigDecimal.ZERO) <= 0) {
+            throw new RuntimeException("Invalid payment amount");
+        }
+        if (payment.getAmount().compareTo(outstanding.add(TOLERANCE)) > 0) {
+            throw new RuntimeException("Payment amount exceeds outstanding amount");
         }
 
         payment.setStatus(Payment.PaymentStatus.CONFIRMED);
@@ -127,10 +143,10 @@ public class PaymentService {
         LedgerEntry ledgerEntry = LedgerEntry.builder()
                 .wholesaler(wholesaler)
                 .retailer(payment.getRetailer())
+                .relatedOrder(payment.getOrder())
                 .entryType(LedgerEntry.EntryType.CREDIT) // CREDIT = retailer paid
                 .amount(payment.getAmount())
-                .description("Payment confirmed (" + payment.getMode().name() + ") Ref: "
-                        + (payment.getReference() == null ? "-" : payment.getReference()))
+                .description("Payment received")
                 .entryDate(LocalDateTime.now())
                 .build();
 

@@ -1,6 +1,6 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useRoute, Link } from "wouter";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   ArrowLeft,
   Phone,
@@ -17,11 +17,15 @@ import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Separator } from "@/components/ui/separator";
-import { fetchRetailerCreditSummary } from "@/services/retailerCredit";
+import { fetchRetailerCreditSummary, patchRetailerCreditLimit } from "@/services/retailerCredit";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import { fetchOrders, OrderListItem } from "@/services/order";
 import { fetchRetailerStatement } from "@/services/khatabook";
 import { AddPaymentModal } from "@/components/payments/AddPaymentModal";
+import { RetailerTierBadge } from "@/components/retailers/RetailerTierBadge";
 import { cn } from "@/lib/utils";
+import { useToast } from "@/hooks/use-toast";
 
 function formatAmount(n: number) {
   return "₹" + Number(n).toLocaleString("en-IN");
@@ -48,11 +52,50 @@ export default function RetailerProfile() {
   const [match, params] = useRoute("/retailers/:id");
   const retailerId = params?.id ?? "";
   const [addPaymentOpen, setAddPaymentOpen] = useState(false);
+  const [creditLimitInput, setCreditLimitInput] = useState("");
+  const queryClient = useQueryClient();
+  const { toast } = useToast();
 
   const { data, isLoading } = useQuery({
     queryKey: ["retailer-credit", retailerId],
     queryFn: () => fetchRetailerCreditSummary(retailerId),
     enabled: !!retailerId,
+  });
+
+  useEffect(() => {
+    if (data == null) return;
+    const v = data.creditLimit;
+    setCreditLimitInput(
+      v != null && v !== undefined && Number(v) >= 0 ? String(Number(v)) : ""
+    );
+  }, [retailerId, data?.creditLimit]);
+
+  const saveCreditMutation = useMutation({
+    mutationFn: () => {
+      const trimmed = creditLimitInput.trim();
+      if (trimmed === "") {
+        return patchRetailerCreditLimit(retailerId, null);
+      }
+      const n = Number(trimmed);
+      if (!Number.isFinite(n) || n < 0) {
+        return Promise.reject(new Error("Enter a valid non-negative amount"));
+      }
+      return patchRetailerCreditLimit(retailerId, n);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["retailer-credit", retailerId] });
+      toast({
+        title: "Credit limit updated",
+        className: "bg-green-50 border-green-200 text-green-800",
+      });
+    },
+    onError: (err: Error) => {
+      toast({
+        title: "Could not update credit limit",
+        description: err?.message,
+        variant: "destructive",
+      });
+    },
   });
 
   const { data: ordersData } = useQuery({
@@ -72,6 +115,10 @@ export default function RetailerProfile() {
 
   const retailerName = data?.retailerName ?? "Retailer";
   const initials = retailerName.slice(0, 2).toUpperCase();
+  const locationLine =
+    [data?.city, data?.state].filter(Boolean).join(", ") || "—";
+  const phoneDisplay = data?.phoneContact ? `+91 ${data.phoneContact}` : "—";
+  const addressDisplay = data?.address || "—";
 
   return (
     <div className="space-y-6">
@@ -86,11 +133,7 @@ export default function RetailerProfile() {
 
       {/* Profile Header */}
       <Card className="border-none shadow-sm bg-white overflow-hidden">
-        <div className="h-32 bg-gradient-to-r from-orange-50 to-orange-100 border-b border-orange-100 relative">
-            <div className="absolute top-4 right-4 flex gap-2">
-                <Badge className="bg-white/80 text-orange-700 hover:bg-white border-white/50 backdrop-blur-sm">Gold Tier</Badge>
-            </div>
-        </div>
+        <div className="h-32 bg-gradient-to-r from-orange-50 to-orange-100 border-b border-orange-100" />
         <CardContent className="relative px-6 pb-6">
           <div className="flex flex-col md:flex-row md:items-end gap-6 -mt-12">
             <Avatar className="h-24 w-24 border-4 border-white shadow-md rounded-xl">
@@ -98,11 +141,14 @@ export default function RetailerProfile() {
             </Avatar>
             
             <div className="flex-1 min-w-0 pb-2">
-              <h1 className="text-2xl font-bold text-gray-900">{retailerName}</h1>
+              <div className="flex items-center gap-2 flex-wrap">
+                <h1 className="text-2xl font-bold text-gray-900">{retailerName}</h1>
+                <RetailerTierBadge tier={data?.tier} />
+              </div>
               <div className="flex flex-wrap items-center gap-4 text-sm text-gray-500 mt-1">
-                <span className="flex items-center gap-1 text-gray-900 font-medium"><MapPin className="h-4 w-4 text-gray-400" /> Hanamkonda, Warangal</span>
-                <span className="hidden md:inline text-gray-300">|</span>
-                <span className="flex items-center gap-1">GSTIN: 36ABCDE1234F1Z5</span>
+                <span className="flex items-center gap-1 text-gray-900 font-medium">
+                  <MapPin className="h-4 w-4 text-gray-400" /> {locationLine}
+                </span>
               </div>
             </div>
 
@@ -142,14 +188,38 @@ export default function RetailerProfile() {
                  <div className="space-y-3">
                     <div className="flex justify-between text-sm">
                        <span className="text-gray-500">Credit Limit</span>
-                       <span className="font-medium">{isLoading ? "..." : data == null ? "--" : formatAmount(Number(data?.creditLimit ?? 0))}</span>
+                       <span className="font-medium">{isLoading ? "..." : data == null ? "—" : formatAmount(Number(data?.creditLimit ?? 0))}</span>
                     </div>
                     <div className="flex justify-between text-sm">
-                       <span className="text-gray-500">Available Credit</span>
-                       <span className="font-medium text-green-600">{isLoading ? "..." : data == null ? "--" : formatAmount(Number(data?.availableCredit ?? 0))}</span>
+                       <span className="text-gray-500">Credit Given</span>
+                       <span className="font-medium">{isLoading ? "..." : data == null ? "—" : formatAmount(Number(data?.creditGiven ?? 0))}</span>
                     </div>
-                    <div className="h-2 bg-gray-100 rounded-full overflow-hidden">
-                       <div className="h-full bg-green-500 rounded-full" style={{ width: data && Number(data.creditLimit) > 0 ? `${Math.max(0, Math.min(100, 100 * Number(data.availableCredit) / Number(data.creditLimit)))}%` : "0%" }} />
+                    <div className="pt-2 space-y-2 border-t border-gray-100">
+                      <Label htmlFor="creditLimitEdit" className="text-xs text-gray-500">Set credit limit (₹)</Label>
+                      <div className="flex gap-2">
+                        <Input
+                          id="creditLimitEdit"
+                          type="number"
+                          min={0}
+                          step={1}
+                          placeholder="e.g. 50000"
+                          value={creditLimitInput}
+                          onChange={(e) => setCreditLimitInput(e.target.value)}
+                          className="h-9"
+                        />
+                        <Button
+                          type="button"
+                          size="sm"
+                          className="shrink-0"
+                          disabled={saveCreditMutation.isPending || !retailerId}
+                          onClick={() => saveCreditMutation.mutate()}
+                        >
+                          {saveCreditMutation.isPending ? "Saving…" : "Save"}
+                        </Button>
+                      </div>
+                      {saveCreditMutation.isError && (
+                        <p className="text-xs text-red-600">{(saveCreditMutation.error as Error)?.message || "Save failed"}</p>
+                      )}
                     </div>
                  </div>
                  
@@ -165,21 +235,23 @@ export default function RetailerProfile() {
               <CardContent className="space-y-3">
                  <div className="flex items-center gap-3">
                     <div className="h-10 w-10 rounded-full bg-gray-100 flex items-center justify-center">
-                       <span className="font-bold text-gray-500">RK</span>
+                       <span className="font-bold text-gray-500">
+                         {(data?.proprietorName || retailerName).slice(0, 2).toUpperCase()}
+                       </span>
                     </div>
                     <div>
-                       <p className="font-medium text-gray-900">Ravi Kumar</p>
+                       <p className="font-medium text-gray-900">{isLoading ? "…" : data?.proprietorName || retailerName}</p>
                        <p className="text-xs text-gray-500">Proprietor</p>
                     </div>
                  </div>
                  <Separator />
                  <div className="space-y-2 text-sm">
                     <div className="flex items-center gap-2 text-gray-600">
-                       <Phone className="h-4 w-4 text-gray-400" /> +91 98765 43210
+                       <Phone className="h-4 w-4 text-gray-400 shrink-0" /> {phoneDisplay}
                     </div>
-                    <div className="flex items-center gap-2 text-gray-600">
-                       <MapPin className="h-4 w-4 text-gray-400" /> 
-                       <span className="truncate">Shop No. 4, Main Road, Hanamkonda</span>
+                    <div className="flex items-start gap-2 text-gray-600">
+                       <MapPin className="h-4 w-4 text-gray-400 shrink-0 mt-0.5" />
+                       <span className="break-words">{data?.shopName ? `${data.shopName}${addressDisplay !== "—" ? `, ${addressDisplay}` : ""}` : addressDisplay}</span>
                     </div>
                  </div>
               </CardContent>

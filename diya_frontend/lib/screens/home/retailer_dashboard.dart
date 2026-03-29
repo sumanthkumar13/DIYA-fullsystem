@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import '../../providers/auth_provider.dart';
+import '../../providers/retailer_session_provider.dart';
 import '../../widgets/ui/diya_card.dart';
 import '../../widgets/ui/stat_card.dart';
 import '../../widgets/wholesaler_picker_sheet.dart';
@@ -8,15 +8,32 @@ import '../../widgets/wholesaler_picker_sheet.dart';
 class RetailerDashboard extends ConsumerWidget {
   const RetailerDashboard({super.key});
 
+  String _fmtInr(num value) => "₹${value.toStringAsFixed(0)}";
+
+  String _fmtDateTime(DateTime? dt) {
+    if (dt == null) return "";
+    final h = dt.hour % 12 == 0 ? 12 : dt.hour % 12;
+    final mm = dt.minute.toString().padLeft(2, '0');
+    final ampm = dt.hour >= 12 ? "PM" : "AM";
+    return "${dt.day.toString().padLeft(2, '0')}/${dt.month.toString().padLeft(2, '0')}/${dt.year} • $h:$mm $ampm";
+  }
+
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    // TODO: later replace with /me endpoint
-    const userName = "Retailer";
-    const shopName = "My Shop";
+    final sessionAsync = ref.watch(retailerSessionProvider);
+    final session = sessionAsync.valueOrNull;
 
-    // Mock stats like Next.js
-    const totalDue = "₹12,450";
-    const lastOrder = "₹3,200";
+    final shopName = (session?.profile['shopName'] ?? "My Shop").toString();
+    final userName = shopName.isNotEmpty ? shopName : "Retailer";
+
+    final totalDue = _fmtInr(session?.totalDue ?? 0);
+    final lastOrder = session?.lastOrder;
+    final lastOrderAmt = _fmtInr(
+      (lastOrder?['amount'] is num)
+          ? (lastOrder?['amount'] as num)
+          : num.tryParse((lastOrder?['amount'] ?? '0').toString()) ?? 0,
+    );
+    final recentOrders = session?.recentOrders ?? const <Map<String, dynamic>>[];
 
     // ✅ IMPORTANT:
     // This screen must NOT return Scaffold.
@@ -59,7 +76,7 @@ class RetailerDashboard extends ConsumerWidget {
                         ),
                       ),
                       const SizedBox(height: 4),
-                      const Text(
+                      Text(
                         userName,
                         style: TextStyle(
                           fontSize: 18, // ✅ smaller than 22
@@ -88,7 +105,7 @@ class RetailerDashboard extends ConsumerWidget {
                                 ),
                               ),
                               const SizedBox(width: 6),
-                              const Text(
+                              Text(
                                 shopName,
                                 style: TextStyle(
                                   fontSize: 11,
@@ -134,7 +151,7 @@ class RetailerDashboard extends ConsumerWidget {
                 mainAxisSpacing: 12,
                 shrinkWrap: true,
                 physics: const NeverScrollableScrollPhysics(),
-                children: const [
+                children: [
                   StatCard(
                     label: "Total Due",
                     value: totalDue,
@@ -144,7 +161,7 @@ class RetailerDashboard extends ConsumerWidget {
                   ),
                   StatCard(
                     label: "Last Order",
-                    value: lastOrder,
+                    value: lastOrderAmt,
                     icon: Icons.shopping_bag_outlined,
                     bg: Color(0xFFDBEAFE),
                     fg: Color(0xFF2563EB),
@@ -326,88 +343,152 @@ class RetailerDashboard extends ConsumerWidget {
                 ),
                 const SizedBox(height: 10),
 
-                // Mock list
-                ...List.generate(2, (idx) {
-                  return Padding(
-                    padding: const EdgeInsets.only(bottom: 12),
+                if (sessionAsync.isLoading)
+                  const Padding(
+                    padding: EdgeInsets.only(top: 12),
+                    child: Center(
+                      child: CircularProgressIndicator(
+                        strokeWidth: 2,
+                        color: Color(0xFFFF7A00),
+                      ),
+                    ),
+                  )
+                else if (sessionAsync.hasError)
+                  Padding(
+                    padding: const EdgeInsets.only(top: 8),
                     child: DiyaCard(
-                      onTap: () => Navigator.pushNamed(context, '/orders'),
                       child: Row(
                         children: [
-                          Container(
-                            width: 48,
-                            height: 48,
-                            decoration: BoxDecoration(
-                              color: const Color(0xFFF5F5F5),
-                              borderRadius: BorderRadius.circular(12),
+                          const Icon(Icons.error_outline, color: Color(0xFFDC2626)),
+                          const SizedBox(width: 10),
+                          const Expanded(
+                            child: Text(
+                              "Couldn't load dashboard data. Pull to refresh later.",
+                              style: TextStyle(fontWeight: FontWeight.w700),
                             ),
-                            child: Center(
-                              child: Text(
-                                "#20${4 + idx}",
-                                style: const TextStyle(
-                                  fontSize: 12,
-                                  fontWeight: FontWeight.w900,
-                                  color: Color(0xFF737373),
-                                ),
+                          ),
+                          TextButton(
+                            onPressed: () => ref.read(retailerSessionProvider.notifier).sync(),
+                            child: const Text(
+                              "Retry",
+                              style: TextStyle(
+                                fontWeight: FontWeight.w900,
+                                color: Color(0xFFFF7A00),
                               ),
                             ),
                           ),
-                          const SizedBox(width: 12),
-                          const Expanded(
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
+                        ],
+                      ),
+                    ),
+                  )
+                else if (recentOrders.isEmpty)
+                  const Padding(
+                    padding: EdgeInsets.only(top: 8),
+                    child: Text(
+                      "No recent orders yet.",
+                      style: TextStyle(
+                        fontSize: 13,
+                        color: Color(0xFF737373),
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  )
+                else
+                  ...recentOrders.map((o) {
+                    final orderNumber = (o['orderNumber'] ?? o['id'] ?? '').toString();
+                    final amount = (o['amount'] is num)
+                        ? (o['amount'] as num)
+                        : num.tryParse((o['amount'] ?? '0').toString()) ?? 0;
+                    final status = (o['status'] ?? '').toString();
+                    final placedAt = DateTime.tryParse((o['date'] ?? '').toString()) ??
+                        DateTime.tryParse((o['placedAt'] ?? '').toString());
+
+                    return Padding(
+                      padding: const EdgeInsets.only(bottom: 12),
+                      child: DiyaCard(
+                        onTap: () => Navigator.pushNamed(context, '/orders'),
+                        child: Row(
+                          children: [
+                            Container(
+                              width: 48,
+                              height: 48,
+                              decoration: BoxDecoration(
+                                color: const Color(0xFFF5F5F5),
+                                borderRadius: BorderRadius.circular(12),
+                              ),
+                              child: Center(
+                                child: Text(
+                                  orderNumber.isEmpty ? "#" : "#$orderNumber",
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: const TextStyle(
+                                    fontSize: 12,
+                                    fontWeight: FontWeight.w900,
+                                    color: Color(0xFF737373),
+                                  ),
+                                ),
+                              ),
+                            ),
+                            const SizedBox(width: 12),
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    "Order $orderNumber",
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: const TextStyle(
+                                      fontWeight: FontWeight.w900,
+                                      color: Color(0xFF171717),
+                                    ),
+                                  ),
+                                  const SizedBox(height: 4),
+                                  Text(
+                                    _fmtDateTime(placedAt),
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: const TextStyle(
+                                      fontSize: 12,
+                                      color: Color(0xFF737373),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                            Column(
+                              crossAxisAlignment: CrossAxisAlignment.end,
                               children: [
                                 Text(
-                                  "General Store Items",
-                                  style: TextStyle(
+                                  _fmtInr(amount),
+                                  style: const TextStyle(
                                     fontWeight: FontWeight.w900,
                                     color: Color(0xFF171717),
                                   ),
                                 ),
-                                SizedBox(height: 4),
-                                Text(
-                                  "Today, 10:30 AM",
-                                  style: TextStyle(
-                                    fontSize: 12,
-                                    color: Color(0xFF737373),
+                                const SizedBox(height: 4),
+                                Container(
+                                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                                  decoration: BoxDecoration(
+                                    color: const Color(0xFFFEF3C7),
+                                    borderRadius: BorderRadius.circular(999),
+                                  ),
+                                  child: Text(
+                                    status.isEmpty ? "Placed" : status,
+                                    style: const TextStyle(
+                                      fontSize: 10,
+                                      fontWeight: FontWeight.w800,
+                                      color: Color(0xFFB45309),
+                                    ),
                                   ),
                                 ),
                               ],
-                            ),
-                          ),
-                          Column(
-                            crossAxisAlignment: CrossAxisAlignment.end,
-                            children: [
-                              const Text(
-                                "₹4,250",
-                                style: TextStyle(
-                                  fontWeight: FontWeight.w900,
-                                  color: Color(0xFF171717),
-                                ),
-                              ),
-                              const SizedBox(height: 4),
-                              Container(
-                                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                                decoration: BoxDecoration(
-                                  color: const Color(0xFFFEF3C7),
-                                  borderRadius: BorderRadius.circular(999),
-                                ),
-                                child: const Text(
-                                  "Requested",
-                                  style: TextStyle(
-                                    fontSize: 10,
-                                    fontWeight: FontWeight.w800,
-                                    color: Color(0xFFB45309),
-                                  ),
-                                ),
-                              ),
-                            ],
-                          )
-                        ],
+                            )
+                          ],
+                        ),
                       ),
-                    ),
-                  );
-                }),
+                    );
+                  }),
 
                 const SizedBox(height: 10),
 

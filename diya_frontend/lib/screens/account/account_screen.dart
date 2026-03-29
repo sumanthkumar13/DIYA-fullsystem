@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../providers/auth_provider.dart';
+import '../../providers/retailer_session_provider.dart';
 import '../../widgets/ui/diya_button.dart';
 import '../../widgets/ui/diya_card.dart';
 
@@ -9,18 +10,23 @@ class AccountScreen extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    // No /me endpoint yet -> placeholders
-    const name = "User Name";
-    const role = "Retailer";
-    const shopName = "N/A";
-    const mobile = "N/A";
-    const location = "N/A";
+    final session = ref.watch(retailerSessionProvider).valueOrNull;
+    final profile = session?.profile ?? const <String, dynamic>{};
+
+    final role = "Retailer";
+    final shopName = (profile['shopName'] ?? "N/A").toString();
+    final mobile = (profile['phone'] ?? "N/A").toString();
+    final city = (profile['city'] ?? "").toString();
+    final state = (profile['state'] ?? "").toString();
+    final location = [city, state].where((s) => s.trim().isNotEmpty).join(", ");
+    final name = shopName != "N/A" ? shopName : "Retailer";
 
     // ✅ IMPORTANT:
     // Do NOT wrap with RetailerShell here.
     // main.dart already wraps /account with RetailerShell.
 
-    return Column(
+    return ListView(
+      padding: EdgeInsets.zero,
       children: [
         const SizedBox(height: 10),
 
@@ -45,14 +51,14 @@ class AccountScreen extends ConsumerWidget {
 
         const SizedBox(height: 12),
 
-        const Text(
+        Text(
           name,
           style: TextStyle(fontSize: 20, fontWeight: FontWeight.w900, color: Color(0xFF171717)),
         ),
         const SizedBox(height: 4),
-        const Text(
+        Text(
           role,
-          style: TextStyle(color: Color(0xFF737373), fontWeight: FontWeight.w600),
+          style: const TextStyle(color: Color(0xFF737373), fontWeight: FontWeight.w600),
         ),
 
         const SizedBox(height: 22),
@@ -60,23 +66,23 @@ class AccountScreen extends ConsumerWidget {
         // Profile details
         DiyaCard(
           child: Column(
-            children: const [
+            children: [
               _DetailRow(
                 icon: Icons.store_mall_directory_outlined,
                 title: "SHOP NAME",
                 value: shopName,
               ),
-              Divider(height: 22, color: Color(0xFFF5F5F5)),
+              const Divider(height: 22, color: Color(0xFFF5F5F5)),
               _DetailRow(
                 icon: Icons.phone_outlined,
                 title: "MOBILE",
                 value: mobile,
               ),
-              Divider(height: 22, color: Color(0xFFF5F5F5)),
+              const Divider(height: 22, color: Color(0xFFF5F5F5)),
               _DetailRow(
                 icon: Icons.location_on_outlined,
                 title: "LOCATION",
-                value: location,
+                value: location.isEmpty ? "N/A" : location,
               ),
             ],
           ),

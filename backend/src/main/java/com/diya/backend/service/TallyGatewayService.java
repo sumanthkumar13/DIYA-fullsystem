@@ -98,6 +98,11 @@ public class TallyGatewayService {
         HttpHeaders headers = new HttpHeaders();
         headers.setContentType(MediaType.parseMediaType("text/xml"));
         HttpEntity<String> entity = new HttpEntity<>(xml, headers);
+        log.info("""
+                ===== TALLY GATEWAY REQUEST START =====
+                {}
+                ===== TALLY GATEWAY REQUEST END =====
+                """, xml);
         tallyRestTemplate.exchange(TALLY_URL, HttpMethod.POST, entity, String.class);
     }
 
@@ -108,9 +113,21 @@ public class TallyGatewayService {
         HttpHeaders headers = new HttpHeaders();
         headers.setContentType(MediaType.parseMediaType("text/xml"));
         HttpEntity<String> entity = new HttpEntity<>(xml, headers);
+        log.info("""
+                ===== TALLY GATEWAY REQUEST START =====
+                {}
+                ===== TALLY GATEWAY REQUEST END =====
+                """, xml);
         ResponseEntity<String> response = tallyRestTemplate.exchange(
                 TALLY_URL, HttpMethod.POST, entity, String.class);
-        return response.getBody() != null ? response.getBody() : "";
+        String responseBody = response.getBody() != null ? response.getBody() : "";
+        log.info("""
+                ===== TALLY GATEWAY RESPONSE START =====
+                HTTP Status = {}
+                {}
+                ===== TALLY GATEWAY RESPONSE END =====
+                """, response.getStatusCode(), responseBody);
+        return responseBody;
     }
 
     private Optional<String> parseFirstCompanyName(String xml) {

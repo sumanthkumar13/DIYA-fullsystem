@@ -2,9 +2,12 @@ package com.diya.backend.service;
 
 import com.diya.backend.dto.category.CategoryCreateRequest;
 import com.diya.backend.dto.category.CategoryTreeDTO;
+import com.diya.backend.dto.product.ProductResponseDTO;
 import com.diya.backend.entity.Category;
+import com.diya.backend.entity.Product;
 import com.diya.backend.entity.Wholesaler;
 import com.diya.backend.repository.CategoryRepository;
+import com.diya.backend.repository.ProductRepository;
 import com.diya.backend.repository.SubCategoryRepository;
 import com.diya.backend.repository.WholesalerRepository;
 import lombok.RequiredArgsConstructor;
@@ -19,6 +22,7 @@ public class CategoryService {
     private final WholesalerRepository wholesalerRepository;
     private final CategoryRepository categoryRepository;
     private final SubCategoryRepository subCategoryRepository;
+    private final ProductRepository productRepository;
 
     public Category createCategory(String identifier, String authType, CategoryCreateRequest req) {
 
@@ -60,21 +64,61 @@ public class CategoryService {
 
         return categories.stream().map(cat -> {
 
+            // Products directly under category (subcategory = NULL)
+            var categoryProducts = productRepository
+                    .findByWholesalerIdAndCategoryIdAndSubcategoryIsNull(wholesaler.getId(), cat.getId())
+                    .stream()
+                    .map(this::toDto)
+                    .toList();
+
             var subs = subCategoryRepository.findByCategoryId(cat.getId())
                     .stream()
-                    .map(s -> CategoryTreeDTO.SubNode.builder()
-                            .id(s.getId())
-                            .name(s.getName())
-                            .build())
+                    .map(s -> {
+                        var subProducts = productRepository
+                                .findByWholesalerIdAndSubcategoryId(wholesaler.getId(), s.getId())
+                                .stream()
+                                .map(this::toDto)
+                                .toList();
+
+                        return CategoryTreeDTO.SubNode.builder()
+                                .id(s.getId())
+                                .name(s.getName())
+                                .products(subProducts)
+                                .build();
+                    })
                     .toList();
 
             return CategoryTreeDTO.builder()
                     .id(cat.getId())
                     .name(cat.getName())
+                    .products(categoryProducts)
                     .subcategories(subs)
                     .build();
 
         }).toList();
+    }
+
+    private ProductResponseDTO toDto(Product p) {
+        return ProductResponseDTO.builder()
+                .id(p.getId())
+                .sku(p.getSku())
+                .sequenceNumber(p.getSequenceNumber())
+                .name(p.getName())
+                .description(p.getDescription())
+                .unit(p.getUnit())
+                .price(p.getPrice())
+                .mrp(p.getMrp())
+                .stock(p.getStock())
+                .status(p.getStock() == null ? "Unknown"
+                        : p.getStock() == 0 ? "Out of Stock" : p.getStock() < 20 ? "Low Stock" : "In Stock")
+                .imageUrl(p.getImageUrl())
+                .categoryId(p.getCategory() == null ? null : p.getCategory().getId())
+                .categoryName(p.getCategory() == null ? null : p.getCategory().getName())
+                .subcategoryId(p.getSubcategory() == null ? null : p.getSubcategory().getId())
+                .subcategoryName(p.getSubcategory() == null ? null : p.getSubcategory().getName())
+                .isActive(p.isActive())
+                .visibleToRetailer(p.isVisibleToRetailer())
+                .build();
     }
 
 }

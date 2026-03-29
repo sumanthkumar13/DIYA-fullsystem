@@ -31,8 +31,8 @@ public class InvoiceService {
     private final WholesalerRepository wholesalerRepository;
 
     /**
-     * Finalize invoice for an order: create invoice record, items with GST,
-     * reduce stock, update order status to INVOICED, create DEBIT ledger entry.
+     * Finalize invoice for an order: create invoice record and items with GST,
+     * update order status to INVOICED. Stock and ledger are handled at order acceptance time.
      */
     @Transactional
     public InvoiceFinalizeResponse finalizeInvoice(String identifier, UUID orderId) {
@@ -53,12 +53,18 @@ public class InvoiceService {
             throw new RuntimeException("Order has no items");
         }
 
-        if (invoiceRepository.findByOrderId(orderId).isPresent()) {
+        if (invoiceRepository.existsByOrderId(orderId)) {
             throw new RuntimeException("Invoice already exists for this order");
         }
 
         if (order.getStatus() == Order.Status.CANCELLED || order.getStatus() == Order.Status.REJECTED) {
             throw new RuntimeException("Cannot finalize invoice for cancelled or rejected order");
+        }
+
+        if (order.getStatus() != Order.Status.ACCEPTED
+                && order.getStatus() != Order.Status.DISPATCHED
+                && order.getStatus() != Order.Status.DELIVERED) {
+            throw new RuntimeException("Invoice can only be generated for ACCEPTED, DISPATCHED or DELIVERED orders");
         }
 
         BigDecimal totalTaxable = BigDecimal.ZERO;
@@ -136,30 +142,8 @@ public class InvoiceService {
             invoiceItemRepository.save(item);
         }
 
-        for (OrderItem oi : order.getOrderItems()) {
-            Product product = productRepository.findById(oi.getProductIdSnapshot()).orElseThrow();
-            int qty = oi.getQty() != null ? oi.getQty() : 0;
-            int unitsPerSelling = (product.getUnitsPerSelling() != null && product.getUnitsPerSelling() > 0)
-                    ? product.getUnitsPerSelling() : 1;
-            int baseToDeduct = qty * unitsPerSelling;
-            product.setStock((product.getStock() != null ? product.getStock() : 0) - baseToDeduct);
-            productRepository.save(product);
-        }
-
         order.setStatus(Order.Status.INVOICED);
         orderRepository.save(order);
-
-        String orderNumber = order.getOrderNumber() != null ? order.getOrderNumber() : order.getId().toString();
-        LedgerEntry debitEntry = LedgerEntry.builder()
-                .wholesaler(wholesaler)
-                .retailer(order.getRetailer())
-                .relatedOrder(order)
-                .entryType(LedgerEntry.EntryType.DEBIT)
-                .amount(grandTotal)
-                .description("Invoice " + invoiceNumber + " (Order #" + orderNumber + ")")
-                .entryDate(now)
-                .build();
-        ledgerEntryRepository.save(debitEntry);
 
         return InvoiceFinalizeResponse.builder()
                 .invoiceId(invoice.getId())

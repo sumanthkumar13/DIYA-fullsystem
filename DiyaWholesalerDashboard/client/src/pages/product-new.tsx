@@ -1,5 +1,5 @@
 import { useEffect, useState, useRef } from "react";
-import { useLocation } from "wouter";
+import { useLocation, useRoute } from "wouter";
 import { ArrowLeft, Loader2, ChevronDown, ChevronRight } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -11,7 +11,7 @@ import {
 } from "@/components/ui/collapsible";
 import { Label } from "@/components/ui/label";
 import { useToast } from "@/hooks/use-toast";
-import { createProduct } from "@/services/product";
+import { createProduct, fetchProduct, updateProduct } from "@/services/product";
 import { suggestHsn } from "@/services/hsn";
 import {
   fetchCategories,
@@ -33,6 +33,8 @@ type SubCategory = {
 export default function AddProductPage() {
   const [, setLocation] = useLocation();
   const { toast } = useToast();
+  const [editMatch, editParams] = useRoute("/products/edit/:id");
+  const productId = editMatch && editParams?.id ? editParams.id : null;
 
   const qs = new URLSearchParams(window.location.search);
   const presetCategoryId = qs.get("categoryId") || "";
@@ -50,6 +52,7 @@ export default function AddProductPage() {
   const [stock, setStock] = useState("");
 
   const [loading, setLoading] = useState(false);
+  const [initialLoading, setInitialLoading] = useState(!!productId);
 
   // Modals
   const [showCategoryModal, setShowCategoryModal] = useState(false);
@@ -135,12 +138,56 @@ export default function AddProductPage() {
     fetchCategories().then((cats) => {
       setCategories(cats || []);
 
-      if (presetCategoryId) {
+      if (!productId && presetCategoryId) {
         setCategoryId(presetCategoryId);
       }
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [productId]);
+
+  // Edit mode: load product
+  useEffect(() => {
+    if (!productId) {
+      setInitialLoading(false);
+      return;
+    }
+    let cancelled = false;
+    setInitialLoading(true);
+    fetchProduct(productId)
+      .then((p: Record<string, unknown>) => {
+        if (cancelled) return;
+        setName(String(p.name ?? ""));
+        setPrice(p.price != null ? String(p.price) : "");
+        setMrp(p.mrp != null ? String(p.mrp) : "");
+        setStock(p.stock != null ? String(p.stock) : "");
+        const cid = p.categoryId ? String(p.categoryId) : "";
+        setCategoryId(cid);
+        setSubcategoryId(p.subcategoryId ? String(p.subcategoryId) : "");
+        if (p.hsnCode) setHsnCode(String(p.hsnCode));
+        if (p.gstRate != null) setGstRate(String(p.gstRate));
+        if (p.taxType) setTaxType(String(p.taxType));
+        if (p.baseUnit) setBaseUnit(String(p.baseUnit));
+        if (p.sellingUnit) setSellingUnit(String(p.sellingUnit));
+        if (p.unitsPerSelling != null) setUnitsPerSelling(String(p.unitsPerSelling));
+        setPriceIncludesTax(!!p.priceIncludesTax);
+        setUserHasEditedHsn(!!p.hsnCode);
+      })
+      .catch(() => {
+        if (!cancelled) {
+          toast({
+            title: "Could not load product",
+            variant: "destructive",
+          });
+          setLocation("/business");
+        }
+      })
+      .finally(() => {
+        if (!cancelled) setInitialLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [productId, setLocation, toast]);
 
   // ✅ When category changes => load subcategories & auto select preset
   useEffect(() => {
@@ -150,13 +197,13 @@ export default function AddProductPage() {
       .then((subs) => {
         setSubcategories(subs || []);
 
-        if (presetSubcategoryId) {
+        if (!productId && presetSubcategoryId) {
           setSubcategoryId(presetSubcategoryId);
         }
       })
       .catch(() => setSubcategories([]));
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [categoryId]);
+  }, [categoryId, productId]);
 
   async function handleCategoryChange(id: string) {
     setCategoryId(id);
@@ -283,18 +330,26 @@ export default function AddProductPage() {
       if (unitsPerSelling !== "") payload.unitsPerSelling = Number(unitsPerSelling);
       if (priceIncludesTax) payload.priceIncludesTax = true;
 
-      await createProduct(payload);
-
-      toast({
-        title: "Product added",
-        description: "Your product has been added successfully.",
-        className: "bg-green-50 border-green-200 text-green-800",
-      });
+      if (productId) {
+        await updateProduct(productId, payload);
+        toast({
+          title: "Product updated",
+          description: "Changes saved successfully.",
+          className: "bg-green-50 border-green-200 text-green-800",
+        });
+      } else {
+        await createProduct(payload);
+        toast({
+          title: "Product added",
+          description: "Your product has been added successfully.",
+          className: "bg-green-50 border-green-200 text-green-800",
+        });
+      }
 
       setLocation("/business");
     } catch (err: any) {
       toast({
-        title: "Failed to add product",
+        title: productId ? "Failed to update product" : "Failed to add product",
         description:
           err?.response?.data?.message ||
           err?.response?.data ||
@@ -306,6 +361,14 @@ export default function AddProductPage() {
       setLoading(false);
     }
   };
+
+  if (initialLoading) {
+    return (
+      <div className="min-h-screen bg-gray-50 p-6 flex items-center justify-center text-gray-500">
+        <Loader2 className="h-8 w-8 animate-spin" />
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-gray-50 p-6">
@@ -319,8 +382,12 @@ export default function AddProductPage() {
             <ArrowLeft className="h-5 w-5" />
           </Button>
           <div>
-            <h1 className="text-2xl font-display font-bold">Add Product</h1>
-            <p className="text-sm text-gray-500">Add a new item to your catalog</p>
+            <h1 className="text-2xl font-display font-bold">
+              {productId ? "Edit Product" : "Add Product"}
+            </h1>
+            <p className="text-sm text-gray-500">
+              {productId ? "Update catalog details" : "Add a new item to your catalog"}
+            </p>
           </div>
         </div>
 
@@ -529,6 +596,8 @@ export default function AddProductPage() {
                       <Loader2 className="mr-2 h-4 w-4 animate-spin" />
                       Saving…
                     </>
+                  ) : productId ? (
+                    "Save changes"
                   ) : (
                     "Add Product"
                   )}
