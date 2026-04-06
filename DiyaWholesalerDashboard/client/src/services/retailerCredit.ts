@@ -3,7 +3,12 @@ import api from "@/lib/api";
 export interface RetailerCreditSummary {
   retailerId: string;
   retailerName: string;
+  /** Unpaid total across accepted orders (includes overdue). */
   totalOutstanding: number;
+  /** Unpaid but not overdue (accepted orders only). */
+  outstandingAmount?: number;
+  /** Unpaid and overdue (accepted orders only). */
+  overdueAmount?: number;
   creditGiven?: number;
   creditLimit: number;
   availableCredit: number;

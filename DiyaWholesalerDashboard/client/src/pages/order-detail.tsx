@@ -53,8 +53,10 @@ import {
   updateOrderStatus,
   editOrder,
   patchOrderCredit,
+  fetchPreviousDue,
 } from "@/services/order";
 import { finalizeInvoice } from "@/services/invoice";
+import { invalidateAfterMutation } from "@/lib/invalidate";
 
 // Map backend status to UI status
 function mapStatusToUI(status: string): string {
@@ -106,13 +108,22 @@ export default function OrderDetail() {
     queryKey: ["order-detail", orderId],
     queryFn: () => fetchOrderDetail(orderId),
     enabled: !!orderId,
+    refetchOnMount: "always",
+  });
+
+  const retailerId = order?.retailer?.id ? String(order.retailer.id) : "";
+
+  const { data: previousDue = 0 } = useQuery({
+    queryKey: ["previous-due", retailerId, orderId],
+    queryFn: () => fetchPreviousDue(retailerId, orderId),
+    enabled: !!retailerId && !!orderId,
+    refetchOnMount: "always",
   });
 
   // Status mutations
   const [acceptOpen, setAcceptOpen] = useState(false);
   const [paymentMode, setPaymentMode] = useState<"CASH" | "UPI" | "CREDIT">("CASH");
   const [creditDays, setCreditDays] = useState<string>("");
-  const [approvedCreditAmount, setApprovedCreditAmount] = useState<string>("");
 
   const acceptMutation = useMutation({
     mutationFn: (opts: { force: boolean }) =>
@@ -120,11 +131,9 @@ export default function OrderDetail() {
         force: opts.force,
         paymentMode,
         creditDays: paymentMode === "CREDIT" ? Number(creditDays) : 0,
-        ...(paymentMode === "CREDIT" && { approvedCreditAmount: Number(approvedCreditAmount) }),
       }),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["order-detail", orderId] });
-      queryClient.invalidateQueries({ queryKey: ["orders"] });
+      invalidateAfterMutation(queryClient, { orderId, retailerId });
       toast({
         title: "Order Approved Successfully",
         description: "Order status has been updated.",
@@ -144,8 +153,7 @@ export default function OrderDetail() {
   const rejectMutation = useMutation({
     mutationFn: () => rejectOrder(orderId),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["order-detail", orderId] });
-      queryClient.invalidateQueries({ queryKey: ["orders"] });
+      invalidateAfterMutation(queryClient, { orderId, retailerId });
       toast({
         title: "Order Rejected",
         description: "Order has been rejected.",
@@ -165,8 +173,7 @@ export default function OrderDetail() {
     mutationFn: (action: "packing" | "dispatch" | "deliver" | "complete") => 
       updateOrderStatus(orderId, action),
     onSuccess: (_, action) => {
-      queryClient.invalidateQueries({ queryKey: ["order-detail", orderId] });
-      queryClient.invalidateQueries({ queryKey: ["orders"] });
+      invalidateAfterMutation(queryClient, { orderId, retailerId });
       const actionNames: Record<string, string> = {
         packing: "Marked as Packed",
         dispatch: "Dispatched",
@@ -191,8 +198,7 @@ export default function OrderDetail() {
     mutationFn: (payload: { reason: string; items: Array<{ orderItemId: string; newQty?: number; newUnitPrice?: number }> }) =>
       editOrder(orderId, payload),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["order-detail", orderId] });
-      queryClient.invalidateQueries({ queryKey: ["orders"] });
+      invalidateAfterMutation(queryClient, { orderId, retailerId });
       toast({
         title: "Order updated",
         description: "Changes saved successfully.",
@@ -208,16 +214,14 @@ export default function OrderDetail() {
     },
   });
 
-  const [creditEditField, setCreditEditField] = useState<null | "given" | "days">(null);
-  const [creditGivenDraft, setCreditGivenDraft] = useState("");
+  const [creditEditField, setCreditEditField] = useState<null | "days">(null);
   const [creditDaysDraft, setCreditDaysDraft] = useState("");
   const [creditSaving, setCreditSaving] = useState(false);
 
   const finalizeInvoiceMutation = useMutation({
     mutationFn: () => finalizeInvoice(orderId),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["order-detail", orderId] });
-      queryClient.invalidateQueries({ queryKey: ["orders"] });
+      invalidateAfterMutation(queryClient, { orderId, retailerId });
       toast({
         title: "Invoice created successfully",
         description: "The invoice has been generated.",
@@ -291,7 +295,7 @@ export default function OrderDetail() {
   const orderItems = order.items || [];
   const hasShortage = orderItems.some((it: any) => (it.orderedQty ?? 0) > (it.availableStock ?? 0));
   const placedDate = formatDate(order.placedAt);
-  const creditGiven = Number((order as any).creditGiven ?? 0);
+  // Credit given is order-specific and simplified (full order total on CREDIT).
   const orderCreditDays = Number(order.creditDays ?? 0);
   const dueRaw = order.dueDate as string | null | undefined;
   const dueDateLabel =
@@ -314,25 +318,34 @@ export default function OrderDetail() {
   const canEditCredit =
     order.status !== "CANCELLED" && order.status !== "REJECTED";
 
-  async function saveCreditField(field: "given" | "days") {
+  const isAcceptedOrLater =
+    order.status !== "PLACED" &&
+    order.status !== "REJECTED" &&
+    order.status !== "CANCELLED";
+
+  const orderTotal = Number(order.totalAmount ?? 0);
+  const paidAmount = Number((order as any).paidAmount ?? 0);
+  const unpaidAmount = isAcceptedOrLater ? Math.max(0, orderTotal - paidAmount) : 0;
+  const boxPaymentStatus = unpaidAmount > 0 ? "UNPAID" : "PAID";
+
+  // Current-order credit fields only
+  const creditGiven = order.paymentMode === "CREDIT" ? orderTotal : 0;
+
+  async function saveCreditField(field: "days") {
     setCreditSaving(true);
     try {
-      if (field === "given") {
-        const n = parseFloat(creditGivenDraft);
-        if (Number.isNaN(n) || n < 0) {
-          toast({ title: "Enter a valid amount", variant: "destructive" });
-          return;
-        }
-        await patchOrderCredit(orderId, { approvedCreditAmount: n });
-      } else {
+      if (field === "days") {
         const d = parseInt(creditDaysDraft, 10);
         if (Number.isNaN(d) || d < 0) {
           toast({ title: "Enter valid credit days", variant: "destructive" });
           return;
         }
         await patchOrderCredit(orderId, { creditDays: d });
+      } else {
+        // credit amount is not editable anymore
+        return;
       }
-      await queryClient.invalidateQueries({ queryKey: ["order-detail", orderId] });
+      invalidateAfterMutation(queryClient, { orderId, retailerId });
       setCreditEditField(null);
       toast({
         title: "Credit updated",
@@ -502,9 +515,6 @@ export default function OrderDetail() {
               </Dialog>
               <Dialog open={acceptOpen} onOpenChange={(open) => {
                 setAcceptOpen(open);
-                if (open && order?.totalAmount != null) {
-                  setApprovedCreditAmount(String(order.totalAmount));
-                }
               }}>
                 <DialogTrigger asChild>
                   <Button 
@@ -556,19 +566,8 @@ export default function OrderDetail() {
                     )}
 
                     {paymentMode === "CREDIT" && (
-                      <div className="space-y-2">
-                        <label className="text-sm font-medium text-gray-700">Credit Amount Allowed</label>
-                        <input
-                          type="number"
-                          min={0}
-                          step="0.01"
-                          value={approvedCreditAmount}
-                          onChange={(e) => setApprovedCreditAmount(e.target.value)}
-                          className="w-full rounded-md border border-gray-200 bg-white px-3 py-2 text-sm"
-                        />
-                        <p className="text-xs text-gray-500">
-                          This is the amount you are willing to supply on credit for this order.
-                        </p>
+                      <div className="rounded-md border border-gray-200 bg-gray-50 p-3 text-sm text-gray-700">
+                        Credit amount is fixed to the order total.
                       </div>
                     )}
 
@@ -591,7 +590,7 @@ export default function OrderDetail() {
                       <Button
                         variant="outline"
                         className="border-yellow-200 text-yellow-800 hover:bg-yellow-50 hover:text-yellow-900"
-                        disabled={acceptMutation.isPending || (paymentMode === "CREDIT" && (Number(creditDays) <= 0 || !approvedCreditAmount || Number(approvedCreditAmount) <= 0))}
+                        disabled={acceptMutation.isPending || (paymentMode === "CREDIT" && Number(creditDays) <= 0)}
                         onClick={() => acceptMutation.mutate({ force: true })}
                       >
                         Force Accept
@@ -599,7 +598,7 @@ export default function OrderDetail() {
                     )}
                     <Button
                       className="bg-primary hover:bg-primary/90 text-white"
-                      disabled={acceptMutation.isPending || (paymentMode === "CREDIT" && (Number(creditDays) <= 0 || !approvedCreditAmount || Number(approvedCreditAmount) <= 0))}
+                      disabled={acceptMutation.isPending || (paymentMode === "CREDIT" && Number(creditDays) <= 0)}
                       onClick={() => acceptMutation.mutate({ force: false })}
                     >
                       Accept
@@ -705,71 +704,18 @@ export default function OrderDetail() {
                 
                 <div className="bg-orange-50 rounded-xl p-4 border border-orange-100 min-w-[240px] space-y-3">
                   <p className="text-xs text-orange-800 font-medium flex items-center gap-1">
-                    <AlertTriangle className="h-3 w-3 shrink-0" /> Outstanding Due
+                    <AlertTriangle className="h-3 w-3 shrink-0" /> Unpaid Amount
                   </p>
                   <div className="space-y-2 text-sm">
                     <div className="flex justify-between gap-2">
-                      <span className="text-orange-800/80">Outstanding</span>
+                      <span className="text-orange-800/80">Unpaid Amount</span>
                       <span className="font-bold text-orange-700">
-                        {formatAmount(Number(order.outstandingAmount ?? 0))}
+                        {formatAmount(unpaidAmount)}
                       </span>
                     </div>
                     <div className="flex justify-between items-center gap-2">
                       <span className="text-orange-800/80">Credit given</span>
-                      {creditEditField === "given" ? (
-                        <span className="flex items-center gap-1">
-                          <Input
-                            className="h-7 w-24 text-right text-sm border-orange-200"
-                            type="number"
-                            min={0}
-                            step={0.01}
-                            value={creditGivenDraft}
-                            onChange={(e) => setCreditGivenDraft(e.target.value)}
-                            autoFocus
-                          />
-                          <Button
-                            type="button"
-                            variant="ghost"
-                            size="icon"
-                            className="h-7 w-7 text-green-700"
-                            disabled={creditSaving}
-                            onClick={() => saveCreditField("given")}
-                          >
-                            {creditSaving ? (
-                              <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                            ) : (
-                              <Check className="h-3.5 w-3.5" />
-                            )}
-                          </Button>
-                          <Button
-                            type="button"
-                            variant="ghost"
-                            size="icon"
-                            className="h-7 w-7"
-                            disabled={creditSaving}
-                            onClick={() => setCreditEditField(null)}
-                          >
-                            <X className="h-3.5 w-3.5" />
-                          </Button>
-                        </span>
-                      ) : (
-                        <span className="flex items-center gap-1 font-medium text-orange-900">
-                          {formatAmount(creditGiven)}
-                          {canEditCredit && (
-                            <button
-                              type="button"
-                              className="p-0.5 rounded hover:bg-orange-100 text-orange-700"
-                              aria-label="Edit credit given"
-                              onClick={() => {
-                                setCreditGivenDraft(String(creditGiven));
-                                setCreditEditField("given");
-                              }}
-                            >
-                              <Edit2 className="h-3 w-3" />
-                            </button>
-                          )}
-                        </span>
-                      )}
+                      <span className="font-medium text-orange-900">{formatAmount(creditGiven)}</span>
                     </div>
                     <div className="flex justify-between items-center gap-2">
                       <span className="text-orange-800/80">Credit days</span>
@@ -833,7 +779,7 @@ export default function OrderDetail() {
                     </div>
                   </div>
                   <p className="text-xs text-orange-600">
-                    Payment: {order.paymentStatus || "UNPAID"}
+                    Payment: {boxPaymentStatus}
                   </p>
                 </div>
               </div>
@@ -992,6 +938,23 @@ export default function OrderDetail() {
                 <span className="font-display font-bold text-xl text-gray-900">{formatAmount(order.totalAmount)}</span>
               </div>
 
+              {paidAmount > 0 && Array.isArray((order as any).paymentHistory) && (
+                <div className="pt-3">
+                  <Separator />
+                  <div className="pt-3 space-y-2">
+                    <p className="text-sm font-semibold text-gray-900">Payment History</p>
+                    <div className="space-y-1 text-sm text-gray-700">
+                      {(order as any).paymentHistory.map((p: any, idx: number) => (
+                        <div key={idx}>
+                          - ₹{Number(p?.amount ?? 0).toLocaleString("en-IN")} paid via {p?.paymentMethod || "—"} on{" "}
+                          {p?.createdAt ? new Date(p.createdAt).toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" }) : "—"}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              )}
+
               {order.invoiceId && (
                 <Link href={`/invoices/${order.invoiceId}`}>
                   <Button variant="outline" className="w-full gap-2 mt-4">
@@ -1014,7 +977,7 @@ export default function OrderDetail() {
               <div className="bg-gray-50 rounded-lg p-3 space-y-2">
                 <div className="flex justify-between text-sm">
                    <span className="text-gray-500">Previous Due</span>
-                   <span className="font-medium text-red-600">₹0</span>
+                   <span className="font-medium text-red-600">{formatAmount(previousDue)}</span>
                 </div>
                 <div className="flex justify-between text-sm">
                    <span className="text-gray-500">This Order</span>
@@ -1023,7 +986,7 @@ export default function OrderDetail() {
                 <Separator className="bg-gray-200" />
                 <div className="flex justify-between text-sm pt-1">
                    <span className="font-bold text-gray-700">Total Exposure</span>
-                   <span className="font-bold text-gray-900">{formatAmount(order.totalAmount)}</span>
+                   <span className="font-bold text-gray-900">{formatAmount(Number(previousDue) + orderTotal)}</span>
                 </div>
               </div>
 

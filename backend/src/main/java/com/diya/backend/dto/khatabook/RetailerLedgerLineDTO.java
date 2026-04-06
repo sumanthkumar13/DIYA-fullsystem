@@ -18,4 +18,8 @@ public class RetailerLedgerLineDTO {
     private BigDecimal amount;
     private BigDecimal runningBalance;
     private UUID orderId;
+    private String orderNumber;
+    private LocalDateTime orderDate;
+    private String paymentMethod;
+    private LocalDateTime paymentDate;
 }

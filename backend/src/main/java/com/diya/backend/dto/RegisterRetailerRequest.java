@@ -18,6 +18,10 @@ public class RegisterRetailerRequest {
     private String businessName;
     private String gstin;
     private String pincode;
+    /**
+     * Required. Canonical territory used for analytics (must be one of the predefined regions).
+     */
+    private String region;
     private String city;
     private String address;
     private String state; // Added state as it might be useful, though frontend sends city/pincode/address

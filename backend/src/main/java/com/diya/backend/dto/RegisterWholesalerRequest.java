@@ -28,9 +28,9 @@ public class RegisterWholesalerRequest {
     private String businessName;
     private String gstin;
     private String pincode;
-    /** Required. Legacy clients may still send {@code city} — server maps it if region is blank. */
+    /** Required. Must be one of the predefined regions. */
     private String region;
-    /** @deprecated Use {@code region}. Kept for backward-compatible JSON. */
+    /** @deprecated Kept for backward-compatible JSON (ignored for region). */
     @Deprecated
     private String city;
     private String fullAddress;

@@ -12,6 +12,8 @@ import java.util.UUID;
 @AllArgsConstructor
 public class RecordPaymentRequest {
     private UUID retailerId;
+    /** Required: which order this payment is applied to. */
+    private UUID orderId;
     private BigDecimal amount;
     private String mode;
     private String note;

@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../widgets/wholesaler_picker_sheet.dart';
+import '../../providers/retailer_session_provider.dart';
 
 
 enum NavTab { home, orders, payments, account }
@@ -135,14 +136,14 @@ class RetailerShell extends ConsumerWidget {
   }
 }
 
-class _BottomNav extends StatelessWidget {
+class _BottomNav extends ConsumerWidget {
   final NavTab current;
   final Color primary;
 
   const _BottomNav({required this.current, required this.primary});
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
     return Container(
       padding: const EdgeInsets.fromLTRB(24, 10, 24, 14),
       decoration: const BoxDecoration(
@@ -157,14 +158,20 @@ class _BottomNav extends StatelessWidget {
             label: "Home",
             active: current == NavTab.home,
             primary: primary,
-            onTap: () => Navigator.pushReplacementNamed(context, '/home'),
+            onTap: () {
+              ref.read(retailerSessionProvider.notifier).sync();
+              Navigator.pushReplacementNamed(context, '/home');
+            },
           ),
           _NavItem(
             icon: Icons.shopping_bag_outlined,
             label: "Orders",
             active: current == NavTab.orders,
             primary: primary,
-            onTap: () => Navigator.pushReplacementNamed(context, '/orders'),
+            onTap: () {
+              ref.read(retailerSessionProvider.notifier).sync();
+              Navigator.pushReplacementNamed(context, '/orders');
+            },
           ),
           const SizedBox(width: 56), // space for FAB
           _NavItem(
@@ -172,14 +179,20 @@ class _BottomNav extends StatelessWidget {
             label: "Payments",
             active: current == NavTab.payments,
             primary: primary,
-            onTap: () => Navigator.pushReplacementNamed(context, '/payments'),
+            onTap: () {
+              ref.read(retailerSessionProvider.notifier).sync();
+              Navigator.pushReplacementNamed(context, '/payments');
+            },
           ),
           _NavItem(
             icon: Icons.person_outline,
             label: "Account",
             active: current == NavTab.account,
             primary: primary,
-            onTap: () => Navigator.pushReplacementNamed(context, '/account'),
+            onTap: () {
+              ref.read(retailerSessionProvider.notifier).sync();
+              Navigator.pushReplacementNamed(context, '/account');
+            },
           ),
         ],
       ),

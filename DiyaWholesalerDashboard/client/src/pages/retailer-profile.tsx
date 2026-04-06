@@ -26,6 +26,7 @@ import { AddPaymentModal } from "@/components/payments/AddPaymentModal";
 import { RetailerTierBadge } from "@/components/retailers/RetailerTierBadge";
 import { cn } from "@/lib/utils";
 import { useToast } from "@/hooks/use-toast";
+import { invalidateAfterMutation } from "@/lib/invalidate";
 
 function formatAmount(n: number) {
   return "₹" + Number(n).toLocaleString("en-IN");
@@ -60,6 +61,7 @@ export default function RetailerProfile() {
     queryKey: ["retailer-credit", retailerId],
     queryFn: () => fetchRetailerCreditSummary(retailerId),
     enabled: !!retailerId,
+    refetchOnMount: "always",
   });
 
   useEffect(() => {
@@ -83,7 +85,7 @@ export default function RetailerProfile() {
       return patchRetailerCreditLimit(retailerId, n);
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["retailer-credit", retailerId] });
+      invalidateAfterMutation(queryClient, { retailerId });
       toast({
         title: "Credit limit updated",
         className: "bg-green-50 border-green-200 text-green-800",
@@ -111,6 +113,7 @@ export default function RetailerProfile() {
     queryKey: ["retailer-statement", retailerId],
     queryFn: () => fetchRetailerStatement(retailerId),
     enabled: !!retailerId,
+    refetchOnMount: "always",
   });
 
   const retailerName = data?.retailerName ?? "Retailer";
@@ -318,14 +321,34 @@ export default function RetailerProfile() {
                    <div className="space-y-3">
                      {statement.ledger.map((line: any, index: number) => {
                        const isDebit = (line.type || "").toUpperCase() === "DEBIT";
-                       const label = isDebit ? "Goods Given" : "Payment Received";
+                      const label = isDebit ? "Goods Given" : "Payment Received";
+                      const orderRef = line.orderNumber || line.orderId;
+                      const orderDate = line.orderDate ? formatDate(line.orderDate) : "";
+                      const paymentMethod = line.paymentMethod || "";
+                      const paymentDate = line.paymentDate ? formatDate(line.paymentDate) : (line.date ? formatDate(line.date) : "");
+
+                      let description = line.description || "";
+                      if (!isDebit) {
+                        if (orderRef) {
+                          description = `Payment ${formatAmount(Number(line.amount ?? 0))} received for Order #${orderRef}${
+                            orderDate ? ` on ${orderDate}` : ""
+                          }${paymentMethod ? ` via ${paymentMethod}` : ""}`;
+                        } else {
+                          description = `Payment ${formatAmount(Number(line.amount ?? 0))} received`;
+                        }
+                      } else {
+                        // For debits, keep existing description; fall back to order reference if needed
+                        if (!description && orderRef) {
+                          description = `Goods supplied (Order #${orderRef})`;
+                        }
+                      }
                        return (
                          <Card key={index} className="bg-white border-gray-200 shadow-sm">
                            <CardContent className="p-4 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
                              <div className="flex-1 min-w-0">
                                <p className="text-sm font-medium text-gray-500">{label}</p>
-                               <p className="text-sm text-gray-900 mt-0.5">{line.description || (isDebit ? "Goods supplied" : "Payment received")}</p>
-                               <p className="text-xs text-gray-400 mt-1">{formatDate(line.date)}</p>
+                              <p className="text-sm text-gray-900 mt-0.5">{description || (isDebit ? "Goods supplied" : "Payment received")}</p>
+                              <p className="text-xs text-gray-400 mt-1">{paymentDate}</p>
                              </div>
                              <div className="text-left sm:text-right shrink-0">
                                <p className={cn("text-lg font-bold", isDebit ? "text-red-600" : "text-green-600")}>

@@ -7,6 +7,7 @@ import '../../services/connection_service.dart';
 import '../../services/wholesaler_discovery_service.dart';
 import '../../widgets/ui/diya_button.dart';
 import '../../providers/selected_wholesaler_provider.dart';
+import '../../providers/retailer_session_provider.dart';
 
 // ⚠️ Assuming this provider exists somewhere in your app
 // import '../../providers/selected_wholesaler_provider.dart';
@@ -119,6 +120,8 @@ class _ConnectScreenState extends ConsumerState<ConnectScreen> {
 
       await _connectionService.requestConnection(wholesalerId);
       await _loadConnectionsOnly();
+      // Reactive global refresh so other pages reflect the new request immediately
+      await ref.read(retailerSessionProvider.notifier).sync();
 
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(

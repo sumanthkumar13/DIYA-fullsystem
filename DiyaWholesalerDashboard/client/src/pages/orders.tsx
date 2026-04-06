@@ -116,11 +116,18 @@ export default function Orders() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [createOrderOpen, setCreateOrderOpen] = useState(false);
+  const [nowTick, setNowTick] = useState(0);
 
   // Load orders from API
   useEffect(() => {
     loadOrders();
   }, [filterStatus, searchQuery]);
+
+  // Recompute overdue tag without manual refresh
+  useEffect(() => {
+    const id = window.setInterval(() => setNowTick((x) => x + 1), 60_000);
+    return () => window.clearInterval(id);
+  }, []);
 
   async function loadOrders() {
     try {
@@ -134,13 +141,17 @@ export default function Orders() {
       const transformedOrders: OrderListItem[] = data.map((order: any) => ({
         id: order.id || "",
         orderNumber: order.orderNumber || "",
+        retailerId: order.retailerId || "",
         retailer: order.retailer || "Unknown",
         location: order.location || "",
         amount: order.amount || 0,
-        date: formatDate(order.date || ""),
+        createdAt: order.createdAt || order.date || "",
+        date: formatDate(order.createdAt || order.date || ""),
         status: mapStatusToUI(order.status || "PLACED"),
         items: order.items || 0,
         exposure: order.exposure || "NORMAL",
+        dueDate: order.dueDate || null,
+        unpaidAmount: typeof order.unpaidAmount === "number" ? order.unpaidAmount : Number(order.unpaidAmount ?? 0),
       }));
       
       setOrders(transformedOrders);
@@ -280,6 +291,13 @@ export default function Orders() {
           filteredOrders.map((order) => {
             const StatusIcon = getStatusIcon(order.status);
             const displayOrderNumber = order.orderNumber || "—";
+            const dueDate = order.dueDate ? new Date(order.dueDate) : null;
+            const unpaid = Number(order.unpaidAmount ?? 0);
+            const isOverdue =
+              !!dueDate &&
+              !Number.isNaN(dueDate.getTime()) &&
+              new Date().getTime() > dueDate.getTime() &&
+              unpaid > 0;
             return (
               <Link key={order.id} href={`/orders/${order.id}`}>
                 <Card className="hover:shadow-md transition-all duration-200 hover:border-primary/30 cursor-pointer group border-gray-200 bg-white">
@@ -309,6 +327,11 @@ export default function Orders() {
 
                     <div className="flex items-center gap-4 justify-between sm:justify-end w-full sm:w-auto mt-2 sm:mt-0">
                       <div className="flex items-center gap-2">
+                        {isOverdue && (
+                          <div className="text-[10px] font-semibold text-red-700 bg-red-50 border border-red-200 px-2 py-1 rounded-full">
+                            OVERDUE
+                          </div>
+                        )}
                         {(order.exposure === "CRITICAL" || order.exposure === "Critical") && (
                           <div className="flex items-center gap-1 text-xs font-medium text-red-600 bg-red-50 px-2 py-1 rounded-full border border-red-100">
                             <AlertTriangle className="h-3 w-3" />

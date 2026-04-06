@@ -244,83 +244,133 @@ public class WholesalerBusinessAnalyticsService {
 
         List<Connection> approved = connectionRepository.findByWholesalerAndStatusOrderByRequestedAtDesc(
                 wholesaler, Connection.Status.APPROVED);
-        Set<java.util.UUID> connectedRetailerIds = new HashSet<>();
-        Map<java.util.UUID, Retailer> connectedRetailers = new HashMap<>();
+        // Scope analytics strictly to connected retailers + their persisted `retailer.region`.
+        Map<UUID, Retailer> connectedRetailers = new HashMap<>();
+        Map<UUID, String> regionByRetailerId = new HashMap<>();
         for (Connection c : approved) {
             Retailer r = c.getRetailer();
-            if (r != null && r.getId() != null) {
-                connectedRetailerIds.add(r.getId());
-                connectedRetailers.put(r.getId(), r);
-            }
+            if (r == null || r.getId() == null) continue;
+            String region = RegionCatalog.normalize(r.getRegion());
+            // No free-text region: ignore empty regions to avoid creating mock analytics buckets.
+            if (region.isEmpty()) continue;
+            connectedRetailers.put(r.getId(), r);
+            regionByRetailerId.put(r.getId(), region);
         }
 
+        if (regionByRetailerId.isEmpty()) {
+            return new ArrayList<>();
+        }
+
+        // Payments: confirmed payments only.
         List<Order> allOrders = orderRepository.findByWholesaler(wholesaler);
         List<Payment> allPayments = paymentRepository.findByWholesaler(wholesaler);
-        Map<java.util.UUID, BigDecimal> paidByOrderId = new HashMap<>();
+        Map<UUID, BigDecimal> paidByOrderId = new HashMap<>();
         for (Payment p : allPayments) {
-            if (p.getOrder() == null || p.getStatus() != Payment.PaymentStatus.CONFIRMED) {
-                continue;
-            }
-            java.util.UUID oid = p.getOrder().getId();
+            if (p.getOrder() == null || p.getStatus() != Payment.PaymentStatus.CONFIRMED) continue;
+            UUID oid = p.getOrder().getId();
             BigDecimal amt = p.getAmount() == null ? ZERO : p.getAmount();
             paidByOrderId.merge(oid, amt, BigDecimal::add);
         }
 
+        // Accepted order statuses only (PLACED and REJECTED/CANCELLED excluded).
+        EnumSet<Order.Status> acceptedStatuses = EnumSet.of(
+                Order.Status.ACCEPTED,
+                Order.Status.PACKING,
+                Order.Status.DISPATCHED,
+                Order.Status.DELIVERED,
+                Order.Status.COMPLETED,
+                Order.Status.INVOICED
+        );
+
         LocalDateTime now = LocalDateTime.now();
         LocalDateTime thirtyDaysAgo = now.minusDays(30);
-        EnumSet<Order.Status> excluded = EnumSet.of(Order.Status.CANCELLED, Order.Status.REJECTED);
+
+        // Per-retailer accumulators.
+        Map<UUID, BigDecimal> revenueByRetailerId = new HashMap<>();
+        Map<UUID, BigDecimal> outstandingByRetailerId = new HashMap<>();
+        Map<UUID, BigDecimal> pastDueByRetailerId = new HashMap<>();
+        Map<UUID, Boolean> activeByRetailerId = new HashMap<>();
+        for (UUID rid : regionByRetailerId.keySet()) {
+            revenueByRetailerId.put(rid, ZERO);
+            outstandingByRetailerId.put(rid, ZERO);
+            pastDueByRetailerId.put(rid, ZERO);
+            activeByRetailerId.put(rid, false);
+        }
+
+        for (Order o : allOrders) {
+            if (o == null || o.getRetailer() == null || o.getRetailer().getId() == null) continue;
+            UUID retailerId = o.getRetailer().getId();
+            if (!regionByRetailerId.containsKey(retailerId)) continue;
+            if (!acceptedStatuses.contains(o.getStatus())) continue;
+
+            BigDecimal total = o.getTotalAmount() == null ? ZERO : o.getTotalAmount();
+            BigDecimal paid = paidByOrderId.getOrDefault(o.getId(), ZERO);
+            BigDecimal out = total.subtract(paid).max(ZERO);
+
+            revenueByRetailerId.merge(retailerId, total, BigDecimal::add);
+            outstandingByRetailerId.merge(retailerId, out, BigDecimal::add);
+
+            LocalDateTime due = effectiveCreditDue(o);
+            if (due != null && due.isBefore(now) && out.compareTo(ZERO) > 0) {
+                pastDueByRetailerId.merge(retailerId, out, BigDecimal::add);
+            }
+
+            if (o.getPlacedAt() != null
+                    && !o.getPlacedAt().isBefore(thirtyDaysAgo)
+                    && !o.getPlacedAt().isAfter(now)
+                    && activeByRetailerId.getOrDefault(retailerId, false) == Boolean.FALSE) {
+                activeByRetailerId.put(retailerId, true);
+            }
+        }
+
+        // Aggregate by region: GROUP BY retailer.region (normalized).
+        Map<String, BigDecimal> revenueByRegion = new HashMap<>();
+        Map<String, BigDecimal> outstandingByRegion = new HashMap<>();
+        Map<String, BigDecimal> overdueByRegion = new HashMap<>();
+        Map<String, Integer> activeRetailersByRegion = new HashMap<>();
+        Map<String, Integer> totalRetailersByRegion = new HashMap<>();
+
+        for (UUID retailerId : regionByRetailerId.keySet()) {
+            String region = regionByRetailerId.get(retailerId);
+            totalRetailersByRegion.merge(region, 1, Integer::sum);
+
+            BigDecimal revenue = revenueByRetailerId.getOrDefault(retailerId, ZERO);
+            BigDecimal outstanding = outstandingByRetailerId.getOrDefault(retailerId, ZERO);
+            BigDecimal pastDue = pastDueByRetailerId.getOrDefault(retailerId, ZERO);
+
+            Retailer retailer = connectedRetailers.get(retailerId);
+            BigDecimal creditLimit = retailer != null ? retailer.getCreditLimit() : null;
+
+            // totalOverdue = credit-exceeded OR past-due (conservative: if credit exceeded, treat full outstanding as overdue).
+            BigDecimal overdue = BigDecimal.ZERO;
+            if (outstanding.compareTo(ZERO) > 0) {
+                boolean creditExceeded = creditLimit != null && outstanding.compareTo(creditLimit) > 0;
+                overdue = creditExceeded ? outstanding : pastDue;
+            }
+
+            revenueByRegion.merge(region, revenue, BigDecimal::add);
+            outstandingByRegion.merge(region, outstanding, BigDecimal::add);
+            overdueByRegion.merge(region, overdue, BigDecimal::add);
+
+            if (activeByRetailerId.getOrDefault(retailerId, false)) {
+                activeRetailersByRegion.merge(region, 1, Integer::sum);
+            }
+        }
 
         List<TerritoryPerformanceDTO> rows = new ArrayList<>();
-        for (String regionName : RegionCatalog.CANONICAL_REGIONS) {
-            BigDecimal revenue = ZERO;
-            BigDecimal outstanding = ZERO;
-            BigDecimal overdue = ZERO;
-            Set<java.util.UUID> activeInRegion = new HashSet<>();
-
-            int totalRetailers = 0;
-            for (java.util.UUID rid : connectedRetailerIds) {
-                Retailer ret = connectedRetailers.get(rid);
-                if (ret != null && regionName.equals(RegionCatalog.normalize(ret.getRegion()))) {
-                    totalRetailers++;
-                }
-            }
-
-            for (Order o : allOrders) {
-                if (excluded.contains(o.getStatus())) {
-                    continue;
-                }
-                Retailer ret = o.getRetailer();
-                if (ret == null || !regionName.equals(RegionCatalog.normalize(ret.getRegion()))) {
-                    continue;
-                }
-
-                BigDecimal total = o.getTotalAmount() == null ? ZERO : o.getTotalAmount();
-                revenue = revenue.add(total);
-
-                BigDecimal paid = paidByOrderId.getOrDefault(o.getId(), ZERO);
-                BigDecimal out = total.subtract(paid).max(ZERO);
-                outstanding = outstanding.add(out);
-
-                LocalDateTime due = effectiveCreditDue(o);
-                if (due != null && due.isBefore(now) && out.compareTo(ZERO) > 0) {
-                    overdue = overdue.add(out);
-                }
-
-                if (o.getPlacedAt() != null
-                        && !o.getPlacedAt().isBefore(thirtyDaysAgo)
-                        && connectedRetailerIds.contains(ret.getId())) {
-                    activeInRegion.add(ret.getId());
-                }
-            }
+        for (String region : totalRetailersByRegion.keySet()) {
+            BigDecimal revenue = revenueByRegion.getOrDefault(region, ZERO);
+            BigDecimal outstanding = outstandingByRegion.getOrDefault(region, ZERO);
+            BigDecimal overdue = overdueByRegion.getOrDefault(region, ZERO);
 
             String status = classifyTerritoryStatus(revenue, outstanding, overdue);
             rows.add(TerritoryPerformanceDTO.builder()
-                    .region(regionName)
+                    .region(region)
                     .revenue(revenue)
                     .outstanding(outstanding)
                     .overdue(overdue)
-                    .activeRetailers(activeInRegion.size())
-                    .totalRetailers(totalRetailers)
+                    .activeRetailers(activeRetailersByRegion.getOrDefault(region, 0))
+                    .totalRetailers(totalRetailersByRegion.getOrDefault(region, 0))
                     .status(status)
                     .build());
         }

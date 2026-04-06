@@ -18,6 +18,15 @@ class _SignupScreenState extends ConsumerState<SignupScreen> {
   final _formKey1 = GlobalKey<FormState>();
   final _formKey2 = GlobalKey<FormState>();
 
+  static const List<String> _regions = <String>[
+    "Banjara Hills",
+    "Jubilee Hills",
+    "Madhapur",
+    "Kukatpally",
+    "Old City",
+    "Gachibowli",
+  ];
+
   // Step 1
   final _name = TextEditingController();
   final _email = TextEditingController();
@@ -29,6 +38,7 @@ class _SignupScreenState extends ConsumerState<SignupScreen> {
   final _city = TextEditingController();
   final _address = TextEditingController();
   final _state = TextEditingController();
+  String? _selectedRegion;
 
   bool _loading = false;
 
@@ -57,7 +67,10 @@ class _SignupScreenState extends ConsumerState<SignupScreen> {
 
       // ✅ business details used by backend
       "businessName": _businessName.text.trim(),
-      "city": _city.text.trim(),
+      // ✅ required by backend (must match canonical list)
+      "region": _selectedRegion,
+      // optional (informational only; not used for territory analytics)
+      "city": _city.text.trim().isEmpty ? null : _city.text.trim(),
       "address": _address.text.trim(),
 
       // optional
@@ -264,13 +277,28 @@ class _SignupScreenState extends ConsumerState<SignupScreen> {
                                       : null,
                                 ),
                                 const SizedBox(height: 14),
+                                DropdownButtonFormField<String>(
+                                  value: _selectedRegion,
+                                  decoration: const InputDecoration(
+                                    labelText: "Select Region",
+                                    border: OutlineInputBorder(),
+                                  ),
+                                  items: _regions
+                                      .map((r) => DropdownMenuItem<String>(
+                                            value: r,
+                                            child: Text(r),
+                                          ))
+                                      .toList(),
+                                  onChanged: (v) => setState(() => _selectedRegion = v),
+                                  validator: (v) => (v == null || v.trim().isEmpty)
+                                      ? "Select region"
+                                      : null,
+                                ),
+                                const SizedBox(height: 14),
                                 DiyaInput(
-                                  label: "City / District",
+                                  label: "City (optional)",
                                   hintText: "Mumbai",
                                   controller: _city,
-                                  validator: (v) => (v == null || v.trim().isEmpty)
-                                      ? "Enter city"
-                                      : null,
                                 ),
                                 const SizedBox(height: 14),
                                 DiyaInput(

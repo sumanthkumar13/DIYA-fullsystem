@@ -1,6 +1,7 @@
 package com.diya.backend.service;
 
 import com.diya.backend.dto.dashboard.*;
+import com.diya.backend.dto.analytics.TerritoryPerformanceDTO;
 import com.diya.backend.entity.*;
 import com.diya.backend.repository.*;
 import lombok.RequiredArgsConstructor;
@@ -18,9 +19,8 @@ public class DashboardService {
         private final WholesalerRepository wholesalerRepository;
         private final OrderRepository orderRepository;
         private final PaymentRepository paymentRepository;
-        private final RetailerRepository retailerRepository;
-        private final LedgerEntryRepository ledgerRepository;
         private final ConnectionRepository connectionRepository;
+        private final WholesalerBusinessAnalyticsService analyticsService;
 
         /**
          * Distinct non-empty {@link Retailer#getRegion()} among APPROVED connections for this wholesaler.
@@ -74,23 +74,41 @@ public class DashboardService {
                                 .filter(o -> o.getStatus() == Order.Status.PLACED)
                                 .count();
 
-                BigDecimal credit = ledgerRepository.findByWholesaler(wholesaler).stream()
-                                .filter(l -> retailerScope == null || retailerScope.contains(l.getRetailer().getId()))
-                                .filter(l -> l.getEntryType() == LedgerEntry.EntryType.CREDIT)
-                                .map(LedgerEntry::getAmount)
-                                .reduce(BigDecimal.ZERO, BigDecimal::add);
+                // Outstanding = sum(totalAmount - confirmedPaid) for accepted orders only.
+                // Excludes pending (PLACED) and rejected/cancelled orders.
+                Map<UUID, BigDecimal> paidByOrderId = new HashMap<>();
+                for (Payment p : paymentRepository.findByWholesaler(wholesaler)) {
+                        if (p == null || p.getOrder() == null || p.getStatus() != Payment.PaymentStatus.CONFIRMED) {
+                                continue;
+                        }
+                        if (retailerScope != null
+                                        && (p.getRetailer() == null || !retailerScope.contains(p.getRetailer().getId()))) {
+                                continue;
+                        }
+                        UUID oid = p.getOrder().getId();
+                        BigDecimal amt = p.getAmount() != null ? p.getAmount() : BigDecimal.ZERO;
+                        paidByOrderId.merge(oid, amt, BigDecimal::add);
+                }
 
-                BigDecimal debit = ledgerRepository.findByWholesaler(wholesaler).stream()
-                                .filter(l -> retailerScope == null || retailerScope.contains(l.getRetailer().getId()))
-                                .filter(l -> l.getEntryType() == LedgerEntry.EntryType.DEBIT)
-                                .map(LedgerEntry::getAmount)
-                                .reduce(BigDecimal.ZERO, BigDecimal::add);
+                BigDecimal totalOutstanding = BigDecimal.ZERO;
+                for (Order o : orderRepository.findByWholesaler(wholesaler)) {
+                        if (o == null || o.getRetailer() == null || o.getRetailer().getId() == null) continue;
+                        if (retailerScope != null && !retailerScope.contains(o.getRetailer().getId())) continue;
+                        Order.Status st = o.getStatus();
+                        if (st == Order.Status.PLACED || st == Order.Status.REJECTED || st == Order.Status.CANCELLED) {
+                                continue;
+                        }
+                        BigDecimal total = o.getTotalAmount() != null ? o.getTotalAmount() : BigDecimal.ZERO;
+                        BigDecimal paid = paidByOrderId.getOrDefault(o.getId(), BigDecimal.ZERO);
+                        BigDecimal out = total.subtract(paid).max(BigDecimal.ZERO);
+                        totalOutstanding = totalOutstanding.add(out);
+                }
 
                 return DashboardKpiDTO.builder()
                                 .newOrdersToday(newOrdersToday)
                                 .paymentsReceivedToday(paymentsToday)
                                 .pendingOrders(pendingOrders)
-                                .totalOutstanding(debit.subtract(credit))
+                                .totalOutstanding(totalOutstanding)
                                 .build();
         }
 
@@ -119,15 +137,48 @@ public class DashboardService {
         // TERRITORY SECTION
         // ------------------------------------------------------
         public TerritoryDTO getTerritoryStats(String identifier, String authType) {
-                getWholesaler(identifier, authType);
+                Wholesaler wholesaler = getWholesaler(identifier, authType);
 
-                List<Retailer> retailers = retailerRepository.findAll();
+                // Totals are based on the wholesaler's APPROVED connections.
+                List<Connection> approved = connectionRepository
+                                .findByWholesalerAndStatusOrderByRequestedAtDesc(
+                                                wholesaler, Connection.Status.APPROVED);
 
-                int total = retailers.size();
-                int active = (int) retailers.stream().filter(Retailer::isActive).count();
+                int total = 0;
+                int active = 0;
+                for (Connection conn : approved) {
+                        Retailer r = conn.getRetailer();
+                        if (r == null) continue;
+                        total++;
+                        if (r.isActive()) active++;
+                }
 
-                AreaDTO topArea = new AreaDTO("Banjara Hills", 420000);
-                AreaDTO riskyArea = new AreaDTO("Old City", 210000);
+                // Top / risk region derived from real territory-performance aggregation (retailer.region only).
+                List<TerritoryPerformanceDTO> perf = analyticsService.getTerritoryPerformance(identifier, "revenue");
+
+                TerritoryPerformanceDTO topRow = perf.stream()
+                                .max(Comparator.comparing(p -> p.getRevenue() == null ? BigDecimal.ZERO : p.getRevenue()))
+                                .orElse(null);
+                TerritoryPerformanceDTO riskyRow = perf.stream()
+                                .filter(p -> "RISK".equals(p.getStatus()))
+                                .max(Comparator.comparing(p -> p.getOverdue() == null ? BigDecimal.ZERO : p.getOverdue()))
+                                .orElseGet(() -> perf.stream()
+                                                .max(Comparator.comparing(p -> p.getOverdue() == null ? BigDecimal.ZERO : p.getOverdue()))
+                                                .orElse(null));
+
+                double topValue = topRow != null && topRow.getRevenue() != null
+                                ? topRow.getRevenue().doubleValue()
+                                : 0d;
+                double riskValue = riskyRow != null && riskyRow.getOverdue() != null
+                                ? riskyRow.getOverdue().doubleValue()
+                                : 0d;
+
+                AreaDTO topArea = topRow != null
+                                ? new AreaDTO(topRow.getRegion(), topValue)
+                                : new AreaDTO("", 0d);
+                AreaDTO riskyArea = riskyRow != null
+                                ? new AreaDTO(riskyRow.getRegion(), riskValue)
+                                : new AreaDTO("", 0d);
 
                 return TerritoryDTO.builder()
                                 .activeRetailers(active)

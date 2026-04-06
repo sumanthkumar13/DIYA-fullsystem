@@ -20,8 +20,17 @@ import java.util.UUID;
 public class RetailerCreditSummaryDTO {
     private UUID retailerId;
     private String retailerName;
-    /** Sum of (order total − confirmed payments) for non-cancelled/rejected orders. */
+    /**
+     * Total unpaid amount across accepted orders for this retailer:
+     * \(\sum(\text{order.totalAmount} - \text{confirmedPaid})\), excluding PLACED/REJECTED/CANCELLED.
+     *
+     * Note: this includes both not-yet-due and overdue unpaid amounts.
+     */
     private BigDecimal totalOutstanding;
+    /** Portion of unpaid that is NOT overdue (accepted orders only). */
+    private BigDecimal outstandingAmount;
+    /** Portion of unpaid that IS overdue (accepted orders only). */
+    private BigDecimal overdueAmount;
     /** Sum of order totals for CREDIT orders that are accepted (not PLACED/CANCELLED/REJECTED). */
     private BigDecimal creditGiven;
     private BigDecimal creditLimit;

@@ -61,7 +61,7 @@ public class Retailer {
     private String address;
     private String city;
     /** Canonical territory for analytics (wholesaler-defined regions). */
-    @Column(length = 80)
+    @Column(nullable = false, length = 80)
     private String region;
     private String state;
     private String phoneContact;

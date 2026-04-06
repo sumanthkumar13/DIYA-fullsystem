@@ -293,6 +293,27 @@ public class OrderService {
             }
         }
 
+        // ✅ Always show latest orders first (createdAt/placedAt DESC)
+        orders = orders.stream()
+                .sorted((a, b) -> {
+                    LocalDateTime da = a.getPlacedAt();
+                    LocalDateTime db = b.getPlacedAt();
+                    if (da == null && db == null) return 0;
+                    if (da == null) return 1;
+                    if (db == null) return -1;
+                    return db.compareTo(da);
+                })
+                .toList();
+
+        // Precompute confirmed paid by order for unpaidAmount and overdue checks
+        Map<UUID, BigDecimal> paidByOrderId = new HashMap<>();
+        for (Payment p : paymentRepository.findByWholesaler(wholesaler)) {
+            if (p == null || p.getOrder() == null || p.getOrder().getId() == null) continue;
+            if (p.getStatus() != Payment.PaymentStatus.CONFIRMED) continue;
+            BigDecimal amt = p.getAmount() != null ? p.getAmount() : BigDecimal.ZERO;
+            paidByOrderId.merge(p.getOrder().getId(), amt, BigDecimal::add);
+        }
+
         // pagination (simple slice)
         if (page != null && size != null) {
             int from = page * size;
@@ -314,18 +335,33 @@ public class OrderService {
                 loc = (city + (city.isEmpty() || state.isEmpty() ? "" : ", ") + state).trim();
             }
 
+            BigDecimal total = o.getTotalAmount() != null ? o.getTotalAmount() : BigDecimal.ZERO;
+            BigDecimal paid = paidByOrderId.getOrDefault(o.getId(), BigDecimal.ZERO);
+            BigDecimal unpaid = total.subtract(paid).max(BigDecimal.ZERO);
+            if (o.getStatus() == Order.Status.PLACED || o.getStatus() == Order.Status.REJECTED || o.getStatus() == Order.Status.CANCELLED) {
+                unpaid = BigDecimal.ZERO;
+            }
+
+            Integer cd = o.getCreditDays() != null ? o.getCreditDays() : 0;
+            LocalDateTime placed = o.getPlacedAt();
+            LocalDateTime effDue = (placed != null && cd > 0) ? placed.plusDays(cd) : o.getDueDate();
+
             return OrderListItemDTO.builder()
                     .id(o.getId().toString())
                     .orderNumber(o.getOrderNumber())
+                    .retailerId(o.getRetailer() != null && o.getRetailer().getId() != null ? o.getRetailer().getId().toString() : null)
                     .retailer(o.getRetailer() != null && o.getRetailer().getUser() != null
                             ? o.getRetailer().getUser().getName()
                             : "Unknown")
                     .location(loc)
                     .amount(o.getTotalAmount() == null ? BigDecimal.ZERO : o.getTotalAmount())
                     .date(o.getPlacedAt() == null ? "" : o.getPlacedAt().toString())
+                    .createdAt(o.getPlacedAt() == null ? "" : o.getPlacedAt().toString())
                     .status(o.getStatus() == null ? Order.Status.PLACED.name() : o.getStatus().name())
                     .items(itemCount)
                     .exposure("NORMAL")
+                    .dueDate(effDue != null ? effDue.toString() : null)
+                    .unpaidAmount(unpaid)
                     .build();
         }).toList();
     }
@@ -617,13 +653,21 @@ public class OrderService {
         }
 
         BigDecimal paidAmount = BigDecimal.ZERO;
+        java.util.List<WholesalerOrderDetailDTO.PaymentHistoryDTO> paymentHistory = new java.util.ArrayList<>();
         try {
             java.util.List<Payment> payments = paymentRepository.findByOrder(order);
             if (payments != null) {
+                payments = payments.stream()
+                        .filter(p -> p != null && p.getStatus() == Payment.PaymentStatus.CONFIRMED)
+                        .sorted(java.util.Comparator.comparing(p -> (p.getConfirmedAt() != null ? p.getConfirmedAt() : p.getCreatedAt())))
+                        .toList();
                 for (Payment pay : payments) {
-                    if (pay != null && pay.getStatus() == Payment.PaymentStatus.CONFIRMED) {
-                        paidAmount = paidAmount.add(pay.getAmount() == null ? BigDecimal.ZERO : pay.getAmount());
-                    }
+                    paidAmount = paidAmount.add(pay.getAmount() == null ? BigDecimal.ZERO : pay.getAmount());
+                    paymentHistory.add(WholesalerOrderDetailDTO.PaymentHistoryDTO.builder()
+                            .amount(pay.getAmount() == null ? BigDecimal.ZERO : pay.getAmount())
+                            .paymentMethod(pay.getMode() != null ? pay.getMode().name() : null)
+                            .createdAt(pay.getConfirmedAt() != null ? pay.getConfirmedAt() : pay.getCreatedAt())
+                            .build());
                 }
             }
         } catch (Exception ignored) {
@@ -631,6 +675,12 @@ public class OrderService {
 
         BigDecimal total = order.getTotalAmount() == null ? BigDecimal.ZERO : order.getTotalAmount();
         BigDecimal outstanding = total.subtract(paidAmount).max(BigDecimal.ZERO);
+        // Before acceptance (PLACED) or when rejected/cancelled, "outstanding" must be 0.
+        if (order.getStatus() == Order.Status.PLACED
+                || order.getStatus() == Order.Status.REJECTED
+                || order.getStatus() == Order.Status.CANCELLED) {
+            outstanding = BigDecimal.ZERO;
+        }
 
         Integer cd = order.getCreditDays() != null ? order.getCreditDays() : 0;
         java.time.LocalDateTime placed = order.getPlacedAt();
@@ -664,6 +714,7 @@ public class OrderService {
                 .creditDays(cd)
                 .dueDate(displayDue)
                 .isOverdue(isOverdue)
+                .paidAmount(paidAmount)
                 .outstandingAmount(outstanding)
                 .creditGiven(creditGiven)
                 .placedAt(order.getPlacedAt())
@@ -674,7 +725,54 @@ public class OrderService {
                 .retailer(retailerDto)
                 .items(items)
                 .invoiceId(invoiceRepository.findByOrderId(order.getId()).map(Invoice::getId).orElse(null))
+                .paymentHistory(paymentHistory)
                 .build();
+    }
+
+    /**
+     * Previous due for a retailer = sum(totalAmount - confirmedPaid) across wholesaler's orders
+     * where status == ACCEPTED, excluding the current order if provided.
+     *
+     * This is intentionally strict and order-derived (not ledger-derived) so it updates in real time after payments.
+     */
+    public BigDecimal getPreviousDueForRetailerAcceptedOnly(
+            String identifier,
+            String authType,
+            UUID retailerId,
+            UUID excludeOrderId) {
+        Wholesaler wholesaler;
+        if ("EMAIL".equalsIgnoreCase(authType)) {
+            wholesaler = wholesalerRepository.findByUserEmail(identifier)
+                    .orElseThrow(() -> new RuntimeException("Wholesaler not found"));
+        } else {
+            wholesaler = wholesalerRepository.findByUserPhone(identifier)
+                    .orElseThrow(() -> new RuntimeException("Wholesaler not found"));
+        }
+
+        BigDecimal previousDue = BigDecimal.ZERO;
+
+        // Precompute paid-by-order from CONFIRMED payments (wholesaler-scoped).
+        Map<UUID, BigDecimal> paidByOrderId = new HashMap<>();
+        for (Payment p : paymentRepository.findByWholesaler(wholesaler)) {
+            if (p == null || p.getOrder() == null || p.getStatus() != Payment.PaymentStatus.CONFIRMED) continue;
+            UUID oid = p.getOrder().getId();
+            BigDecimal amt = p.getAmount() != null ? p.getAmount() : BigDecimal.ZERO;
+            paidByOrderId.merge(oid, amt, BigDecimal::add);
+        }
+
+        for (Order o : orderRepository.findByWholesaler(wholesaler)) {
+            if (o == null || o.getRetailer() == null || o.getRetailer().getId() == null) continue;
+            if (!o.getRetailer().getId().equals(retailerId)) continue;
+            if (excludeOrderId != null && excludeOrderId.equals(o.getId())) continue;
+            if (o.getStatus() != Order.Status.ACCEPTED) continue;
+
+            BigDecimal total = o.getTotalAmount() != null ? o.getTotalAmount() : BigDecimal.ZERO;
+            BigDecimal paid = paidByOrderId.getOrDefault(o.getId(), BigDecimal.ZERO);
+            BigDecimal unpaid = total.subtract(paid).max(BigDecimal.ZERO);
+            previousDue = previousDue.add(unpaid);
+        }
+
+        return previousDue;
     }
 
     @Transactional
@@ -893,23 +991,19 @@ public class OrderService {
         LocalDateTime acceptedAt = LocalDateTime.now();
         order.setAcceptedAt(acceptedAt);
 
-        // Approved credit amount: default to order total, cap to order total
-        BigDecimal orderTotal = order.getTotalAmount() != null ? order.getTotalAmount() : BigDecimal.ZERO;
-        BigDecimal approvedCreditAmount = req != null ? req.getApprovedCreditAmount() : null;
-        if (approvedCreditAmount == null) {
-            approvedCreditAmount = orderTotal;
-        } else if (approvedCreditAmount.compareTo(orderTotal) > 0) {
-            approvedCreditAmount = orderTotal;
-        }
-        order.setApprovedCreditAmount(approvedCreditAmount);
-
         // Apply payment mode rules
         order.setPaymentMode(paymentMode);
         if (paymentMode != Order.PaymentMode.CREDIT) {
+            // Not a credit order => no credit exposure
+            order.setApprovedCreditAmount(BigDecimal.ZERO);
             order.setCreditDays(0);
             order.setDueDate(null);
             order.setCreditDueDate(null);
         } else {
+            // Simplified credit: creditGiven == order total (no partial credit approval)
+            BigDecimal orderTotal = order.getTotalAmount() != null ? order.getTotalAmount() : BigDecimal.ZERO;
+            order.setApprovedCreditAmount(orderTotal);
+
             Integer creditDays = req != null ? req.getCreditDays() : null;
             if (creditDays == null || creditDays <= 0) {
                 throw new RuntimeException("creditDays must be > 0 for CREDIT orders");
@@ -921,7 +1015,10 @@ public class OrderService {
         }
 
         Order saved = orderRepository.save(order);
-        createDebitLedgerEntryForAcceptedOrder(saved);
+        // Ledger exposure only applies to CREDIT orders.
+        if (paymentMode == Order.PaymentMode.CREDIT) {
+            createDebitLedgerEntryForAcceptedOrder(saved);
+        }
 
         java.util.Map<String, Object> resp = new java.util.HashMap<>();
         resp.put("success", true);

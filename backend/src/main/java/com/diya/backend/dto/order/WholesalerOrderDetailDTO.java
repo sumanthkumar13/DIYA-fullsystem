@@ -21,6 +21,8 @@ public class WholesalerOrderDetailDTO {
     /** Due date = order placed date + credit days (wholesaler view). */
     private LocalDateTime dueDate;
     private Boolean isOverdue;
+    /** Sum of CONFIRMED payments mapped to this order. */
+    private BigDecimal paidAmount;
     private BigDecimal outstandingAmount;
     /** Credit amount allocated for this order (approved on credit). */
     private BigDecimal creditGiven;
@@ -36,6 +38,23 @@ public class WholesalerOrderDetailDTO {
 
     /** Set when order status is INVOICED; used for "View Invoice" link. */
     private UUID invoiceId;
+
+    /**
+     * Confirmed payments mapped to this order, chronological (oldest first).
+     * Used by Order Details UI as book-style entries.
+     */
+    private List<PaymentHistoryDTO> paymentHistory;
+
+    @Getter
+    @Setter
+    @NoArgsConstructor
+    @AllArgsConstructor
+    @Builder
+    public static class PaymentHistoryDTO {
+        private BigDecimal amount;
+        private String paymentMethod;
+        private LocalDateTime createdAt;
+    }
 
     @Getter
     @Setter

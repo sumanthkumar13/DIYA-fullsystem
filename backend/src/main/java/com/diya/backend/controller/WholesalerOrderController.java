@@ -6,6 +6,7 @@ import com.diya.backend.dto.order.WholesalerOrderAcceptRequest;
 import com.diya.backend.dto.order.WholesalerOrderEditRequest;
 import com.diya.backend.dto.order.WholesalerOrderCreditPatchRequest;
 import com.diya.backend.dto.order.WholesalerCreateOrderRequest;
+import com.diya.backend.dto.order.PreviousDueDTO;
 import com.diya.backend.entity.Order;
 import com.diya.backend.service.OrderService;
 import lombok.RequiredArgsConstructor;
@@ -175,5 +176,21 @@ public class WholesalerOrderController {
             errorResponse.put("message", "Internal server error: " + e.getMessage());
             return ResponseEntity.status(500).body(errorResponse);
         }
+    }
+
+    /**
+     * Previous due for a retailer across ACCEPTED orders only:
+     * SUM(order.totalAmount - confirmedPaid), excluding the current order.
+     */
+    @GetMapping("/retailer/{retailerId}/previous-due")
+    public ResponseEntity<PreviousDueDTO> previousDue(
+            @PathVariable UUID retailerId,
+            @RequestParam(required = false) UUID excludeOrderId) {
+        Authentication auth = SecurityContextHolder.getContext().getAuthentication();
+        String identifier = auth.getName();
+        String authType = identifier.contains("@") ? "EMAIL" : "PHONE";
+        return ResponseEntity.ok(PreviousDueDTO.builder()
+                .previousDue(orderService.getPreviousDueForRetailerAcceptedOnly(identifier, authType, retailerId, excludeOrderId))
+                .build());
     }
 }

@@ -2,6 +2,7 @@ import api from "@/lib/api";
 
 export async function recordManualPayment(payload: {
   retailerId: string;
+  orderId: string;
   amount: number;
   mode: string;
   note?: string;

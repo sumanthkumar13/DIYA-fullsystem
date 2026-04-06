@@ -19,9 +19,11 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { fetchKhatabookRetailers } from "@/services/khatabook";
+import { fetchOrders } from "@/services/order";
 import { recordManualPayment } from "@/services/payments";
 import { useToast } from "@/hooks/use-toast";
 import { Loader2 } from "lucide-react";
+import { invalidateAfterMutation } from "@/lib/invalidate";
 
 type AddPaymentModalProps = {
   open: boolean;
@@ -33,6 +35,7 @@ const MODES = ["CASH", "UPI", "NEFT"] as const;
 
 export function AddPaymentModal({ open, onClose, initialRetailerId }: AddPaymentModalProps) {
   const [retailerId, setRetailerId] = useState("");
+  const [orderId, setOrderId] = useState("");
   const [amount, setAmount] = useState("");
   const [mode, setMode] = useState<string>("CASH");
   const [note, setNote] = useState("");
@@ -52,12 +55,20 @@ export function AddPaymentModal({ open, onClose, initialRetailerId }: AddPayment
     enabled: open,
   });
 
+  const { data: orders = [] } = useQuery({
+    queryKey: ["orders"],
+    queryFn: () => fetchOrders(),
+    enabled: open,
+  });
+
+  const retailerOrders = (orders as any[]).filter((o) => String(o?.retailerId ?? "") === String(retailerId));
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!retailerId || !amount || Number(amount) <= 0) {
+    if (!retailerId || !orderId || !amount || Number(amount) <= 0) {
       toast({
         title: "Invalid input",
-        description: "Please select a retailer and enter a valid amount.",
+        description: "Please select retailer, order, and enter a valid amount.",
         variant: "destructive",
       });
       return;
@@ -66,6 +77,7 @@ export function AddPaymentModal({ open, onClose, initialRetailerId }: AddPayment
     try {
       await recordManualPayment({
         retailerId,
+        orderId,
         amount: Number(amount),
         mode,
         note: note.trim() || undefined,
@@ -74,13 +86,9 @@ export function AddPaymentModal({ open, onClose, initialRetailerId }: AddPayment
         title: "Payment recorded",
         description: "The payment has been recorded successfully.",
       });
-      queryClient.invalidateQueries({ queryKey: ["khatabook-summary"] });
-      queryClient.invalidateQueries({ queryKey: ["khatabook-retailers"] });
-      if (retailerId) {
-        queryClient.invalidateQueries({ queryKey: ["retailer-credit", retailerId] });
-        queryClient.invalidateQueries({ queryKey: ["retailer-statement", retailerId] });
-      }
+      invalidateAfterMutation(queryClient, { retailerId });
       setRetailerId("");
+      setOrderId("");
       setAmount("");
       setMode("CASH");
       setNote("");
@@ -109,7 +117,14 @@ export function AddPaymentModal({ open, onClose, initialRetailerId }: AddPayment
         <form onSubmit={handleSubmit} className="space-y-4">
           <div className="space-y-2">
             <Label htmlFor="retailer">Retailer</Label>
-            <Select value={retailerId} onValueChange={setRetailerId} required>
+            <Select
+              value={retailerId}
+              onValueChange={(v) => {
+                setRetailerId(v);
+                setOrderId("");
+              }}
+              required
+            >
               <SelectTrigger id="retailer">
                 <SelectValue placeholder="Select retailer" />
               </SelectTrigger>
@@ -117,6 +132,21 @@ export function AddPaymentModal({ open, onClose, initialRetailerId }: AddPayment
                 {retailers.map((r: { id: string; name: string }) => (
                   <SelectItem key={r.id} value={r.id}>
                     {r.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="space-y-2">
+            <Label htmlFor="order">Order</Label>
+            <Select value={orderId} onValueChange={setOrderId} required disabled={!retailerId}>
+              <SelectTrigger id="order">
+                <SelectValue placeholder={retailerId ? "Select order" : "Select retailer first"} />
+              </SelectTrigger>
+              <SelectContent>
+                {retailerOrders.map((o) => (
+                  <SelectItem key={String(o.id)} value={String(o.id)}>
+                    {o.orderNumber ? `Order #${o.orderNumber}` : `Order #${o.id}`}
                   </SelectItem>
                 ))}
               </SelectContent>

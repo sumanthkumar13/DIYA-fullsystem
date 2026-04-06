@@ -13,6 +13,7 @@ import '../../services/order_service.dart';
 import '../../models/orders/order_checkout.dart';
 import '../../models/cart/cart_dto.dart';
 import '../../models/products/product_dto.dart';
+import '../../providers/retailer_session_provider.dart';
 import 'package:dio/dio.dart';
 
 class NewOrderScreen extends ConsumerStatefulWidget {
@@ -538,6 +539,8 @@ class _NewOrderScreenState extends ConsumerState<NewOrderScreen> {
 
                                           // Refresh cart after successful order
                                           await ref.read(cartProvider.notifier).loadCart(selectedWholesalerId!);
+                                          // Reactive global refresh (orders + dashboard)
+                                          await ref.read(retailerSessionProvider.notifier).sync();
 
                                           ScaffoldMessenger.of(context).showSnackBar(
                                             SnackBar(

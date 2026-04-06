@@ -227,6 +227,20 @@ public class KhatabookService {
                 .orElseThrow(() -> new RuntimeException("Wholesaler not found"));
         Retailer retailer = retailerRepository.findById(request.getRetailerId())
                 .orElseThrow(() -> new RuntimeException("Retailer not found"));
+        if (request.getOrderId() == null) {
+            throw new RuntimeException("orderId is required for payment");
+        }
+        Order order = orderRepository.findById(request.getOrderId())
+                .orElseThrow(() -> new RuntimeException("Order not found"));
+        if (order.getWholesaler() == null || !order.getWholesaler().getId().equals(wholesaler.getId())) {
+            throw new RuntimeException("Access denied: Order not linked to this wholesaler");
+        }
+        if (order.getRetailer() == null || !order.getRetailer().getId().equals(retailer.getId())) {
+            throw new RuntimeException("Order does not belong to selected retailer");
+        }
+        if (order.getStatus() == Order.Status.PLACED || order.getStatus() == Order.Status.REJECTED || order.getStatus() == Order.Status.CANCELLED) {
+            throw new RuntimeException("Cannot record payment for this order status");
+        }
 
         Payment.PaymentMode paymentMode = Payment.PaymentMode.CASH;
         if (request.getMode() != null) {
@@ -237,7 +251,9 @@ public class KhatabookService {
         }
 
         LocalDateTime now = LocalDateTime.now();
+        String orderNumber = order.getOrderNumber() != null ? order.getOrderNumber() : order.getId().toString();
         Payment payment = Payment.builder()
+                .order(order)
                 .wholesaler(wholesaler)
                 .retailer(retailer)
                 .amount(request.getAmount())
@@ -252,9 +268,10 @@ public class KhatabookService {
         LedgerEntry entry = LedgerEntry.builder()
                 .wholesaler(wholesaler)
                 .retailer(retailer)
+                .relatedOrder(order)
                 .entryType(LedgerEntry.EntryType.CREDIT)
                 .amount(request.getAmount())
-                .description("Manual payment recorded")
+                .description("Payment received for Order #" + orderNumber + " via " + paymentMode.name())
                 .entryDate(now)
                 .build();
         ledgerEntryRepository.save(entry);
@@ -281,6 +298,11 @@ public class KhatabookService {
                 .sorted(Comparator.comparing(LedgerEntry::getEntryDate))
                 .toList();
 
+        // Preload CONFIRMED payments for matching CREDIT ledger entries
+        List<Payment> confirmedPayments = paymentRepository.findByWholesalerAndRetailer(wholesaler, retailer).stream()
+                .filter(p -> p != null && p.getStatus() == Payment.PaymentStatus.CONFIRMED && p.getOrder() != null)
+                .toList();
+
         BigDecimal balance = BigDecimal.ZERO;
         List<RetailerLedgerLineDTO> ledger = new ArrayList<>();
         Optional<LocalDateTime> oldestDebitDate = Optional.empty();
@@ -296,13 +318,45 @@ public class KhatabookService {
             }
             String desc = e.getDescription() != null ? e.getDescription() : "";
             UUID orderId = e.getRelatedOrder() != null ? e.getRelatedOrder().getId() : null;
+            String orderNumber = e.getRelatedOrder() != null ? e.getRelatedOrder().getOrderNumber() : null;
+            LocalDateTime orderDate = e.getRelatedOrder() != null ? e.getRelatedOrder().getPlacedAt() : null;
+            String paymentMethod = null;
+            LocalDateTime paymentDate = null;
+
+            if (e.getEntryType() == LedgerEntry.EntryType.CREDIT && orderId != null) {
+                // best-effort match to a confirmed payment for this order
+                Payment best = null;
+                long bestScore = Long.MAX_VALUE;
+                for (Payment p : confirmedPayments) {
+                    if (p.getOrder() == null || p.getOrder().getId() == null) continue;
+                    if (!p.getOrder().getId().equals(orderId)) continue;
+                    if (p.getAmount() == null || e.getAmount() == null) continue;
+                    if (p.getAmount().compareTo(e.getAmount()) != 0) continue;
+                    LocalDateTime pdt = p.getConfirmedAt() != null ? p.getConfirmedAt() : p.getCreatedAt();
+                    if (pdt == null || e.getEntryDate() == null) continue;
+                    long diff = Math.abs(java.time.Duration.between(pdt, e.getEntryDate()).toSeconds());
+                    if (diff < bestScore) {
+                        bestScore = diff;
+                        best = p;
+                    }
+                }
+                if (best != null) {
+                    paymentMethod = best.getMode() != null ? best.getMode().name() : null;
+                    paymentDate = best.getConfirmedAt() != null ? best.getConfirmedAt() : best.getCreatedAt();
+                }
+            }
+
             ledger.add(new RetailerLedgerLineDTO(
                     e.getEntryDate(),
                     desc,
                     e.getEntryType().name(),
                     e.getAmount(),
                     balance,
-                    orderId
+                    orderId,
+                    orderNumber,
+                    orderDate,
+                    paymentMethod,
+                    paymentDate
             ));
         }
 
@@ -367,6 +421,8 @@ public class KhatabookService {
         }
 
         BigDecimal totalOutstanding = BigDecimal.ZERO;
+        BigDecimal outstandingAmount = BigDecimal.ZERO;
+        BigDecimal overdueAmount = BigDecimal.ZERO;
         BigDecimal creditGiven = BigDecimal.ZERO;
         int overdueDays = 0;
         LocalDate today = LocalDate.now();
@@ -374,14 +430,15 @@ public class KhatabookService {
 
         for (Order o : orders) {
             Order.Status st = o.getStatus();
-            if (st == Order.Status.CANCELLED || st == Order.Status.REJECTED) {
+            // Outstanding applies only after wholesaler acceptance (and beyond).
+            // Exclude pending (PLACED) and rejected/cancelled.
+            if (st == Order.Status.PLACED || st == Order.Status.CANCELLED || st == Order.Status.REJECTED) {
                 continue;
             }
 
             BigDecimal total = o.getTotalAmount() != null ? o.getTotalAmount() : BigDecimal.ZERO;
             BigDecimal paid = paidByOrderId.getOrDefault(o.getId(), BigDecimal.ZERO);
             BigDecimal out = total.subtract(paid).max(BigDecimal.ZERO);
-            totalOutstanding = totalOutstanding.add(out);
 
             if (o.getPaymentMode() == Order.PaymentMode.CREDIT && st != Order.Status.PLACED) {
                 creditGiven = creditGiven.add(total);
@@ -399,12 +456,23 @@ public class KhatabookService {
             } else if (o.getDueDate() != null) {
                 effDue = o.getDueDate();
             }
+            boolean overdue = false;
             if (out.compareTo(BigDecimal.ZERO) > 0 && effDue != null) {
                 LocalDate due = effDue.toLocalDate();
                 if (due.isBefore(today)) {
                     int d = (int) ChronoUnit.DAYS.between(due, today);
                     overdueDays = Math.max(overdueDays, d);
+                    overdue = true;
                 }
+            }
+
+            if (out.compareTo(BigDecimal.ZERO) > 0) {
+                if (overdue) {
+                    overdueAmount = overdueAmount.add(out);
+                } else {
+                    outstandingAmount = outstandingAmount.add(out);
+                }
+                totalOutstanding = totalOutstanding.add(out);
             }
         }
 
@@ -434,6 +502,8 @@ public class KhatabookService {
                 .retailerId(retailerId)
                 .retailerName(retailerName)
                 .totalOutstanding(totalOutstanding)
+                .outstandingAmount(outstandingAmount)
+                .overdueAmount(overdueAmount)
                 .creditGiven(creditGiven)
                 .creditLimit(creditLimit)
                 .availableCredit(availableCredit)

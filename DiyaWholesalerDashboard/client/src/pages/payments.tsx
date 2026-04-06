@@ -14,6 +14,7 @@ import {
 } from "@/components/ui/table";
 import { useToast } from "@/hooks/use-toast";
 import { api } from "@/lib/api";
+import { invalidateAfterMutation } from "@/lib/invalidate";
 import {
   confirmPendingPayment,
   fetchPendingPayments,
@@ -83,8 +84,7 @@ export default function PaymentsPage() {
   const confirmMutation = useMutation({
     mutationFn: (paymentId: string) => confirmPendingPayment(paymentId),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["pending-payments"] });
-      queryClient.invalidateQueries({ queryKey: ["khatabook-summary"] });
+      invalidateAfterMutation(queryClient);
       toast({ title: "Payment confirmed", description: "Ledger has been credited." });
     },
     onError: (err: any) => {
@@ -100,7 +100,7 @@ export default function PaymentsPage() {
     mutationFn: ({ paymentId, reason }: { paymentId: string; reason?: string }) =>
       rejectPendingPayment(paymentId, reason),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["pending-payments"] });
+      invalidateAfterMutation(queryClient);
       toast({ title: "Payment rejected" });
     },
     onError: (err: any) => {

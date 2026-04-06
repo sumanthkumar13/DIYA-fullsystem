@@ -95,7 +95,7 @@ public class AuthService {
 
         String region = req.getRegion();
         if (region == null || region.isBlank()) {
-            region = req.getCity();
+            throw new RuntimeException("Region is required");
         }
         RegionCatalog.requireValidRegion(region);
         region = region.trim();
@@ -200,6 +200,14 @@ public class AuthService {
             throw new RuntimeException("Phone already registered");
         });
 
+        // Region is required for territory analytics.
+        String region = req.getRegion();
+        if (region == null || region.isBlank()) {
+            throw new RuntimeException("Region is required");
+        }
+        RegionCatalog.requireValidRegion(region);
+        region = region.trim();
+
         if (req.getEmail() != null && !req.getEmail().isEmpty()) {
             userRepository.findByEmail(req.getEmail()).ifPresent(u -> {
                 throw new RuntimeException("Email already registered");
@@ -224,6 +232,7 @@ public class AuthService {
                 .shopName(req.getBusinessName())
                 .address(req.getAddress())
                 .city(req.getCity())
+                .region(region)
                 .state(req.getState() != null ? req.getState() : "Not Provided")
                 .phoneContact(req.getPhone())
                 .password(user.getPassword())

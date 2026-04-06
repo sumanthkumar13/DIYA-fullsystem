@@ -1,24 +1,30 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../widgets/ui/diya_card.dart';
 import '../../widgets/ui/diya_input.dart';
 import '../../widgets/ui/diya_button.dart';
 import '../../services/order_service.dart';
 import '../../services/payment_service.dart';
+import '../../providers/retailer_session_provider.dart';
 
-class PaymentsScreen extends StatefulWidget {
+class PaymentsScreen extends ConsumerStatefulWidget {
   const PaymentsScreen({super.key});
 
   @override
-  State<PaymentsScreen> createState() => _PaymentsScreenState();
+  ConsumerState<PaymentsScreen> createState() => _PaymentsScreenState();
 }
 
-class _PaymentsScreenState extends State<PaymentsScreen> {
+class _PaymentsScreenState extends ConsumerState<PaymentsScreen> {
   late Future<_PaymentsData> _dataFuture;
 
   @override
   void initState() {
     super.initState();
     _dataFuture = _load();
+    // Fresh fetch on page entry (no stale values after navigation)
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      ref.read(retailerSessionProvider.notifier).sync();
+    });
   }
 
   Future<void> _refresh() async {
@@ -208,6 +214,8 @@ class _PaymentsScreenState extends State<PaymentsScreen> {
                       reference: referenceController.text.trim().isEmpty ? null : referenceController.text.trim(),
                       note: noteController.text.trim().isEmpty ? null : noteController.text.trim(),
                     );
+                    // Reactive global refresh (dashboard/orders/ledger)
+                    await ref.read(retailerSessionProvider.notifier).sync();
                     if (!mounted) return;
                     Navigator.pop(context);
                     ScaffoldMessenger.of(context).showSnackBar(

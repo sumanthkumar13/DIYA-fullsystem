@@ -3,13 +3,17 @@ import api from "@/lib/axios";
 export interface OrderListItem {
   id: string;
   orderNumber?: string;
+  retailerId?: string;
   retailer: string;
   location: string;
   amount: number;
   date: string;
+  createdAt?: string;
   status: string; // PLACED, ACCEPTED, PACKING, DISPATCHED, DELIVERED, COMPLETED, CANCELLED, REJECTED
   items: number;
   exposure?: string;
+  dueDate?: string | null;
+  unpaidAmount?: number;
 }
 
 export interface CreateOrderItemPayload {
@@ -102,6 +106,14 @@ export async function rejectOrder(orderId: string) {
 export async function fetchOrderDetail(orderId: string) {
   const res = await api.get(`/wholesaler/orders/${orderId}`);
   return res.data;
+}
+
+/** GET /api/wholesaler/orders/retailer/{retailerId}/previous-due?excludeOrderId=... */
+export async function fetchPreviousDue(retailerId: string, excludeOrderId?: string): Promise<number> {
+  const res = await api.get(`/wholesaler/orders/retailer/${retailerId}/previous-due`, {
+    params: excludeOrderId ? { excludeOrderId } : undefined,
+  });
+  return Number(res.data?.previousDue ?? 0);
 }
 
 export async function patchOrderCredit(
