@@ -124,13 +124,32 @@ export default function OrderDetail() {
   const [acceptOpen, setAcceptOpen] = useState(false);
   const [paymentMode, setPaymentMode] = useState<"CASH" | "UPI" | "CREDIT">("CASH");
   const [creditDays, setCreditDays] = useState<string>("");
+  const [paidNow, setPaidNow] = useState<string>("");
 
   const acceptMutation = useMutation({
     mutationFn: (opts: { force: boolean }) =>
       acceptOrder(orderId, {
+        // Compute locally to avoid relying on render-time variables
+        // (mutation can be triggered only once order is loaded).
         force: opts.force,
         paymentMode,
-        creditDays: paymentMode === "CREDIT" ? Number(creditDays) : 0,
+        paidNow:
+          paymentMode === "CREDIT"
+            ? undefined
+            : paidNow.trim() === ""
+              ? undefined
+              : Number(paidNow),
+        creditDays: (() => {
+          const total = Number((order as any)?.totalAmount ?? 0);
+          const paid =
+            paymentMode === "CREDIT"
+              ? 0
+              : Math.max(0, Math.min(total, Number(paidNow || 0)));
+          const remaining =
+            paymentMode === "CREDIT" ? total : Math.max(0, total - paid);
+          if (paymentMode === "CREDIT") return Number(creditDays);
+          return remaining > 0 ? Number(creditDays) : 0;
+        })(),
       }),
     onSuccess: () => {
       invalidateAfterMutation(queryClient, { orderId, retailerId });
@@ -333,8 +352,24 @@ export default function OrderDetail() {
   const unpaidAmount = isAcceptedOrLater ? Math.max(0, orderTotal - paidAmount) : 0;
   const boxPaymentStatus = unpaidAmount > 0 ? "UNPAID" : "PAID";
 
-  // Current-order credit fields only
-  const creditGiven = order.paymentMode === "CREDIT" ? orderTotal : 0;
+  // For accept dialog calculations
+  const paidNowNum =
+    paymentMode === "CREDIT" ? 0 : Math.max(0, Math.min(orderTotal, Number(paidNow || 0)));
+  const remainingCredit =
+    paymentMode === "CREDIT" ? orderTotal : Math.max(0, orderTotal - paidNowNum);
+
+  // Current-order credit exposure (works for CREDIT and partial CASH/UPI acceptance)
+  const creditGiven = Number((order as any).creditGiven ?? 0);
+  const paymentHistory = Array.isArray((order as any).paymentHistory) ? (order as any).paymentHistory : [];
+  const lastPayment = paymentHistory.length ? paymentHistory[paymentHistory.length - 1] : null;
+  const lastPaymentDateLabel =
+    lastPayment?.createdAt
+      ? new Date(lastPayment.createdAt).toLocaleDateString("en-IN", {
+          day: "numeric",
+          month: "short",
+          year: "numeric",
+        })
+      : "—";
 
   async function saveCreditField(field: "days") {
     setCreditSaving(true);
@@ -375,7 +410,7 @@ export default function OrderDetail() {
           <ArrowLeft className="h-4 w-4" /> Back to Orders
         </Link>
         <span>/</span>
-        <span className="text-gray-900 font-medium">{orderId}</span>
+        <span className="text-gray-900 font-medium">{order.orderNumber || "Order"}</span>
       </div>
 
       <div className="flex flex-col lg:flex-row lg:items-start justify-between gap-6">
@@ -414,7 +449,7 @@ export default function OrderDetail() {
                   <DialogHeader>
                     <DialogTitle>Accept Order</DialogTitle>
                     <DialogDescription>
-                      Choose payment type. For CREDIT, set credit days (due date = acceptedAt + creditDays).
+                      For CASH/UPI, enter how much was paid now. If partially paid, the remaining amount is treated as credit and needs credit days.
                     </DialogDescription>
                   </DialogHeader>
 
@@ -430,16 +465,66 @@ export default function OrderDetail() {
                         <option value="UPI">UPI (Immediate)</option>
                         <option value="CREDIT">Credit</option>
                       </select>
-                      {paymentMode === "CREDIT" && (
-                        <p className="text-xs text-gray-500">
-                          Retailer must pay within these days after order acceptance.
-                        </p>
-                      )}
+                      <p className="text-xs text-gray-500">
+                        Credit days apply only to the remaining unpaid amount (if any).
+                      </p>
                     </div>
 
-                    {paymentMode === "CREDIT" && (
+                    {/* Exposure summary (shown only while accepting) */}
+                    <div className="bg-gray-50 rounded-lg p-3 space-y-2 border border-gray-200">
+                      <div className="flex justify-between text-sm">
+                        <span className="text-gray-500">Previous Due</span>
+                        <span className="font-medium text-gray-900">{formatAmount(previousDue)}</span>
+                      </div>
+                      <div className="flex justify-between text-sm">
+                        <span className="text-gray-500">This Order</span>
+                        <span className="font-medium text-gray-900">{formatAmount(orderTotal)}</span>
+                      </div>
+                      <Separator className="bg-gray-200" />
+                      <div className="flex justify-between text-sm pt-1">
+                        <span className="font-bold text-gray-700">Total Exposure</span>
+                        <span className="font-bold text-gray-900">
+                          {formatAmount(Number(previousDue) + orderTotal)}
+                        </span>
+                      </div>
+                    </div>
+
+                    {paymentMode !== "CREDIT" && (
                       <div className="space-y-2">
-                        <label className="text-sm font-medium text-gray-700">Credit Days (required)</label>
+                        <label className="text-sm font-medium text-gray-700">
+                          Paid Now ({paymentMode})
+                        </label>
+                        <input
+                          type="number"
+                          min={0}
+                          step={0.01}
+                          value={paidNow}
+                          onChange={(e) => setPaidNow(e.target.value)}
+                          placeholder={`Up to ₹${orderTotal.toLocaleString("en-IN")}`}
+                          className="w-full rounded-md border border-gray-200 bg-white px-3 py-2 text-sm"
+                        />
+                        <div className="rounded-md border border-gray-200 bg-gray-50 p-3 text-sm text-gray-700 space-y-1">
+                          <div className="flex items-center justify-between">
+                            <span className="text-gray-600">Order Total</span>
+                            <span className="font-medium">{formatAmount(orderTotal)}</span>
+                          </div>
+                          <div className="flex items-center justify-between">
+                            <span className="text-gray-600">Paid Now</span>
+                            <span className="font-medium">{formatAmount(paidNowNum)}</span>
+                          </div>
+                          <div className="flex items-center justify-between">
+                            <span className="text-gray-600">Remaining (Credit)</span>
+                            <span className="font-semibold">{formatAmount(remainingCredit)}</span>
+                          </div>
+                        </div>
+                      </div>
+                    )}
+
+                    {(paymentMode === "CREDIT" || remainingCredit > 0) && (
+                      <div className="space-y-2">
+                        <label className="text-sm font-medium text-gray-700">
+                          Credit Days (required)
+                        </label>
                         <input
                           type="number"
                           min={1}
@@ -483,7 +568,10 @@ export default function OrderDetail() {
                     )}
                     <Button
                       className="bg-primary hover:bg-primary/90 text-white"
-                      disabled={acceptMutation.isPending || (paymentMode === "CREDIT" && Number(creditDays) <= 0)}
+                      disabled={
+                        acceptMutation.isPending ||
+                        ((paymentMode === "CREDIT" || remainingCredit > 0) && Number(creditDays) <= 0)
+                      }
                       onClick={() => acceptMutation.mutate({ force: false })}
                     >
                       Accept
@@ -787,7 +875,7 @@ export default function OrderDetail() {
                     </div>
                   </div>
                   <p className="text-xs text-orange-600">
-                    Payment: {boxPaymentStatus}
+                    Payment: {order.paymentStatus || boxPaymentStatus}
                   </p>
                 </div>
               </div>
@@ -946,13 +1034,13 @@ export default function OrderDetail() {
                 <span className="font-display font-bold text-xl text-gray-900">{formatAmount(order.totalAmount)}</span>
               </div>
 
-              {paidAmount > 0 && Array.isArray((order as any).paymentHistory) && (
+              {paidAmount > 0 && paymentHistory.length > 0 && (
                 <div className="pt-3">
                   <Separator />
                   <div className="pt-3 space-y-2">
                     <p className="text-sm font-semibold text-gray-900">Payment History</p>
                     <div className="space-y-1 text-sm text-gray-700">
-                      {(order as any).paymentHistory.map((p: any, idx: number) => (
+                      {paymentHistory.map((p: any, idx: number) => (
                         <div key={idx}>
                           - ₹{Number(p?.amount ?? 0).toLocaleString("en-IN")} paid via {p?.paymentMethod || "—"} on{" "}
                           {p?.createdAt ? new Date(p.createdAt).toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" }) : "—"}
@@ -973,62 +1061,8 @@ export default function OrderDetail() {
             </CardContent>
           </Card>
 
-          {/* Payment Context */}
-          <Card className="bg-white border-gray-200 shadow-sm">
-            <CardHeader className="pb-3">
-              <CardTitle className="text-base flex items-center gap-2">
-                <CreditCard className="h-4 w-4 text-gray-500" /> 
-                Payment Status
-              </CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <div className="bg-gray-50 rounded-lg p-3 space-y-2">
-                <div className="flex justify-between text-sm">
-                   <span className="text-gray-500">Previous Due</span>
-                   <span className="font-medium text-red-600">{formatAmount(previousDue)}</span>
-                </div>
-                <div className="flex justify-between text-sm">
-                   <span className="text-gray-500">This Order</span>
-                   <span className="font-medium text-gray-900">{formatAmount(order.totalAmount)}</span>
-                </div>
-                <Separator className="bg-gray-200" />
-                <div className="flex justify-between text-sm pt-1">
-                   <span className="font-bold text-gray-700">Total Exposure</span>
-                   <span className="font-bold text-gray-900">{formatAmount(Number(previousDue) + orderTotal)}</span>
-                </div>
-              </div>
-
-              <div className="flex gap-2">
-                <div className={`flex-1 border p-2 rounded text-center ${
-                  order.paymentStatus === "PAID" 
-                    ? "bg-green-50 border-green-100" 
-                    : order.paymentStatus === "PARTIAL"
-                    ? "bg-yellow-50 border-yellow-100"
-                    : "bg-yellow-50 border-yellow-100"
-                }`}>
-                  <p className={`text-xs font-medium ${
-                    order.paymentStatus === "PAID" 
-                      ? "text-green-800" 
-                      : order.paymentStatus === "PARTIAL"
-                      ? "text-yellow-800"
-                      : "text-yellow-800"
-                  }`}>
-                    {order.paymentStatus === "PAID" 
-                      ? "Payment Received" 
-                      : order.paymentStatus === "PARTIAL"
-                      ? "Partially Paid"
-                      : "Payment Pending"}
-                  </p>
-                </div>
-              </div>
-              
-              {order.paymentStatus !== "PAID" && (
-                <Button className="w-full bg-green-600 hover:bg-green-700 text-white shadow-sm">
-                  Collect Payment
-                </Button>
-              )}
-            </CardContent>
-          </Card>
+          {/* Payment Status box removed from always-on order details view.
+              (Shown only inside the Accept dialog while accepting an order.) */}
 
           {/* Credit Limit Warning - Only show if needed */}
            {order.paymentStatus === "UNPAID" && order.totalAmount && order.totalAmount > 10000 && (

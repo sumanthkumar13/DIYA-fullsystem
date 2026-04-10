@@ -12,8 +12,18 @@ import java.math.BigDecimal;
 @Builder
 public class WholesalerOrderAcceptRequest {
     private Order.PaymentMode paymentMode; // CASH / UPI / CREDIT
-    private Integer creditDays; // required when paymentMode == CREDIT
-    /** Amount of credit the wholesaler is granting for this order. Defaults to order total if null; capped to order total. */
-    private BigDecimal approvedCreditAmount;
+    /**
+     * Credit days for any credit exposure created on acceptance.
+     *
+     * - If paymentMode == CREDIT: required (full order becomes credit).
+     * - If paymentMode == CASH/UPI: required only when paidNow < orderTotal (remaining becomes credit).
+     */
+    private Integer creditDays;
+
+    /**
+     * Amount received immediately at acceptance for CASH/UPI flows.
+     * When omitted for CASH/UPI, backend will assume full payment (backward-compatible).
+     */
+    private BigDecimal paidNow;
 }
 

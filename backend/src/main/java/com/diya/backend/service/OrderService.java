@@ -43,6 +43,7 @@ public class OrderService {
     private final PaymentRepository paymentRepository;
     private final LedgerEntryRepository ledgerEntryRepository;
     private final com.diya.backend.repository.InvoiceRepository invoiceRepository;
+    private final PaymentService paymentService;
 
     // ==========================================================
     // RETAILER: Checkout from Cart -> Create Order
@@ -865,6 +866,12 @@ public class OrderService {
         Order.Status target = Order.Status.valueOf(newStatus.toUpperCase());
         Order.Status current = order.getStatus();
 
+        if (target == Order.Status.ACCEPTED) {
+            // Accepting an order requires payment terms and possible immediate payment capture.
+            // Enforce using the dedicated /accept endpoint to keep ledger + payments consistent.
+            throw new RuntimeException("Use /accept endpoint to accept orders (requires payment terms)");
+        }
+
         // ✅ Allowed transitions
         boolean allowed = (current == Order.Status.PLACED && (target == Order.Status.ACCEPTED
                 || target == Order.Status.REJECTED || target == Order.Status.CANCELLED))
@@ -941,11 +948,7 @@ public class OrderService {
         }
 
         order.setStatus(target);
-        Order savedOrder = orderRepository.save(order);
-        if (target == Order.Status.ACCEPTED) {
-            createDebitLedgerEntryForAcceptedOrder(savedOrder);
-        }
-        return savedOrder;
+        return orderRepository.save(order);
     }
 
     // ==========================================================
@@ -1030,33 +1033,76 @@ public class OrderService {
         LocalDateTime acceptedAt = LocalDateTime.now();
         order.setAcceptedAt(acceptedAt);
 
-        // Apply payment mode rules
+        // Apply payment mode rules (Tally-fast)
         order.setPaymentMode(paymentMode);
-        if (paymentMode != Order.PaymentMode.CREDIT) {
-            // Not a credit order => no credit exposure
-            order.setApprovedCreditAmount(BigDecimal.ZERO);
-            order.setCreditDays(0);
-            order.setDueDate(null);
-            order.setCreditDueDate(null);
+        BigDecimal orderTotal = order.getTotalAmount() != null ? order.getTotalAmount() : BigDecimal.ZERO;
+        BigDecimal paidNow = BigDecimal.ZERO;
+        if (paymentMode == Order.PaymentMode.CREDIT) {
+            paidNow = BigDecimal.ZERO;
         } else {
-            // Simplified credit: creditGiven == order total (no partial credit approval)
-            BigDecimal orderTotal = order.getTotalAmount() != null ? order.getTotalAmount() : BigDecimal.ZERO;
-            order.setApprovedCreditAmount(orderTotal);
+            // CASH/UPI: wholesaler can capture immediate paid amount at acceptance.
+            // Backward-compatible default: assume full paid if client does not send paidNow.
+            if (req != null && req.getPaidNow() != null) {
+                paidNow = req.getPaidNow();
+            } else {
+                paidNow = orderTotal;
+            }
+        }
 
+        if (paidNow.compareTo(BigDecimal.ZERO) < 0) {
+            paidNow = BigDecimal.ZERO;
+        }
+        if (paidNow.compareTo(orderTotal) > 0) {
+            throw new RuntimeException("paidNow cannot exceed order total");
+        }
+
+        BigDecimal remainingCredit = orderTotal.subtract(paidNow).max(BigDecimal.ZERO);
+
+        // Remaining amount is treated as credit exposure (even for CASH/UPI mode)
+        if (remainingCredit.compareTo(BigDecimal.ZERO) > 0) {
             Integer creditDays = req != null ? req.getCreditDays() : null;
             if (creditDays == null || creditDays <= 0) {
-                throw new RuntimeException("creditDays must be > 0 for CREDIT orders");
+                throw new RuntimeException("creditDays must be > 0 for remaining credit amount");
             }
+            order.setApprovedCreditAmount(remainingCredit);
             order.setCreditDays(creditDays);
             java.time.LocalDateTime placed = order.getPlacedAt() != null ? order.getPlacedAt() : acceptedAt;
             order.setDueDate(placed.plusDays(creditDays));
             order.setCreditDueDate(LocalDateTime.now().plusDays(creditDays));
+        } else {
+            order.setApprovedCreditAmount(BigDecimal.ZERO);
+            order.setCreditDays(0);
+            order.setDueDate(null);
+            order.setCreditDueDate(null);
         }
 
         Order saved = orderRepository.save(order);
-        // Ledger exposure only applies to CREDIT orders.
-        if (paymentMode == Order.PaymentMode.CREDIT) {
-            createDebitLedgerEntryForAcceptedOrder(saved);
+
+        // Ledger exposure applies only if remaining credit > 0.
+        if (remainingCredit.compareTo(BigDecimal.ZERO) > 0) {
+            createDebitLedgerEntryForAcceptedOrder(
+                    saved,
+                    remainingCredit,
+                    paidNow,
+                    paymentMode,
+                    saved.getCreditDays(),
+                    saved.getDueDate()
+            );
+        }
+
+        // Immediate payment is considered verified because wholesaler is entering it.
+        if (paidNow.compareTo(BigDecimal.ZERO) > 0) {
+            Payment.PaymentMode payMode = paymentMode == Order.PaymentMode.UPI
+                    ? Payment.PaymentMode.UPI
+                    : Payment.PaymentMode.CASH;
+            paymentService.recordImmediateWholesalerPayment(
+                    identifier,
+                    saved,
+                    paidNow,
+                    payMode,
+                    null,
+                    "Paid at acceptance"
+            );
         }
 
         java.util.Map<String, Object> resp = new java.util.HashMap<>();
@@ -1067,19 +1113,43 @@ public class OrderService {
         return resp;
     }
 
-    private void createDebitLedgerEntryForAcceptedOrder(Order order) {
-        BigDecimal amount = order.getApprovedCreditAmount() != null
-                ? order.getApprovedCreditAmount()
-                : order.getTotalAmount();
-        if (amount == null) amount = BigDecimal.ZERO;
+    private void createDebitLedgerEntryForAcceptedOrder(
+            Order order,
+            BigDecimal creditAmount,
+            BigDecimal paidNow,
+            Order.PaymentMode paymentMode,
+            Integer creditDays,
+            LocalDateTime dueDate
+    ) {
+        BigDecimal amount = creditAmount != null ? creditAmount : BigDecimal.ZERO;
+        if (amount.compareTo(BigDecimal.ZERO) <= 0) return;
+
         String orderNumber = order.getOrderNumber() != null ? order.getOrderNumber() : order.getId().toString();
+
+        String dueText = "";
+        if (creditDays != null && creditDays > 0) {
+            dueText = " | Due in " + creditDays + " days";
+        }
+        if (dueDate != null) {
+            dueText = dueText + " (Due " + dueDate.toLocalDate() + ")";
+        }
+
+        String modeLabel = paymentMode != null ? paymentMode.name() : "—";
+        String desc;
+        if (paymentMode == Order.PaymentMode.CREDIT) {
+            desc = "Order #" + orderNumber + ": Credit sale ₹" + amount + dueText;
+        } else {
+            BigDecimal paid = paidNow != null ? paidNow : BigDecimal.ZERO;
+            desc = "Order #" + orderNumber + ": Paid ₹" + paid + " via " + modeLabel + " at acceptance. Balance on credit ₹" + amount + dueText;
+        }
+
         LedgerEntry entry = LedgerEntry.builder()
                 .wholesaler(order.getWholesaler())
                 .retailer(order.getRetailer())
                 .relatedOrder(order)
                 .entryType(LedgerEntry.EntryType.DEBIT)
                 .amount(amount)
-                .description("Goods supplied on credit (Order #" + orderNumber + ")")
+                .description(desc)
                 .entryDate(order.getAcceptedAt() != null ? order.getAcceptedAt() : LocalDateTime.now())
                 .build();
         ledgerEntryRepository.save(entry);

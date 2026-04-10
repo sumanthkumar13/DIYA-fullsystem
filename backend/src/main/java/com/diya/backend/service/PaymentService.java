@@ -213,4 +213,84 @@ public class PaymentService {
 
         orderRepository.save(order);
     }
+
+    // ==========================================================
+    // 4) Wholesaler records an immediate payment at acceptance
+    // Creates payment as CONFIRMED and writes ledger CREDIT immediately.
+    // ==========================================================
+    @Transactional
+    public Payment recordImmediateWholesalerPayment(
+            String wholesalerIdentifier,
+            Order order,
+            BigDecimal amount,
+            Payment.PaymentMode mode,
+            String reference,
+            String note
+    ) {
+        if (order == null || order.getId() == null) {
+            throw new RuntimeException("Order not found");
+        }
+        if (amount == null || amount.compareTo(BigDecimal.ZERO) <= 0) {
+            throw new RuntimeException("Invalid payment amount");
+        }
+
+        Wholesaler wholesaler = wholesalerIdentifier.contains("@")
+                ? wholesalerRepository.findByUserEmail(wholesalerIdentifier)
+                        .orElseThrow(() -> new RuntimeException("Wholesaler not found"))
+                : wholesalerRepository.findByUserPhone(wholesalerIdentifier)
+                        .orElseThrow(() -> new RuntimeException("Wholesaler not found"));
+
+        if (order.getWholesaler() == null || order.getWholesaler().getId() == null
+                || !order.getWholesaler().getId().equals(wholesaler.getId())) {
+            throw new RuntimeException("Access denied: Order not linked to this wholesaler");
+        }
+
+        // Clamp to remaining due for this order (based on CONFIRMED payments only)
+        BigDecimal alreadyConfirmed = paymentRepository.findByOrder(order).stream()
+                .filter(p -> p.getStatus() == Payment.PaymentStatus.CONFIRMED)
+                .map(Payment::getAmount)
+                .reduce(BigDecimal.ZERO, BigDecimal::add);
+
+        BigDecimal orderTotal = order.getTotalAmount() == null ? BigDecimal.ZERO : order.getTotalAmount();
+        BigDecimal due = orderTotal.subtract(alreadyConfirmed);
+        if (amount.compareTo(due.add(TOLERANCE)) > 0) {
+            throw new RuntimeException("Payment amount exceeds due amount");
+        }
+
+        if (mode == null) {
+            throw new RuntimeException("Payment mode is required");
+        }
+
+        Payment payment = Payment.builder()
+                .order(order)
+                .wholesaler(wholesaler)
+                .retailer(order.getRetailer())
+                .amount(amount)
+                .mode(mode)
+                .status(Payment.PaymentStatus.CONFIRMED)
+                .reference(reference)
+                .note(note)
+                .createdAt(LocalDateTime.now())
+                .confirmedAt(LocalDateTime.now())
+                .confirmedBy(wholesalerIdentifier)
+                .build();
+
+        paymentRepository.save(payment);
+
+        LedgerEntry ledgerEntry = LedgerEntry.builder()
+                .wholesaler(wholesaler)
+                .retailer(order.getRetailer())
+                .relatedOrder(order)
+                .entryType(LedgerEntry.EntryType.CREDIT)
+                .amount(amount)
+                .description("Order #" + (order.getOrderNumber() != null ? order.getOrderNumber() : order.getId())
+                        + ": Paid ₹" + amount + " via " + mode.name() + " (at acceptance)")
+                .entryDate(LocalDateTime.now())
+                .build();
+
+        ledgerEntryRepository.save(ledgerEntry);
+
+        updateOrderPaymentStatus(order);
+        return payment;
+    }
 }

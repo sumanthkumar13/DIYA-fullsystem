@@ -75,12 +75,12 @@ export async function createOrder(payload: CreateOrderPayload) {
  */
 export async function acceptOrder(
   orderId: string,
-  opts: { force?: boolean; paymentMode: "CASH" | "UPI" | "CREDIT"; creditDays?: number; approvedCreditAmount?: number }
+  opts: { force?: boolean; paymentMode: "CASH" | "UPI" | "CREDIT"; creditDays?: number; paidNow?: number }
 ) {
-  const { force = false, paymentMode, creditDays, approvedCreditAmount } = opts;
+  const { force = false, paymentMode, creditDays, paidNow } = opts;
   const body: Record<string, unknown> = { paymentMode, creditDays };
-  if (paymentMode === "CREDIT" && approvedCreditAmount != null) {
-    body.approvedCreditAmount = approvedCreditAmount;
+  if (paymentMode !== "CREDIT" && paidNow != null) {
+    body.paidNow = paidNow;
   }
   const res = await api.post(
     `/wholesaler/orders/${orderId}/accept`,

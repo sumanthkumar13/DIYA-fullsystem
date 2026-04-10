@@ -76,13 +76,23 @@ class _PaymentsScreenState extends ConsumerState<PaymentsScreen> {
       final total = (o["amount"] as num? ?? 0).toDouble();
       final confirmed = confirmedByOrderId[orderId] ?? 0;
       final remaining = (total - confirmed);
+      final status = (o["status"] ?? "").toString().toUpperCase();
       return _DueOrder(
         id: orderId,
         orderNumber: (o["orderNumber"] ?? o["orderNo"] ?? "").toString(),
         total: total,
         outstanding: remaining < 0 ? 0 : remaining,
+        status: status,
       );
-    }).where((o) => o.outstanding > 0.01).toList()
+    })
+        // Only allow recording payments for orders that wholesaler has accepted (or later)
+        .where((o) =>
+            o.outstanding > 0.01 &&
+            o.status.isNotEmpty &&
+            o.status != "PLACED" &&
+            o.status != "REJECTED" &&
+            o.status != "CANCELLED")
+        .toList()
       ..sort((a, b) => b.outstanding.compareTo(a.outstanding));
 
     payments.sort((a, b) {
@@ -482,12 +492,14 @@ class _DueOrder {
   final String orderNumber;
   final double total;
   final double outstanding;
+  final String status;
 
   const _DueOrder({
     required this.id,
     required this.orderNumber,
     required this.total,
     required this.outstanding,
+    required this.status,
   });
 }
 
