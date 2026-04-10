@@ -2,6 +2,7 @@ package com.diya.backend.controller;
 
 import com.diya.backend.dto.category.SubCategoryCreateRequest;
 import com.diya.backend.dto.category.SubCategoryDTO;
+import com.diya.backend.dto.category.SubCategoryUpdateRequest;
 import com.diya.backend.entity.SubCategory;
 import com.diya.backend.service.SubCategoryService;
 import lombok.RequiredArgsConstructor;
@@ -40,6 +41,19 @@ public class SubCategoryController {
                 .stream()
                 .map(this::toDto)
                 .toList();
+    }
+
+    @PutMapping("/{subcategoryId}")
+    public SubCategoryDTO update(@PathVariable UUID subcategoryId, @RequestBody SubCategoryUpdateRequest req) {
+        Authentication auth = SecurityContextHolder.getContext().getAuthentication();
+        SubCategory sc = subCategoryService.updateSubCategoryName(auth.getName(), getAuthType(auth), subcategoryId, req);
+        return toDto(sc);
+    }
+
+    @DeleteMapping("/{subcategoryId}")
+    public void delete(@PathVariable UUID subcategoryId) {
+        Authentication auth = SecurityContextHolder.getContext().getAuthentication();
+        subCategoryService.deleteSubCategory(auth.getName(), getAuthType(auth), subcategoryId);
     }
 
     private SubCategoryDTO toDto(SubCategory sc) {

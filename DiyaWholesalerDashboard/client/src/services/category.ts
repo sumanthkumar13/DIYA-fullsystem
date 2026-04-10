@@ -18,6 +18,15 @@ export async function createCategory(name: string) {
   return res.data;
 }
 
+export async function renameCategory(categoryId: string, name: string) {
+  const res = await api.put(`/wholesaler/categories/${categoryId}`, { name });
+  return res.data;
+}
+
+export async function deleteCategory(categoryId: string) {
+  await api.delete(`/wholesaler/categories/${categoryId}`);
+}
+
 export async function fetchCategoryTree() {
   const res = await api.get("/wholesaler/categories/tree");
   return res.data;
@@ -65,5 +74,14 @@ export async function createSubcategory(params: {
   });
 
   return res.data;
+}
+
+export async function renameSubcategory(subcategoryId: string, name: string) {
+  const res = await api.put(`/wholesaler/subcategories/${subcategoryId}`, { name });
+  return res.data;
+}
+
+export async function deleteSubcategory(subcategoryId: string) {
+  await api.delete(`/wholesaler/subcategories/${subcategoryId}`);
 }
 

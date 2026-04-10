@@ -40,6 +40,10 @@ import {
   createSubcategory,
   fetchSubcategoriesByCategory,
   fetchChildren,
+  renameCategory,
+  deleteCategory,
+  renameSubcategory,
+  deleteSubcategory,
 } from "@/services/category";
 import {
   Dialog,
@@ -85,6 +89,8 @@ export default function MyBusiness() {
   const { toast } = useToast();
   const [searchQuery, setSearchQuery] = useState("");
   const [products, setProducts] = useState<Product[]>([]);
+  const [selectedIds, setSelectedIds] = useState<Record<string, boolean>>({});
+  const [catalogMoveTick, setCatalogMoveTick] = useState(0);
   const [page, setPage] = useState(0);
   const [loading, setLoading] = useState(false);
   const [categories, setCategories] = useState<any[]>([]);
@@ -122,10 +128,47 @@ export default function MyBusiness() {
       setLoading(true);
       const data = await fetchProducts(page, 20, searchQuery);
       setProducts(data.content || []);
+      setSelectedIds({});
     } catch (error) {
       console.error("Failed to load products", error);
     } finally {
       setLoading(false);
+    }
+  }
+
+  const selectedCount = Object.values(selectedIds).filter(Boolean).length;
+  const allOnPageSelected =
+    products.length > 0 && products.every((p) => selectedIds[p.id] === true);
+  const someOnPageSelected =
+    products.some((p) => selectedIds[p.id] === true) && !allOnPageSelected;
+
+  function toggleSelectAllOnPage(next: boolean) {
+    const m: Record<string, boolean> = {};
+    for (const p of products) {
+      m[p.id] = next;
+    }
+    setSelectedIds(m);
+  }
+
+  async function bulkDeleteSelected() {
+    const ids = products.filter((p) => selectedIds[p.id]).map((p) => p.id);
+    if (ids.length === 0) return;
+    setDeleteLoading(true);
+    try {
+      for (const id of ids) {
+        await deleteProduct(id);
+      }
+      toast({
+        title: "Products removed",
+        description: `${ids.length} product(s) deleted.`,
+        className: "bg-green-50 border-green-200 text-green-800",
+      });
+      setSelectedIds({});
+      await load();
+    } catch {
+      toast({ title: "Bulk delete failed", variant: "destructive" });
+    } finally {
+      setDeleteLoading(false);
     }
   }
 
@@ -302,10 +345,49 @@ export default function MyBusiness() {
             </Button>
           </div>
 
+          {selectedCount > 0 && (
+            <div className="flex items-center justify-between gap-3 rounded-xl border border-gray-200 bg-white p-3 shadow-sm">
+              <p className="text-sm text-gray-700">
+                <span className="font-semibold">{selectedCount}</span> selected
+              </p>
+              <div className="flex items-center gap-2">
+                <Button
+                  variant="outline"
+                  className="text-gray-700"
+                  onClick={() => setSelectedIds({})}
+                  disabled={deleteLoading}
+                >
+                  Clear
+                </Button>
+                <Button
+                  className="bg-red-600 hover:bg-red-700 text-white"
+                  onClick={bulkDeleteSelected}
+                  disabled={deleteLoading}
+                >
+                  {deleteLoading ? (
+                    <>
+                      <Loader2 className="h-4 w-4 animate-spin mr-2" />
+                      Deleting…
+                    </>
+                  ) : (
+                    "Bulk Delete"
+                  )}
+                </Button>
+              </div>
+            </div>
+          )}
+
           <Card className="bg-white border-gray-200 shadow-sm overflow-hidden">
             <Table>
               <TableHeader className="bg-gray-50">
                 <TableRow>
+                  <TableHead className="w-[44px]">
+                    <Checkbox
+                      checked={allOnPageSelected ? true : someOnPageSelected ? "indeterminate" : false}
+                      onCheckedChange={(v) => toggleSelectAllOnPage(v === true)}
+                      aria-label="Select all products on page"
+                    />
+                  </TableHead>
                   <TableHead className="w-[300px]">Product Name</TableHead>
                   <TableHead>Category</TableHead>
                   <TableHead>MRP</TableHead>
@@ -318,7 +400,7 @@ export default function MyBusiness() {
               <TableBody>
                 {loading && (
                   <TableRow>
-                    <TableCell colSpan={6} className="text-center text-gray-500">
+                    <TableCell colSpan={7} className="text-center text-gray-500">
                       Loading products…
                     </TableCell>
                   </TableRow>
@@ -326,7 +408,7 @@ export default function MyBusiness() {
 
                 {!loading && products.length === 0 && (
                   <TableRow>
-                    <TableCell colSpan={6} className="text-center text-gray-500">
+                    <TableCell colSpan={7} className="text-center text-gray-500">
                       No products found.
                     </TableCell>
                   </TableRow>
@@ -334,6 +416,15 @@ export default function MyBusiness() {
 
                 {products.map((product) => (
                   <TableRow key={product.id}>
+                    <TableCell>
+                      <Checkbox
+                        checked={selectedIds[product.id] === true}
+                        onCheckedChange={(v) =>
+                          setSelectedIds((prev) => ({ ...prev, [product.id]: v === true }))
+                        }
+                        aria-label={`Select ${product.name}`}
+                      />
+                    </TableCell>
                     <TableCell>
                       <div className="flex items-center gap-3">
                         <div className="h-10 w-10 rounded-lg bg-gray-100 flex items-center justify-center">
@@ -601,6 +692,8 @@ export default function MyBusiness() {
                     name={cat.name}
                     level={0}
                     categoryRootId={cat.id}
+                    refreshTick={catalogMoveTick}
+                    onProductMoved={() => setCatalogMoveTick((x) => x + 1)}
                   />
                 ))}
 
@@ -751,6 +844,8 @@ function TreeNode({
   parentId,
   categoryRootId,
   onRefreshParent,
+  refreshTick,
+  onProductMoved,
 }: {
   id: string;
   name: string;
@@ -758,8 +853,11 @@ function TreeNode({
   parentId?: string;
   categoryRootId?: string;
   onRefreshParent?: () => Promise<void>;
+  refreshTick?: number;
+  onProductMoved?: () => void;
 }) {
   const [, setLocation] = useLocation();
+  const { toast } = useToast();
 
   const [open, setOpen] = useState(false);
 
@@ -775,6 +873,15 @@ function TreeNode({
   const [menuOpen, setMenuOpen] = useState(false);
   const [newBesideName, setNewBesideName] = useState("");
   const [addingBeside, setAddingBeside] = useState(false);
+
+  const [renameOpen, setRenameOpen] = useState(false);
+  const [renameDraft, setRenameDraft] = useState(name);
+  const [renameSaving, setRenameSaving] = useState(false);
+
+  const [deleteOpen, setDeleteOpen] = useState(false);
+  const [deleteSaving, setDeleteSaving] = useState(false);
+
+  const [dragOver, setDragOver] = useState(false);
 
   async function loadChildren() {
     try {
@@ -803,6 +910,39 @@ function TreeNode({
       setProducts([]);
     } finally {
       setProductsLoading(false);
+    }
+  }
+
+  useEffect(() => {
+    if (!open) return;
+    // When a product is moved, refresh all currently open nodes so it disappears from the source immediately.
+    loadProducts();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [refreshTick]);
+
+  async function handleDropProduct(productId: string) {
+    try {
+      const patch: any = {};
+      if (level === 0) {
+        patch.categoryId = id;
+        patch.subcategoryId = null;
+      } else {
+        patch.categoryId = categoryRootId!;
+        patch.subcategoryId = id;
+      }
+      await patchProductQuick(productId, patch);
+      toast({
+        title: "Product moved",
+        className: "bg-green-50 border-green-200 text-green-800",
+      });
+      await loadProducts();
+      onProductMoved?.();
+    } catch (e: any) {
+      toast({
+        title: "Could not move product",
+        description: e?.response?.data?.message || e?.message || "Try again",
+        variant: "destructive",
+      });
     }
   }
 
@@ -890,7 +1030,21 @@ function TreeNode({
   return (
     <div className="rounded-xl border bg-white overflow-hidden">
       {/* HEADER */}
-      <div className="flex items-center justify-between px-4 py-3 hover:bg-gray-50">
+      <div
+        className={`flex items-center justify-between px-4 py-3 hover:bg-gray-50 ${dragOver ? "bg-orange-50" : ""}`}
+        onDragOver={(e) => {
+          e.preventDefault();
+          setDragOver(true);
+        }}
+        onDragLeave={() => setDragOver(false)}
+        onDrop={(e) => {
+          e.preventDefault();
+          setDragOver(false);
+          const pid = e.dataTransfer.getData("text/plain");
+          if (pid) handleDropProduct(pid);
+        }}
+        title="Drop product here to move"
+      >
         <div
           className="flex items-center gap-2 cursor-pointer flex-1"
           onClick={() => toggleNode()}
@@ -900,6 +1054,31 @@ function TreeNode({
         </div>
 
         <div className="flex items-center gap-2">
+          <Button
+            size="sm"
+            variant="ghost"
+            className="h-8 px-2 text-gray-600 hover:text-gray-900"
+            title="Rename"
+            onClick={(e) => {
+              e.stopPropagation();
+              setRenameDraft(name);
+              setRenameOpen(true);
+            }}
+          >
+            ✏️
+          </Button>
+          <Button
+            size="sm"
+            variant="ghost"
+            className="h-8 px-2 text-gray-600 hover:text-red-600"
+            title="Delete"
+            onClick={(e) => {
+              e.stopPropagation();
+              setDeleteOpen(true);
+            }}
+          >
+            🗑️
+          </Button>
           <Button
             size="sm"
             variant="outline"
@@ -957,8 +1136,18 @@ function TreeNode({
                   <div
                     key={p.id}
                     className="flex justify-between text-sm bg-white border rounded px-3 py-2"
+                    draggable
+                    onDragStart={(e) => {
+                      e.dataTransfer.setData("text/plain", String(p.id));
+                      e.dataTransfer.effectAllowed = "move";
+                    }}
                   >
-                    <span className="font-medium">{p.name}</span>
+                    <span className="font-medium flex items-center gap-2">
+                      <span className="text-gray-400 cursor-grab select-none" title="Drag to move">
+                        ⋮⋮
+                      </span>
+                      {p.name}
+                    </span>
                     <span className="text-xs text-gray-500">
                       Stock: {p.stock ?? 0}
                     </span>
@@ -984,6 +1173,8 @@ function TreeNode({
                   level={level + 1}
                   parentId={id}
                   categoryRootId={level === 0 ? id : categoryRootId}
+                  refreshTick={refreshTick}
+                  onProductMoved={onProductMoved}
                   onRefreshParent={async () => {
                     // ✅ refresh THIS node's children
                     await loadChildren();
@@ -1056,6 +1247,100 @@ function TreeNode({
           )}
         </div>
       )}
+
+      <Dialog open={renameOpen} onOpenChange={setRenameOpen}>
+        <DialogContent className="sm:max-w-md bg-white border-gray-200 rounded-xl">
+          <DialogHeader>
+            <DialogTitle>Rename</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-2">
+            <Input value={renameDraft} onChange={(e) => setRenameDraft(e.target.value)} />
+            <p className="text-xs text-gray-500">This updates what retailers see in the catalog.</p>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setRenameOpen(false)} disabled={renameSaving}>
+              Cancel
+            </Button>
+            <Button
+              className="bg-primary hover:bg-primary/90 text-white"
+              disabled={renameSaving || !renameDraft.trim()}
+              onClick={async () => {
+                try {
+                  setRenameSaving(true);
+                  if (level === 0) {
+                    await renameCategory(id, renameDraft.trim());
+                  } else {
+                    await renameSubcategory(id, renameDraft.trim());
+                  }
+                  toast({
+                    title: "Renamed",
+                    className: "bg-green-50 border-green-200 text-green-800",
+                  });
+                  setRenameOpen(false);
+                  // best-effort refresh: reload page categories list by reloading window
+                  window.location.reload();
+                } catch (e: any) {
+                  toast({
+                    title: "Rename failed",
+                    description: e?.response?.data?.message || e?.message || "Try again",
+                    variant: "destructive",
+                  });
+                } finally {
+                  setRenameSaving(false);
+                }
+              }}
+            >
+              {renameSaving ? "Saving…" : "Save"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={deleteOpen} onOpenChange={setDeleteOpen}>
+        <DialogContent className="sm:max-w-md bg-white border-gray-200 rounded-xl">
+          <DialogHeader>
+            <DialogTitle>Delete?</DialogTitle>
+          </DialogHeader>
+          <p className="text-sm text-gray-600">
+            This can be deleted only if it has no products (and no children).
+          </p>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setDeleteOpen(false)} disabled={deleteSaving}>
+              Cancel
+            </Button>
+            <Button
+              className="bg-red-600 hover:bg-red-700 text-white"
+              disabled={deleteSaving}
+              onClick={async () => {
+                try {
+                  setDeleteSaving(true);
+                  if (level === 0) {
+                    await deleteCategory(id);
+                  } else {
+                    await deleteSubcategory(id);
+                  }
+                  toast({
+                    title: "Deleted",
+                    className: "bg-green-50 border-green-200 text-green-800",
+                  });
+                  setDeleteOpen(false);
+                  window.location.reload();
+                } catch (e: any) {
+                  toast({
+                    title: "Delete failed",
+                    description: e?.response?.data?.message || e?.message || "Try again",
+                    variant: "destructive",
+                  });
+                } finally {
+                  setDeleteSaving(false);
+                }
+              }}
+            >
+              {deleteSaving ? "Deleting…" : "Delete"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

@@ -161,6 +161,13 @@ public class OrderService {
 
             int qty = ci.getQuantity();
 
+            // Stock in Diya is treated as BASE units for invoice/Tally consistency.
+            // Order qty is in selling units, so convert using unitsPerSelling (default 1).
+            int unitsPerSelling = (p.getUnitsPerSelling() != null && p.getUnitsPerSelling() > 0)
+                    ? p.getUnitsPerSelling()
+                    : 1;
+            int qtyBase = Math.max(0, qty * unitsPerSelling);
+
             int stock = p.getStock() == null ? 0 : p.getStock();
             int reserved = p.getReservedStock() == null ? 0 : p.getReservedStock();
             int available = Math.max(0, stock - reserved);
@@ -187,9 +194,9 @@ public class OrderService {
 
             orderItemRepository.save(oi);
 
-            // reserve stock (partial reservation allowed)
-            int reserveQty = Math.min(qty, available);
-            p.setReservedStock(reserved + reserveQty);
+            // reserve stock (partial reservation allowed) — in BASE units
+            int reserveQtyBase = Math.min(qtyBase, available);
+            p.setReservedStock(reserved + reserveQtyBase);
             productRepository.save(p);
         }
 
@@ -438,6 +445,13 @@ public class OrderService {
 
             int qty = item.getQuantity();
 
+            // Stock in Diya is treated as BASE units for invoice/Tally consistency.
+            // Order qty is in selling units, so convert using unitsPerSelling (default 1).
+            int unitsPerSelling = (p.getUnitsPerSelling() != null && p.getUnitsPerSelling() > 0)
+                    ? p.getUnitsPerSelling()
+                    : 1;
+            int qtyBase = Math.max(0, qty * unitsPerSelling);
+
             int stock = p.getStock() == null ? 0 : p.getStock();
             int reserved = p.getReservedStock() == null ? 0 : p.getReservedStock();
             int available = Math.max(0, stock - reserved);
@@ -462,8 +476,8 @@ public class OrderService {
 
             orderItemRepository.save(oi);
 
-            int reserveQty = Math.min(qty, available);
-            p.setReservedStock(reserved + reserveQty);
+            int reserveQtyBase = Math.min(qtyBase, available);
+            p.setReservedStock(reserved + reserveQtyBase);
             productRepository.save(p);
         }
 
@@ -574,8 +588,13 @@ public class OrderService {
                 int qty = item.getQty();
 
                 if (p != null) {
+                    int unitsPerSelling = (p.getUnitsPerSelling() != null && p.getUnitsPerSelling() > 0)
+                            ? p.getUnitsPerSelling()
+                            : 1;
+                    int qtyBase = Math.max(0, qty * unitsPerSelling);
+
                     int reserved = p.getReservedStock() == null ? 0 : p.getReservedStock();
-                    p.setReservedStock(Math.max(0, reserved - qty));
+                    p.setReservedStock(Math.max(0, reserved - qtyBase));
                     productRepository.save(p);
                 }
             }
@@ -865,18 +884,27 @@ public class OrderService {
                 Product p = item.getProduct();
                 int qty = item.getQty();
 
+                if (p == null) {
+                    throw new RuntimeException("Product missing for item: " + item.getProductNameSnapshot());
+                }
+
+                int unitsPerSelling = (p.getUnitsPerSelling() != null && p.getUnitsPerSelling() > 0)
+                        ? p.getUnitsPerSelling()
+                        : 1;
+                int qtyBase = Math.max(0, qty * unitsPerSelling);
+
                 int reserved = p.getReservedStock() == null ? 0 : p.getReservedStock();
                 int stock = p.getStock() == null ? 0 : p.getStock();
 
-                if (reserved < qty) {
+                if (reserved < qtyBase) {
                     throw new RuntimeException("Reserved stock mismatch for: " + p.getName());
                 }
-                if (stock < qty) {
+                if (stock < qtyBase) {
                     throw new RuntimeException("Stock insufficient at acceptance for: " + p.getName());
                 }
 
-                p.setReservedStock(reserved - qty);
-                p.setStock(stock - qty);
+                p.setReservedStock(reserved - qtyBase);
+                p.setStock(stock - qtyBase);
                 productRepository.save(p);
             }
 
@@ -888,9 +916,15 @@ public class OrderService {
             for (OrderItem item : order.getOrderItems()) {
                 Product p = item.getProduct();
                 int qty = item.getQty();
+                if (p == null) continue;
+
+                int unitsPerSelling = (p.getUnitsPerSelling() != null && p.getUnitsPerSelling() > 0)
+                        ? p.getUnitsPerSelling()
+                        : 1;
+                int qtyBase = Math.max(0, qty * unitsPerSelling);
 
                 int reserved = p.getReservedStock() == null ? 0 : p.getReservedStock();
-                p.setReservedStock(Math.max(0, reserved - qty));
+                p.setReservedStock(Math.max(0, reserved - qtyBase));
 
                 productRepository.save(p);
             }
@@ -958,26 +992,31 @@ public class OrderService {
                     continue;
                 }
 
+                int unitsPerSelling = (p.getUnitsPerSelling() != null && p.getUnitsPerSelling() > 0)
+                        ? p.getUnitsPerSelling()
+                        : 1;
+                int orderedQtyBase = Math.max(0, orderedQty * unitsPerSelling);
+
                 int stock = p.getStock() == null ? 0 : Math.max(0, p.getStock());
                 int reserved = p.getReservedStock() == null ? 0 : Math.max(0, p.getReservedStock());
                 int available = Math.max(0, stock - reserved);
 
-                if (!force && orderedQty > available) {
+                if (!force && orderedQtyBase > available) {
                     throw new RuntimeException("Insufficient stock for: " + p.getName()
-                            + " (ordered " + orderedQty + ", available " + available + ")");
+                            + " (ordered base units " + orderedQtyBase + ", available " + available + ")");
                 }
 
                 // Deduct what we can fulfill now
-                int fulfillQty = force ? Math.min(orderedQty, stock) : Math.min(orderedQty, available);
+                int fulfillQtyBase = force ? Math.min(orderedQtyBase, stock) : Math.min(orderedQtyBase, available);
 
-                if (fulfillQty < orderedQty) {
+                if (fulfillQtyBase < orderedQtyBase) {
                     warnings.add("Shortage for " + p.getName()
-                            + ": ordered " + orderedQty + ", fulfilled " + fulfillQty + ", available " + available);
+                            + ": ordered base units " + orderedQtyBase + ", fulfilled " + fulfillQtyBase + ", available " + available);
                 }
 
                 // Apply stock changes (never go negative)
-                int newStock = Math.max(0, stock - fulfillQty);
-                int reservedDecrease = Math.min(reserved, fulfillQty);
+                int newStock = Math.max(0, stock - fulfillQtyBase);
+                int reservedDecrease = Math.min(reserved, fulfillQtyBase);
                 int newReserved = Math.max(0, reserved - reservedDecrease);
 
                 p.setStock(newStock);

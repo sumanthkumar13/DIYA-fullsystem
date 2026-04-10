@@ -99,7 +99,7 @@ export async function saveProductRetailerVisibility(
 
 export async function patchProductQuick(
   productId: string,
-  patch: { mrp?: number; stock?: number }
+  patch: { mrp?: number; stock?: number; categoryId?: string; subcategoryId?: string | null }
 ) {
   const res = await api.put(`/wholesaler/products/${productId}`, patch);
   return res.data;

@@ -9,6 +9,8 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
+import org.springframework.http.HttpStatus;
+import org.springframework.web.server.ResponseStatusException;
 
 import java.math.BigDecimal;
 import java.util.*;
@@ -231,11 +233,19 @@ public class ProductService {
             if (!cat.getWholesaler().getId().equals(wholesaler.getId()))
                 throw new RuntimeException("Category mismatch");
             p.setCategory(cat);
+            // If category is explicitly changed and no subcategory is provided, treat it as "move to category root"
+            if (req.getSubcategoryId() == null) {
+                p.setSubcategory(null);
+            }
         }
 
         if (req.getSubcategoryId() != null) {
             SubCategory sub = subCategoryRepository.findById(req.getSubcategoryId())
                     .orElseThrow(() -> new RuntimeException("Subcategory not found"));
+            // Ensure subcategory belongs to the product category after any updates
+            if (p.getCategory() != null && sub.getCategory() != null && !sub.getCategory().getId().equals(p.getCategory().getId())) {
+                throw new RuntimeException("Subcategory not under provided category");
+            }
             p.setSubcategory(sub);
         }
 
@@ -307,7 +317,8 @@ public class ProductService {
             productsPage = productRepository.findByWholesalerIdAndSubcategoryIdAndDeletedFalse(
                     wholesaler.getId(), subcategoryId, pageable);
         } else if (categoryId != null) {
-            productsPage = productRepository.findByWholesalerIdAndCategoryIdAndDeletedFalse(
+            // ✅ Category view should NOT include subcategory products (prevents hierarchy duplication)
+            productsPage = productRepository.findByWholesalerIdAndCategoryIdAndSubcategoryIsNullAndDeletedFalse(
                     wholesaler.getId(), categoryId, pageable);
         } else if (search != null && !search.isBlank()) {
             productsPage = productRepository.searchByWholesalerDeletedFalse(
@@ -532,10 +543,16 @@ public class ProductService {
     private Wholesaler resolveWholesaler(String identifier, String authType) {
         if ("EMAIL".equalsIgnoreCase(authType)) {
             return wholesalerRepository.findByUserEmail(identifier)
-                    .orElseThrow(() -> new RuntimeException("Wholesaler not found"));
+                    .orElseThrow(() -> new ResponseStatusException(
+                            HttpStatus.NOT_FOUND,
+                            "Wholesaler profile not found for this account. If you recently restarted the backend with schema reset, please re-register."
+                    ));
         } else {
             return wholesalerRepository.findByUserPhone(identifier)
-                    .orElseThrow(() -> new RuntimeException("Wholesaler not found"));
+                    .orElseThrow(() -> new ResponseStatusException(
+                            HttpStatus.NOT_FOUND,
+                            "Wholesaler profile not found for this phone. If you recently restarted the backend with schema reset, please re-register."
+                    ));
         }
     }
 

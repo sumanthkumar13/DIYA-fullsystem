@@ -311,9 +311,12 @@ class _SignupScreenState extends ConsumerState<SignupScreen> {
                                 ),
                                 const SizedBox(height: 14),
                                 DiyaInput(
-                                  label: "State (optional)",
+                                  label: "State",
                                   hintText: "Maharashtra",
                                   controller: _state,
+                                  validator: (v) => (v == null || v.trim().isEmpty)
+                                      ? "Enter state"
+                                      : null,
                                 ),
 
                                 const SizedBox(height: 22),

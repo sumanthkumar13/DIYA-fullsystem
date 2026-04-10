@@ -100,6 +100,11 @@ public class AuthService {
         RegionCatalog.requireValidRegion(region);
         region = region.trim();
 
+        if (req.getState() == null || req.getState().trim().isEmpty()) {
+            throw new RuntimeException("State is required");
+        }
+        String state = req.getState().trim();
+
         BusinessTypeCatalog.requireValidBusinessType(req.getBusinessType());
         String businessType = req.getBusinessType().trim();
 
@@ -153,9 +158,9 @@ public class AuthService {
                 .businessName(req.getBusinessName())
                 .businessType(businessType)
                 .gstin(req.getGstin())
-                .city(region)
+                .city(req.getCity() != null ? req.getCity() : "")
                 .region(region)
-                .state("Not Provided")
+                .state(state)
                 .pincode(req.getPincode())
                 .address(req.getFullAddress())
                 .categories(categories)
@@ -208,6 +213,11 @@ public class AuthService {
         RegionCatalog.requireValidRegion(region);
         region = region.trim();
 
+        if (req.getState() == null || req.getState().trim().isEmpty()) {
+            throw new RuntimeException("State is required");
+        }
+        String state = req.getState().trim();
+
         if (req.getEmail() != null && !req.getEmail().isEmpty()) {
             userRepository.findByEmail(req.getEmail()).ifPresent(u -> {
                 throw new RuntimeException("Email already registered");
@@ -233,7 +243,7 @@ public class AuthService {
                 .address(req.getAddress())
                 .city(req.getCity())
                 .region(region)
-                .state(req.getState() != null ? req.getState() : "Not Provided")
+                .state(state)
                 .phoneContact(req.getPhone())
                 .password(user.getPassword())
                 .isActive(true)

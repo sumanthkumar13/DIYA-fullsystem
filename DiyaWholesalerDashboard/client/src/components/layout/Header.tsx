@@ -19,7 +19,7 @@ interface HeaderProps {
 }
 
 export function Header({ isSidebarCollapsed, onToggleSidebar }: HeaderProps) {
-  const { user } = useAuth();
+  const { user, logout } = useAuth();
   const displayName = getUserDisplayName(user);
   const initials = getInitials(displayName || "User");
 
@@ -57,7 +57,15 @@ export function Header({ isSidebarCollapsed, onToggleSidebar }: HeaderProps) {
             <DropdownMenuItem>Profile</DropdownMenuItem>
             <DropdownMenuItem>Settings</DropdownMenuItem>
             <DropdownMenuSeparator />
-            <DropdownMenuItem className="text-red-600">Log out</DropdownMenuItem>
+            <DropdownMenuItem
+              className="text-red-600"
+              onSelect={() => {
+                logout();
+                window.location.href = "/landing";
+              }}
+            >
+              Log out
+            </DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>
       </div>

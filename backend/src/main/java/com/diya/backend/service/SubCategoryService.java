@@ -1,14 +1,17 @@
 package com.diya.backend.service;
 
 import com.diya.backend.dto.category.SubCategoryCreateRequest;
+import com.diya.backend.dto.category.SubCategoryUpdateRequest;
 import com.diya.backend.entity.Category;
 import com.diya.backend.entity.SubCategory;
 import com.diya.backend.entity.Wholesaler;
 import com.diya.backend.repository.CategoryRepository;
+import com.diya.backend.repository.ProductRepository;
 import com.diya.backend.repository.SubCategoryRepository;
 import com.diya.backend.repository.WholesalerRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
 import java.util.Optional;
@@ -21,6 +24,7 @@ public class SubCategoryService {
     private final SubCategoryRepository subCategoryRepository;
     private final CategoryRepository categoryRepository;
     private final WholesalerRepository wholesalerRepository;
+    private final ProductRepository productRepository;
 
     public SubCategory createSubCategory(String identifier, String authType, SubCategoryCreateRequest req) {
 
@@ -112,5 +116,65 @@ public class SubCategoryService {
 
     public List<SubCategory> getByParent(UUID parentId) {
         return subCategoryRepository.findByParentSubCategoryId(parentId);
+    }
+
+    public SubCategory updateSubCategoryName(String identifier, String authType, UUID subcategoryId, SubCategoryUpdateRequest req) {
+        Wholesaler wholesaler = getWholesaler(identifier, authType);
+        if (req == null || req.getName() == null || req.getName().trim().isEmpty()) {
+            throw new RuntimeException("Subcategory name is required");
+        }
+        String name = req.getName().trim();
+        SubCategory sub = subCategoryRepository.findById(subcategoryId)
+                .orElseThrow(() -> new RuntimeException("Subcategory not found"));
+        if (sub.getCategory() == null || sub.getCategory().getWholesaler() == null
+                || !sub.getCategory().getWholesaler().getId().equals(wholesaler.getId())) {
+            throw new RuntimeException("Access denied");
+        }
+
+        // Duplicate check within same parent scope (same logic as create)
+        if (sub.getParentSubCategory() == null) {
+            subCategoryRepository
+                    .findByCategoryIdAndParentSubCategoryIsNullAndNameIgnoreCase(sub.getCategory().getId(), name)
+                    .ifPresent(existing -> {
+                        if (!existing.getId().equals(sub.getId())) throw new RuntimeException("Subcategory already exists");
+                    });
+        } else {
+            subCategoryRepository
+                    .findByParentSubCategoryIdAndNameIgnoreCase(sub.getParentSubCategory().getId(), name)
+                    .ifPresent(existing -> {
+                        if (!existing.getId().equals(sub.getId())) throw new RuntimeException("Subcategory already exists");
+                    });
+        }
+
+        sub.setName(name);
+        return subCategoryRepository.save(sub);
+    }
+
+    public void deleteSubCategory(String identifier, String authType, UUID subcategoryId) {
+        Wholesaler wholesaler = getWholesaler(identifier, authType);
+        SubCategory sub = subCategoryRepository.findById(subcategoryId)
+                .orElseThrow(() -> new RuntimeException("Subcategory not found"));
+        if (sub.getCategory() == null || sub.getCategory().getWholesaler() == null
+                || !sub.getCategory().getWholesaler().getId().equals(wholesaler.getId())) {
+            throw new RuntimeException("Access denied");
+        }
+        if (!subCategoryRepository.findByParentSubCategoryId(sub.getId()).isEmpty()) {
+            throw new RuntimeException("Cannot delete subcategory with children");
+        }
+        deleteSubCategoryInternal(wholesaler, sub);
+    }
+
+    @Transactional
+    protected void deleteSubCategoryInternal(Wholesaler wholesaler, SubCategory sub) {
+        long totalRefs = productRepository.countByWholesalerIdAndSubcategoryId(wholesaler.getId(), sub.getId());
+        if (totalRefs > 0) {
+            long activeRefs = productRepository.countByWholesalerIdAndSubcategoryIdAndDeletedFalse(wholesaler.getId(), sub.getId());
+            if (activeRefs > 0) {
+                throw new RuntimeException("Cannot delete subcategory with products");
+            }
+            // Only deleted products reference it -> detach those refs so FK allows deletion.
+            productRepository.detachDeletedProductsFromSubcategory(wholesaler.getId(), sub.getId());
+        }
+        subCategoryRepository.delete(sub);
     }
 }

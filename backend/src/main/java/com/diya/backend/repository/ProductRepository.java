@@ -4,6 +4,7 @@ import com.diya.backend.entity.Product;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
@@ -70,6 +71,27 @@ public interface ProductRepository extends JpaRepository<Product, UUID> {
 
         Page<Product> findByWholesalerIdAndCategoryIdAndDeletedFalse(UUID wholesalerId, UUID categoryId,
                         Pageable pageable);
+
+        Page<Product> findByWholesalerIdAndCategoryIdAndSubcategoryIsNullAndDeletedFalse(
+                        UUID wholesalerId, UUID categoryId, Pageable pageable);
+
+        boolean existsByWholesalerIdAndCategoryIdAndDeletedFalse(UUID wholesalerId, UUID categoryId);
+
+        boolean existsByWholesalerIdAndSubcategoryIdAndDeletedFalse(UUID wholesalerId, UUID subcategoryId);
+
+        /** Used for safe deletion of subcategory/category (FK exists regardless of deleted flag). */
+        boolean existsByWholesalerIdAndSubcategoryId(UUID wholesalerId, UUID subcategoryId);
+
+        long countByWholesalerIdAndSubcategoryId(UUID wholesalerId, UUID subcategoryId);
+
+        long countByWholesalerIdAndSubcategoryIdAndDeletedFalse(UUID wholesalerId, UUID subcategoryId);
+
+        @Modifying
+        @Query("""
+                        UPDATE Product p SET p.subcategory = null
+                        WHERE p.wholesaler.id = :wid AND p.subcategory.id = :sid AND p.deleted = true
+                        """)
+        int detachDeletedProductsFromSubcategory(@Param("wid") UUID wholesalerId, @Param("sid") UUID subcategoryId);
 
         @Query("""
                         SELECT p FROM Product p WHERE p.wholesaler.id = :wid AND p.deleted = false

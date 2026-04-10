@@ -2,6 +2,7 @@ package com.diya.backend.service;
 
 import com.diya.backend.dto.category.CategoryCreateRequest;
 import com.diya.backend.dto.category.CategoryTreeDTO;
+import com.diya.backend.dto.category.CategoryUpdateRequest;
 import com.diya.backend.dto.product.ProductResponseDTO;
 import com.diya.backend.entity.Category;
 import com.diya.backend.entity.Product;
@@ -14,6 +15,7 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 
 import java.util.List;
+import java.util.UUID;
 
 @Service
 @RequiredArgsConstructor
@@ -96,6 +98,40 @@ public class CategoryService {
                     .build();
 
         }).toList();
+    }
+
+    public Category updateCategoryName(String identifier, String authType, UUID categoryId, CategoryUpdateRequest req) {
+        Wholesaler wholesaler = getWholesaler(identifier, authType);
+        if (req == null || req.getName() == null || req.getName().trim().isEmpty()) {
+            throw new RuntimeException("Category name is required");
+        }
+        String name = req.getName().trim();
+        Category category = categoryRepository.findByIdAndWholesalerId(categoryId, wholesaler.getId())
+                .orElseThrow(() -> new RuntimeException("Category not found"));
+        categoryRepository.findByWholesalerIdAndName(wholesaler.getId(), name)
+                .ifPresent(c -> {
+                    if (!c.getId().equals(category.getId())) {
+                        throw new RuntimeException("Category already exists");
+                    }
+                });
+        category.setName(name);
+        return categoryRepository.save(category);
+    }
+
+    public void deleteCategory(String identifier, String authType, UUID categoryId) {
+        Wholesaler wholesaler = getWholesaler(identifier, authType);
+        Category category = categoryRepository.findByIdAndWholesalerId(categoryId, wholesaler.getId())
+                .orElseThrow(() -> new RuntimeException("Category not found"));
+
+        boolean hasProducts = productRepository.existsByWholesalerIdAndCategoryIdAndDeletedFalse(wholesaler.getId(), categoryId);
+        if (hasProducts) {
+            throw new RuntimeException("Cannot delete category with products");
+        }
+        if (!subCategoryRepository.findByCategoryId(categoryId).isEmpty()) {
+            throw new RuntimeException("Cannot delete category with subcategories");
+        }
+
+        categoryRepository.delete(category);
     }
 
     private ProductResponseDTO toDto(Product p) {

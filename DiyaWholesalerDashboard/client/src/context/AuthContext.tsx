@@ -10,6 +10,7 @@ type AuthContextValue = {
   user: AuthUser;
   authLoaded: boolean;
   setUser: (user: AuthUser) => void;
+  logout: () => void;
 };
 
 const AuthContext = createContext<AuthContextValue | undefined>(undefined);
@@ -51,7 +52,17 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
   }, []);
 
   return (
-    <AuthContext.Provider value={{ user, authLoaded, setUser }}>
+    <AuthContext.Provider
+      value={{
+        user,
+        authLoaded,
+        setUser,
+        logout: () => {
+          localStorage.removeItem("token");
+          setUser(null);
+        },
+      }}
+    >
       {children}
     </AuthContext.Provider>
   );

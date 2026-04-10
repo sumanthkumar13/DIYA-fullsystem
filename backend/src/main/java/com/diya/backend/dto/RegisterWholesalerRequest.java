@@ -33,6 +33,8 @@ public class RegisterWholesalerRequest {
     /** @deprecated Kept for backward-compatible JSON (ignored for region). */
     @Deprecated
     private String city;
+    /** Required for GST (intrastate/interstate). */
+    private String state;
     private String fullAddress;
 
     /**

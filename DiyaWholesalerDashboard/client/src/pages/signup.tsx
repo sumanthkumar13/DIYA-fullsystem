@@ -1,5 +1,5 @@
 import api from "@/lib/axios";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Link, useLocation } from "wouter";
 import {
   ArrowLeft,
@@ -7,6 +7,8 @@ import {
   QrCode,
   Upload,
   Loader2,
+  Eye,
+  EyeOff,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -36,12 +38,18 @@ export default function SignupFlow() {
   const [mobile, setMobile] = useState("");
   const [otp, setOtp] = useState("");
   const [password, setPassword] = useState("");
+  const [otpSent, setOtpSent] = useState(false);
+  const [sendOtpLoading, setSendOtpLoading] = useState(false);
+  const [resendSeconds, setResendSeconds] = useState(0);
+  const [showPassword, setShowPassword] = useState(false);
+  const [agreedLegal, setAgreedLegal] = useState(false);
 
   // Step 3: Business Details
   const [businessName, setBusinessName] = useState("");
   const [gstin, setGstin] = useState("");
   const [pincode, setPincode] = useState("");
   const [region, setRegion] = useState("");
+  const [state, setState] = useState("");
   const [fullAddress, setFullAddress] = useState("");
 
   // Step 4: Payment Setup
@@ -69,6 +77,8 @@ export default function SignupFlow() {
     }
 
     try {
+      if (sendOtpLoading || resendSeconds > 0) return;
+      setSendOtpLoading(true);
       // const res = await fetch("http://localhost:8081/api/auth/send-otp", {
       //   method: "POST",
       //   headers: { "Content-Type": "application/json" },
@@ -83,6 +93,8 @@ export default function SignupFlow() {
 
         const data = res.data;
         if (data?.otp) setOtp(data.otp);
+        setOtpSent(true);
+        setResendSeconds(30);
 
       toast({
         title: "OTP Sent",
@@ -94,6 +106,8 @@ export default function SignupFlow() {
         description: "Please try again.",
         variant: "destructive"
       });
+    } finally {
+      setSendOtpLoading(false);
     }
   };
 
@@ -135,6 +149,15 @@ const data = res.data;
     }
   };
 
+  // Resend countdown
+  useEffect(() => {
+    if (resendSeconds <= 0) return;
+    const id = window.setInterval(() => {
+      setResendSeconds((s) => (s > 0 ? s - 1 : 0));
+    }, 1000);
+    return () => window.clearInterval(id);
+  }, [resendSeconds]);
+
   const submitRegistration = async () => {
     if (!region) {
       toast({
@@ -162,6 +185,7 @@ const data = res.data;
       gstin,
       pincode,
       region,
+      state,
       fullAddress,
       upiId,
       qrCodeUrl
@@ -225,23 +249,100 @@ const data = res.data;
                     <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500 font-medium border-r border-gray-200 pr-2 text-sm">+91</span>
                     <Input value={mobile} onChange={(e) => setMobile(e.target.value)} type="tel" placeholder="98765 43210" className="pl-14 h-11" />
                   </div>
-                  <Button variant="outline" onClick={sendOtp} className="h-11 whitespace-nowrap">Send OTP</Button>
+                  <Button
+                    variant="outline"
+                    onClick={sendOtp}
+                    className="h-11 whitespace-nowrap"
+                    disabled={sendOtpLoading || resendSeconds > 0}
+                  >
+                    {sendOtpLoading ? (
+                      <>
+                        <Loader2 className="h-4 w-4 animate-spin mr-2" />
+                        Sending…
+                      </>
+                    ) : resendSeconds > 0 ? (
+                      `Resend in 00:${String(resendSeconds).padStart(2, "0")}`
+                    ) : (
+                      "Send OTP"
+                    )}
+                  </Button>
                 </div>
               </div>
               <div className="space-y-2">
                 <label className="text-sm font-medium text-gray-700">Enter OTP</label>
-                <Input value={otp} onChange={(e) => setOtp(e.target.value)} placeholder="• • • • • •" className="h-11 text-center text-lg tracking-widest" maxLength={6} />
+                <Input
+                  value={otp}
+                  onChange={(e) => setOtp(e.target.value)}
+                  placeholder={otpSent ? "• • • • • •" : "Send OTP to continue"}
+                  className={`h-11 text-center text-lg tracking-widest ${!otpSent ? "opacity-60" : ""}`}
+                  maxLength={6}
+                  disabled={!otpSent}
+                />
               </div>
               <div className="space-y-2">
                 <label className="text-sm font-medium text-gray-700">Set Password</label>
-                <Input value={password} onChange={(e) => setPassword(e.target.value)} type="password" placeholder="Create a strong password" className="h-11" />
+                <div className="relative">
+                  <Input
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
+                    type={showPassword ? "text" : "password"}
+                    placeholder={otpSent ? "Create a strong password" : "Send OTP to continue"}
+                    className={`h-11 pr-10 ${!otpSent ? "opacity-60" : ""}`}
+                    disabled={!otpSent}
+                  />
+                  <button
+                    type="button"
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-500 hover:text-gray-700"
+                    onClick={() => setShowPassword((v) => !v)}
+                    aria-label={showPassword ? "Hide password" : "Show password"}
+                    disabled={!otpSent}
+                  >
+                    {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                  </button>
+                </div>
               </div>
             </div>
+            <label className="flex items-start gap-2 text-sm text-gray-600">
+              <input
+                type="checkbox"
+                className="mt-1 h-4 w-4 rounded border-gray-300"
+                checked={agreedLegal}
+                onChange={(e) => setAgreedLegal(e.target.checked)}
+              />
+              <span>
+                I agree to Diya&apos;s{" "}
+                <a className="text-primary font-semibold hover:underline" href="/terms" target="_blank" rel="noreferrer">
+                  Terms of Service
+                </a>{" "}
+                and{" "}
+                <a className="text-primary font-semibold hover:underline" href="/privacy" target="_blank" rel="noreferrer">
+                  Privacy Policy
+                </a>
+                .
+              </span>
+            </label>
             <Button
               onClick={async () => {
+                if (!otpSent) {
+                  toast({
+                    title: "Send OTP first",
+                    description: "Please request OTP to continue.",
+                    variant: "destructive",
+                  });
+                  return;
+                }
+                if (!agreedLegal) {
+                  toast({
+                    title: "Agreement required",
+                    description: "Please accept Terms & Privacy Policy to continue.",
+                    variant: "destructive",
+                  });
+                  return;
+                }
                 const ok = await verifyOtp();
                 if (ok) nextStep();
               }}
+              disabled={!otpSent || !agreedLegal || otp.trim().length !== 6 || password.trim().length < 6}
               className="w-full h-12 text-base bg-primary hover:bg-primary/90 shadow-lg shadow-orange-200"
             >
               {isLoading ? <Loader2 className="animate-spin" /> : "Verify & Continue"}
@@ -320,13 +421,22 @@ const data = res.data;
                 </div>
               </div>
               <div className="space-y-2">
+                <label className="text-sm font-medium text-gray-700">State</label>
+                <Input
+                  value={state}
+                  onChange={(e) => setState(e.target.value)}
+                  placeholder="e.g. Telangana"
+                  className="h-11"
+                />
+              </div>
+              <div className="space-y-2">
                 <label className="text-sm font-medium text-gray-700">Full Address</label>
                 <Input value={fullAddress} onChange={(e) => setFullAddress(e.target.value)} placeholder="Shop No, Street, Area" className="h-11" />
               </div>
             </div>
             <Button
               onClick={nextStep}
-              disabled={!region}
+              disabled={!region || !state.trim()}
               className="w-full h-12 bg-primary hover:bg-primary/90"
             >
               Continue

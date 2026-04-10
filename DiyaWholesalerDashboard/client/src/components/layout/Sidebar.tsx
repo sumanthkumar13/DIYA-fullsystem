@@ -12,6 +12,7 @@ import {
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Link2 } from "lucide-react";
+import { useAuth } from "@/context/AuthContext";
 
 const navigation = [
   { name: "Dashboard", href: "/dashboard", icon: LayoutDashboard },
@@ -32,8 +33,10 @@ interface SidebarProps {
 export function Sidebar({ isCollapsed }: SidebarProps) {
   const location = window.location.pathname;
   const diyaLogo = "\uD83E\uDE94";
+  const { logout } = useAuth();
 
   const handleSignOut = () => {
+    logout();
     window.location.href = "/landing";
   };
 

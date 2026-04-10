@@ -318,6 +318,11 @@ export default function OrderDetail() {
   const canEditCredit =
     order.status !== "CANCELLED" && order.status !== "REJECTED";
 
+  const canEditOrder =
+    order.status !== "CANCELLED" &&
+    order.status !== "REJECTED" &&
+    order.status !== "COMPLETED";
+
   const isAcceptedOrLater =
     order.status !== "PLACED" &&
     order.status !== "REJECTED" &&
@@ -393,126 +398,6 @@ export default function OrderDetail() {
               >
                 Reject Order
               </Button>
-              <Dialog open={editOpen} onOpenChange={(open) => {
-                setEditOpen(open);
-                if (open) {
-                  // initialize draft from current items
-                  const next: Record<string, { qty: string; price: string }> = {};
-                  for (const it of orderItems) {
-                    const id = it.orderItemId;
-                    if (!id) continue;
-                    next[id] = {
-                      qty: String(it.orderedQty ?? 0),
-                      price: String(it.unitPriceSnapshot ?? 0),
-                    };
-                  }
-                  setEditDraft(next);
-                  setEditReason("");
-                }
-              }}>
-                <DialogTrigger asChild>
-                  <Button variant="outline" className="gap-2">
-                    <Edit2 className="h-4 w-4" /> Edit Order
-                  </Button>
-                </DialogTrigger>
-                <DialogContent className="sm:max-w-[720px]">
-                  <DialogHeader>
-                    <DialogTitle>Edit Order</DialogTitle>
-                    <DialogDescription>
-                      Update quantities/prices. A reason is mandatory. Changes apply immediately (no retailer approval).
-                    </DialogDescription>
-                  </DialogHeader>
-
-                  <div className="space-y-4">
-                    <div className="space-y-2">
-                      <label className="text-sm font-medium text-gray-700">Reason (required)</label>
-                      <textarea
-                        value={editReason}
-                        onChange={(e) => setEditReason(e.target.value)}
-                        placeholder="Why are you editing this order?"
-                        className="w-full min-h-[80px] rounded-md border border-gray-200 bg-white p-3 text-sm outline-none focus:ring-2 focus:ring-primary/30"
-                      />
-                    </div>
-
-                    <div className="border rounded-lg overflow-hidden">
-                      <div className="bg-gray-50 px-4 py-2 text-sm font-semibold text-gray-700">
-                        Items
-                      </div>
-                      <div className="divide-y">
-                        {orderItems.map((it: any) => {
-                          const id = it.orderItemId;
-                          const draft = id ? editDraft[id] : undefined;
-                          return (
-                            <div key={id ?? it.productNameSnapshot} className="p-4 grid grid-cols-12 gap-3 items-center">
-                              <div className="col-span-6">
-                                <div className="font-medium text-gray-900">{it.productNameSnapshot}</div>
-                                <div className="text-xs text-gray-500">{it.unitSnapshot || "pcs"}</div>
-                              </div>
-                              <div className="col-span-3">
-                                <label className="block text-xs text-gray-500 mb-1">Qty</label>
-                                <input
-                                  type="number"
-                                  min={1}
-                                  value={draft?.qty ?? ""}
-                                  onChange={(e) => {
-                                    if (!id) return;
-                                    setEditDraft((prev) => ({
-                                      ...prev,
-                                      [id]: { ...(prev[id] ?? { qty: "", price: "" }), qty: e.target.value },
-                                    }));
-                                  }}
-                                  className="w-full rounded-md border border-gray-200 bg-white px-2 py-1 text-sm"
-                                />
-                              </div>
-                              <div className="col-span-3">
-                                <label className="block text-xs text-gray-500 mb-1">Unit Price</label>
-                                <input
-                                  type="number"
-                                  min={0}
-                                  step="0.01"
-                                  value={draft?.price ?? ""}
-                                  onChange={(e) => {
-                                    if (!id) return;
-                                    setEditDraft((prev) => ({
-                                      ...prev,
-                                      [id]: { ...(prev[id] ?? { qty: "", price: "" }), price: e.target.value },
-                                    }));
-                                  }}
-                                  className="w-full rounded-md border border-gray-200 bg-white px-2 py-1 text-sm"
-                                />
-                              </div>
-                            </div>
-                          );
-                        })}
-                      </div>
-                    </div>
-                  </div>
-
-                  <DialogFooter>
-                    <Button variant="outline" onClick={() => setEditOpen(false)}>
-                      Cancel
-                    </Button>
-                    <Button
-                      className="bg-primary hover:bg-primary/90 text-white"
-                      disabled={editOrderMutation.isPending || editReason.trim().length === 0}
-                      onClick={() => {
-                        const payloadItems = Object.entries(editDraft)
-                          .map(([orderItemId, v]) => ({
-                            orderItemId,
-                            newQty: Number(v.qty),
-                            newUnitPrice: Number(v.price),
-                          }));
-                        editOrderMutation.mutate(
-                          { reason: editReason, items: payloadItems },
-                          { onSuccess: () => setEditOpen(false) }
-                        );
-                      }}
-                    >
-                      Save Changes
-                    </Button>
-                  </DialogFooter>
-                </DialogContent>
-              </Dialog>
               <Dialog open={acceptOpen} onOpenChange={(open) => {
                 setAcceptOpen(open);
               }}>
@@ -607,6 +492,129 @@ export default function OrderDetail() {
                 </DialogContent>
               </Dialog>
             </>
+          )}
+
+          {canEditOrder && (
+            <Dialog open={editOpen} onOpenChange={(open) => {
+              setEditOpen(open);
+              if (open) {
+                // initialize draft from current items
+                const next: Record<string, { qty: string; price: string }> = {};
+                for (const it of orderItems) {
+                  const id = it.orderItemId;
+                  if (!id) continue;
+                  next[id] = {
+                    qty: String(it.orderedQty ?? 0),
+                    price: String(it.unitPriceSnapshot ?? 0),
+                  };
+                }
+                setEditDraft(next);
+                setEditReason("");
+              }
+            }}>
+              <DialogTrigger asChild>
+                <Button variant="outline" className="gap-2">
+                  <Edit2 className="h-4 w-4" /> Edit Order
+                </Button>
+              </DialogTrigger>
+              <DialogContent className="sm:max-w-[720px]">
+                <DialogHeader>
+                  <DialogTitle>Edit Order</DialogTitle>
+                  <DialogDescription>
+                    Update quantities/prices. A reason is mandatory. Changes apply immediately (no retailer approval).
+                  </DialogDescription>
+                </DialogHeader>
+
+                <div className="space-y-4">
+                  <div className="space-y-2">
+                    <label className="text-sm font-medium text-gray-700">Reason (required)</label>
+                    <textarea
+                      value={editReason}
+                      onChange={(e) => setEditReason(e.target.value)}
+                      placeholder="Why are you editing this order?"
+                      className="w-full min-h-[80px] rounded-md border border-gray-200 bg-white p-3 text-sm outline-none focus:ring-2 focus:ring-primary/30"
+                    />
+                  </div>
+
+                  <div className="border rounded-lg overflow-hidden">
+                    <div className="bg-gray-50 px-4 py-2 text-sm font-semibold text-gray-700">
+                      Items
+                    </div>
+                    <div className="divide-y">
+                      {orderItems.map((it: any) => {
+                        const id = it.orderItemId;
+                        const draft = id ? editDraft[id] : undefined;
+                        return (
+                          <div key={id ?? it.productNameSnapshot} className="p-4 grid grid-cols-12 gap-3 items-center">
+                            <div className="col-span-6">
+                              <div className="font-medium text-gray-900">{it.productNameSnapshot}</div>
+                              <div className="text-xs text-gray-500">{it.unitSnapshot || "pcs"}</div>
+                            </div>
+                            <div className="col-span-3">
+                              <label className="block text-xs text-gray-500 mb-1">Qty</label>
+                              <input
+                                type="number"
+                                min={1}
+                                value={draft?.qty ?? ""}
+                                onChange={(e) => {
+                                  if (!id) return;
+                                  setEditDraft((prev) => ({
+                                    ...prev,
+                                    [id]: { ...(prev[id] ?? { qty: "", price: "" }), qty: e.target.value },
+                                  }));
+                                }}
+                                className="w-full rounded-md border border-gray-200 bg-white px-2 py-1 text-sm"
+                              />
+                            </div>
+                            <div className="col-span-3">
+                              <label className="block text-xs text-gray-500 mb-1">Unit Price</label>
+                              <input
+                                type="number"
+                                min={0}
+                                step="0.01"
+                                value={draft?.price ?? ""}
+                                onChange={(e) => {
+                                  if (!id) return;
+                                  setEditDraft((prev) => ({
+                                    ...prev,
+                                    [id]: { ...(prev[id] ?? { qty: "", price: "" }), price: e.target.value },
+                                  }));
+                                }}
+                                className="w-full rounded-md border border-gray-200 bg-white px-2 py-1 text-sm"
+                              />
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                </div>
+
+                <DialogFooter>
+                  <Button variant="outline" onClick={() => setEditOpen(false)}>
+                    Cancel
+                  </Button>
+                  <Button
+                    className="bg-primary hover:bg-primary/90 text-white"
+                    disabled={editOrderMutation.isPending || editReason.trim().length === 0}
+                    onClick={() => {
+                      const payloadItems = Object.entries(editDraft)
+                        .map(([orderItemId, v]) => ({
+                          orderItemId,
+                          newQty: Number(v.qty),
+                          newUnitPrice: Number(v.price),
+                        }));
+                      editOrderMutation.mutate(
+                        { reason: editReason, items: payloadItems },
+                        { onSuccess: () => setEditOpen(false) }
+                      );
+                    }}
+                  >
+                    Save Changes
+                  </Button>
+                </DialogFooter>
+              </DialogContent>
+            </Dialog>
           )}
           
           {status === "Approved" && (

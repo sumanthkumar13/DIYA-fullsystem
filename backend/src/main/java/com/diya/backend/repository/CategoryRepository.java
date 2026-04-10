@@ -12,4 +12,5 @@ import java.util.UUID;
 public interface CategoryRepository extends JpaRepository<Category, UUID> {
     List<Category> findByWholesalerId(UUID wholesalerId);
     Optional<Category> findByWholesalerIdAndName(UUID wholesalerId, String name);
+    Optional<Category> findByIdAndWholesalerId(UUID id, UUID wholesalerId);
 }

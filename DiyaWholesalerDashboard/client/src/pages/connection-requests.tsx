@@ -206,9 +206,7 @@ export default function ConnectionRequestsPage() {
                   </div>
 
                   <div className="flex items-center justify-between gap-3 border-t border-gray-100 pt-4">
-                    <p className="text-xs text-gray-400">
-                      Connection ID: {r.id}
-                    </p>
+                    <div />
 
                     {/* Actions only for pending */}
                     {type === "PENDING" ? (

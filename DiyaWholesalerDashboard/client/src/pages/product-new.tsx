@@ -1,6 +1,6 @@
-import { useEffect, useState, useRef } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useLocation, useRoute } from "wouter";
-import { ArrowLeft, Loader2, ChevronDown, ChevronRight } from "lucide-react";
+import { ArrowLeft, Check, ChevronDown, ChevronRight, ChevronsUpDown, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -10,7 +10,24 @@ import {
   CollapsibleTrigger,
 } from "@/components/ui/collapsible";
 import { Label } from "@/components/ui/label";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import {
+  Command,
+  CommandEmpty,
+  CommandGroup,
+  CommandInput,
+  CommandItem,
+  CommandList,
+} from "@/components/ui/command";
 import { useToast } from "@/hooks/use-toast";
+import { cn } from "@/lib/utils";
 import { createProduct, fetchProduct, updateProduct } from "@/services/product";
 import { suggestHsn } from "@/services/hsn";
 import {
@@ -80,6 +97,93 @@ export default function AddProductPage() {
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const abortRef = useRef<AbortController | null>(null);
   const isAutoFillingRef = useRef(false);
+
+  const GST_RATE_OPTIONS = useMemo(() => ["0", "5", "12", "18", "28"], []);
+  const TAX_TYPE_OPTIONS = useMemo(
+    () => [
+      { value: "TAXABLE", label: "Taxable" },
+      { value: "EXEMPT", label: "Exempt" },
+      { value: "NIL_RATED", label: "Nil Rated" },
+      { value: "NON_GST", label: "Non-GST" },
+    ],
+    []
+  );
+
+  const UNIT_OPTIONS = useMemo(
+    () => ["NOS", "PCS", "BOX", "PKT", "KG", "GM", "LTR", "ML", "MTR", "FT"],
+    []
+  );
+
+  const isNonTaxable = taxType !== "TAXABLE";
+
+  useEffect(() => {
+    // If user chooses a non-taxable tax type, GST is irrelevant in Diya/Tally flows.
+    // Keep value numeric and prevent accidental carryover of previous GST.
+    if (isNonTaxable) {
+      setGstRate("0");
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [taxType]);
+
+  function UnitCombobox({
+    label,
+    value,
+    onChange,
+    placeholder,
+  }: {
+    label: string;
+    value: string;
+    onChange: (next: string) => void;
+    placeholder: string;
+  }) {
+    const [open, setOpen] = useState(false);
+    return (
+      <div className="space-y-2">
+        <Label>{label}</Label>
+        <Popover open={open} onOpenChange={setOpen}>
+          <PopoverTrigger asChild>
+            <Button
+              type="button"
+              variant="outline"
+              role="combobox"
+              aria-expanded={open}
+              className="w-full justify-between h-11 border-gray-200"
+            >
+              <span className={cn("truncate", !value && "text-gray-400")}>
+                {value || placeholder}
+              </span>
+              <ChevronsUpDown className="h-4 w-4 opacity-50" />
+            </Button>
+          </PopoverTrigger>
+          <PopoverContent className="w-[--radix-popover-trigger-width] p-0" align="start">
+            <Command>
+              <CommandInput placeholder="Search…" />
+              <CommandList>
+                <CommandEmpty>No unit found.</CommandEmpty>
+                <CommandGroup>
+                  {UNIT_OPTIONS.map((u) => (
+                    <CommandItem
+                      key={u}
+                      value={u}
+                      onSelect={() => {
+                        onChange(u === value ? "" : u);
+                        setOpen(false);
+                      }}
+                    >
+                      <Check
+                        className={cn("h-4 w-4", value === u ? "opacity-100" : "opacity-0")}
+                      />
+                      {u}
+                    </CommandItem>
+                  ))}
+                </CommandGroup>
+              </CommandList>
+            </Command>
+          </PopoverContent>
+        </Popover>
+      </div>
+    );
+  }
 
   // Debounced HSN suggest: 600ms after name change, call API if name >= 4 chars and user has not edited HSN
   useEffect(() => {
@@ -518,47 +622,58 @@ export default function AddProductPage() {
                       )}
                     </div>
                     <div className="space-y-2">
-                      <Label>GST Rate (%)</Label>
-                      <Input
-                        type="number"
-                        min={0}
-                        max={28}
-                        step={0.01}
-                        placeholder="0–28"
-                        value={gstRate}
-                        onChange={(e) => setGstRate(e.target.value)}
-                      />
+                      <Label>GST Rate</Label>
+                      <Select
+                        value={gstRate === "" ? undefined : String(gstRate)}
+                        onValueChange={(v) => setGstRate(v)}
+                        disabled={isNonTaxable}
+                      >
+                        <SelectTrigger className="h-11 border-gray-200">
+                          <SelectValue placeholder={isNonTaxable ? "Disabled" : "Select GST"} />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {GST_RATE_OPTIONS.map((v) => (
+                            <SelectItem key={v} value={v}>
+                              {v}%
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                      {isNonTaxable && (
+                        <p className="text-xs text-gray-500">
+                          GST is disabled for non-taxable items.
+                        </p>
+                      )}
                     </div>
                   </div>
                   <div className="space-y-2">
                     <Label>Tax Type</Label>
-                    <select
-                      className="flex w-full h-11 rounded-md border border-gray-200 px-3"
-                      value={taxType}
-                      onChange={(e) => setTaxType(e.target.value)}
-                    >
-                      <option value="TAXABLE">Taxable</option>
-                      <option value="EXEMPT">Exempt</option>
-                      <option value="NIL_RATED">Nil Rated</option>
-                    </select>
+                    <Select value={taxType} onValueChange={(v) => setTaxType(v)}>
+                      <SelectTrigger className="h-11 border-gray-200">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {TAX_TYPE_OPTIONS.map((t) => (
+                          <SelectItem key={t.value} value={t.value}>
+                            {t.label}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
                   </div>
                   <div className="grid grid-cols-2 gap-4">
-                    <div className="space-y-2">
-                      <Label>Base Unit</Label>
-                      <Input
-                        placeholder="e.g. NOS, KG, LTR"
-                        value={baseUnit}
-                        onChange={(e) => setBaseUnit(e.target.value)}
-                      />
-                    </div>
-                    <div className="space-y-2">
-                      <Label>Selling Unit</Label>
-                      <Input
-                        placeholder="e.g. BOX, PKT"
-                        value={sellingUnit}
-                        onChange={(e) => setSellingUnit(e.target.value)}
-                      />
-                    </div>
+                    <UnitCombobox
+                      label="Base Unit"
+                      value={baseUnit}
+                      onChange={setBaseUnit}
+                      placeholder="Select (optional)"
+                    />
+                    <UnitCombobox
+                      label="Selling Unit"
+                      value={sellingUnit}
+                      onChange={setSellingUnit}
+                      placeholder="Select (optional)"
+                    />
                   </div>
                   <div className="space-y-2">
                     <Label>Units per Selling</Label>
@@ -569,6 +684,11 @@ export default function AddProductPage() {
                       value={unitsPerSelling}
                       onChange={(e) => setUnitsPerSelling(e.target.value)}
                     />
+                    <p className="text-xs text-gray-500">
+                      {sellingUnit && baseUnit && unitsPerSelling
+                        ? `1 ${sellingUnit} = ${unitsPerSelling} ${baseUnit}`
+                        : "Example: 1 BOX = 20 PCS"}
+                    </p>
                   </div>
                   <div className="flex items-center gap-2">
                     <input

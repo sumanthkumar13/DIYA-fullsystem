@@ -51,6 +51,12 @@ function Router() {
         </AppLayout>
       </Route>
 
+      <Route path="/products/edit/:id">
+        <AppLayout>
+          <AddProductPage />
+        </AppLayout>
+      </Route>
+
       {/* App Routes (Wrapped in Layout) */}
       <Route path="/dashboard">
         <AppLayout>
