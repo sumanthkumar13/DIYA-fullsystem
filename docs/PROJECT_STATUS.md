@@ -62,17 +62,17 @@ Current implementation status of core modules and features.
 
 ## Payments + Ledger
 
-- [x] **DONE** - Payment recording by retailer (backend API; Flutter UI is mock only)
+- [x] **DONE** - Payment recording by retailer (backend API + Flutter UI wired)
 - [x] **DONE** - Payment modes (UPI, CASH, NEFT, NET_BANKING, RTGS)
 - [x] **DONE** - Payment verification workflow (backend)
-- [x] **DONE** - Payment confirmation/rejection by wholesaler (backend API; dashboard not wired)
+- [x] **DONE** - Payment confirmation/rejection by wholesaler (backend API + dashboard UI wired)
 - [x] **DONE** - Ledger entry system (DEBIT/CREDIT)
 - [x] **DONE** - Outstanding balance calculation
-- [x] **DONE** - Retailer statement view (backend API; dashboard Khatabook page uses mock data)
+- [x] **DONE** - Retailer statement view (backend API + dashboard wired)
 - [x] **DONE** - Payment status tracking
 - [x] **DONE** - Order-payment linkage
-- [ ] **TODO** - Flutter: wire Payments screen to POST /api/retailer/payments
-- [ ] **TODO** - Dashboard: wire Khatabook to ledger API; wire payments pending/confirm/reject
+- [x] **DONE** - Flutter: Payments screen wired to `POST /api/retailer/payments`
+- [x] **DONE** - Dashboard: Khatabook wired to ledger API; payments pending/confirm/reject wired
 - [ ] **TODO** - Payment gateway integration (Razorpay, Stripe)
 - [ ] **TODO** - Automated payment reminders
 - [ ] **TODO** - Payment reconciliation
@@ -143,7 +143,7 @@ Current implementation status of core modules and features.
 ## Security
 
 - [x] **DONE** - JWT authentication
-- [x] **DONE** - Role-based authorization
+- [ ] **NOT DONE** - Role-based authorization (Spring Security is currently in temporary `permitAll("/**")` mode)
 - [x] **DONE** - Password hashing (BCrypt)
 - [ ] **TODO** - Rate limiting
 - [ ] **TODO** - Input validation and sanitization
@@ -164,5 +164,5 @@ Current implementation status of core modules and features.
 
 ---
 
-**Last Updated**: 2026-02-10  
+**Last Updated**: 2026-04-10  
 **Next Review**: Weekly status updates

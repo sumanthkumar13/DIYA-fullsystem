@@ -73,9 +73,9 @@ Diya_app/
 
 - **OTP-based Registration**: Send/verify OTP via phone
 - **JWT Authentication**: Token-based auth for all protected endpoints
-- **Role-based Access**: WHOLESALER, RETAILER, ADMIN roles
+- **Role claim in JWT**: WHOLESALER, RETAILER (ADMIN enum exists but is not enforced globally; see `SecurityConfig`)
 - **Dual Login**: Supports email or phone as identifier
-- **Token Storage**: Flutter uses secure storage, Dashboard uses sessions
+- **Token Storage**: Flutter uses secure storage, Dashboard uses `localStorage` (JWT)
 
 ### 2. Connection Management
 **Location**: 
@@ -143,7 +143,7 @@ Diya_app/
 2. User enters OTP → POST /api/auth/verify-otp
 3. User registers → POST /api/auth/register-retailer (or /register for wholesaler)
 4. Backend returns JWT token
-5. Token stored in FlutterSecureStorage (Flutter) or session (Dashboard)
+5. Token stored in FlutterSecureStorage (Flutter) or `localStorage` (Dashboard)
 6. All subsequent requests include: Authorization: Bearer <token>
 ```
 
@@ -186,7 +186,7 @@ Diya_app/
 1. **Multi-Wholesaler Support**: Each retailer can connect to multiple wholesalers, with separate carts per wholesaler
 2. **Price Snapshots**: Order items store price at time of order to prevent price changes affecting placed orders
 3. **Connection Gating**: Retailers can only view products from approved wholesalers
-4. **JWT Authentication**: Stateless auth suitable for mobile and web
+4. **JWT Authentication**: Stateless auth suitable for mobile and web (no refresh tokens in current code)
 5. **Ledger System**: Separate from payments, tracks outstanding balances (Khatabook-style)
 6. **Order Numbering**: Auto-generated with wholesaler-specific prefix
 7. **Visibility Modes**: Wholesalers can be PUBLIC (discoverable) or PRIVATE (invite-only)

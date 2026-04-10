@@ -80,7 +80,7 @@ https://diya-fullsystem.onrender.com
 
 ---
 
-## 5️⃣ Database Schema Initialization
+## 5️⃣ Database Schema Initialization (Important safety note)
 
 You faced:
 
@@ -88,8 +88,7 @@ You faced:
 relation "hsn_master" does not exist
 ```
 
-Solution:
-Temporarily used:
+Temporary solution used during initial bootstrap:
 
 ```
 spring.jpa.hibernate.ddl-auto=create
@@ -97,13 +96,21 @@ spring.jpa.hibernate.ddl-auto=create
 
 Tables were created → HSN data seeded → backend booted successfully.
 
-Later switched to:
+Required final state (production-safe):
 
 ```
-ddl-auto=validate
+spring.jpa.hibernate.ddl-auto=validate
 ```
 
-(so production data is safe)
+(so production data survives restarts)
+
+---
+
+## 11️⃣ Current production blockers to confirm before launch
+
+- Spring Security config must not ship with global allow-all (`requestMatchers(\"/**\").permitAll()`).
+- JWT signing secret must not be hardcoded in source; should be environment-provided and rotated.
+- OTP endpoints must not return OTP in response in production.
 
 ---
 

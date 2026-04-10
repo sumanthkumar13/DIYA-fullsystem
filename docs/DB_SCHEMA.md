@@ -202,13 +202,13 @@ Product catalog items.
 | `subcategory_id` | UUID | FK | References `subcategories.id` |
 | `sku` | String | Indexed | SKU code (not globally unique) |
 | `sequenceNumber` | Integer | - | Display order |
-| `reservedStock` | Integer | Default: 0 | Stock locked for pending orders |
+| `reservedStock` | Integer | Default: 0 | Stock locked for pending orders (**stored in base units**) |
 | `name` | String | - | Product name |
 | `description` | String | - | Product description |
 | `unit` | String | - | Unit of measurement |
 | `price` | Double | - | Selling price |
 | `mrp` | Double | - | Maximum retail price |
-| `stock` | Integer | - | Available stock |
+| `stock` | Integer | - | Available stock (**stored in base units**) |
 | `imageUrl` | String | - | Product image URL |
 | `active` | Boolean | Default: true | Product active status |
 | `visibleToRetailer` | Boolean | Default: true | Visibility flag |
@@ -411,7 +411,7 @@ Generated invoices for orders.
 | Field | Type | Constraints | Description |
 |-------|------|-------------|-------------|
 | `id` | UUID | PK, Auto-generated | Primary key |
-| `order_id` | UUID | FK, Not null, Unique | References `orders.id` |
+| `order_id` | UUID | FK, Not null | References `orders.id` |
 | `wholesaler_id` | UUID | FK, Not null | References `wholesaler_profiles.id` |
 | `invoiceNumber` | String | - | Invoice number |
 | `invoiceUrl` | String | - | Invoice PDF/document URL |
@@ -460,7 +460,7 @@ Wholesaler (1) ──┬── (N) Connection ── (N) Retailer
 - `subcategories(parent_sub_id, name)` - Unique subcategory name per parent
 - `products(wholesaler_id, sku)` - Unique SKU per wholesaler
 - `orders.orderNumber` - Unique order number
-- `invoices.order_id` - One invoice per order
+- `invoices.order_id` - **Not guaranteed unique at DB level** (service layer assumes one invoice per order; consider adding a unique constraint/migration)
 
 ### Indexes
 - `users`: phone, role

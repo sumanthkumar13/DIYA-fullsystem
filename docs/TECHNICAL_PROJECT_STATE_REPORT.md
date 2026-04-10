@@ -2,7 +2,7 @@
 
 ## 1. Project Overview
 
-Diya currently implements a two-sided wholesale ordering system with a Spring Boot backend, a Flutter retailer app, and a React wholesaler dashboard. Retailers can sign up/login, search public wholesalers, request connections, browse approved wholesalers' catalogs, manage per-wholesaler carts, and place orders. Wholesalers can sign up/login, manage categories, subcategories, and products, approve retailer connection requests, view orders, accept/reject/edit them, progress order status, create invited retailer records, and adjust visibility between `PUBLIC` and `PRIVATE`. The backend also supports payments, ledger entries, invoice generation, HSN suggestion, dashboard KPI endpoints, analytics endpoints, and Tally export hooks. From a user perspective, the retailer mobile flow is strongest around discovery, ordering, and order history, while the wholesaler web flow is strongest around product, order, and connection management. Several surfaces exist but are still partially wired or mocked, especially Flutter payments, dashboard analytics visualizations, dashboard retailer profile details, and parts of Khatabook. There are also major production blockers: security is effectively disabled, schema recreation is enabled in the production properties, and invoice finalization currently double-posts stock and ledger after accepted orders.
+Diya currently implements a two-sided wholesale ordering system with a Spring Boot backend, a Flutter retailer app, and a React wholesaler dashboard. Retailers can sign up/login, search public wholesalers, request connections, browse approved wholesalers' catalogs, manage per-wholesaler carts, and place orders. Wholesalers can sign up/login, manage categories, subcategories, and products, approve retailer connection requests, view orders, accept/reject/edit them, progress order status, create invited retailer records, and adjust visibility between `PUBLIC` and `PRIVATE`. The backend also supports payments, ledger entries, invoice generation, HSN suggestion, dashboard KPI endpoints, analytics endpoints, and Tally export hooks. From a user perspective, the retailer mobile flow is strongest around discovery, ordering, and order history, while the wholesaler web flow is strongest around product, order, and connection management. There are major production blockers: Spring Security is currently in temporary `permitAll("/**")` mode, OTP is development-style (OTP returned in response), and the JWT signing secret is hardcoded in source.
 
 ## 2. Technology Stack
 
@@ -368,9 +368,9 @@ Method | Endpoint | Purpose | Status
 ## 9. Known Bugs or Issues
 
 - `SecurityConfig` permits all routes, so backend authorization is effectively disabled.
-- `application-prod.properties` still uses `spring.jpa.hibernate.ddl-auto=create`; schema would be recreated on startup.
-- `InvoiceService.finalizeInvoice()` deducts stock again after accepted orders already deducted stock in `OrderService.wholesalerAcceptOrder()`.
-- `InvoiceService.finalizeInvoice()` also creates a new `DEBIT` ledger entry even though accepted credit orders already create one; outstanding can double.
+- `application-prod.properties` must not use destructive DDL (`create`). Use `validate` (or migrations) to avoid wiping production data.
+- Stock quantities are treated as **base units** consistently in ordering/invoicing flow (order stock mutations convert using `unitsPerSelling`).
+- Order acceptance posts ledger DEBIT only for the remaining credit exposure, and posts ledger CREDIT immediately for wholesaler-entered paid amounts at acceptance.
 - Invoice schema allows multiple invoices per order, but repository/service logic assumes one invoice per order.
 - OTP is insecure: stored in-memory, logged, and returned in API response.
 - JWT secret is hardcoded in source.

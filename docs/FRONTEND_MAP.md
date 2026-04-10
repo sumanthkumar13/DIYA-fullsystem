@@ -71,7 +71,7 @@ diya_frontend/lib/
 | Connect Screen | `screens/connect/connect_screen.dart` | `/connect` | Wholesaler discovery and connection requests |
 | Orders Screen | `screens/orders/orders_screen.dart` | `/orders` | List of all orders with status filters |
 | Order Detail Screen | `screens/orders/order_detail_screen.dart` | (no route; opened via `Navigator.push` from orders list) | Order details, payment status |
-| Payments Screen | `screens/payments/payments_screen.dart` | `/payments` | **UI only (mock data)** — not wired to `POST /api/retailer/payments` |
+| Payments Screen | `screens/payments/payments_screen.dart` | `/payments` | Ledger + payments history; records payment via `POST /api/retailer/payments` |
 | Account Screen | `screens/account/account_screen.dart` | `/account` | Profile settings, logout |
 | New Order Screen | `screens/new_order/new_order_screen.dart` | `/new-order` | Browse products, add to cart, checkout |
 | Connected Wholesalers | `screens/wholesalers/connected_wholesalers_screen.dart` | `/wholesalers` | List of approved wholesalers |
@@ -339,16 +339,16 @@ DiyaWholesalerDashboard/
 | Dashboard | `pages/dashboard.tsx` | `/dashboard` | Main dashboard with KPIs, activity feed | **API** (KPI, territory, activity) |
 | Orders | `pages/orders.tsx` | `/orders` | Order list with filters | **API** |
 | Order Detail | `pages/order-detail.tsx` | `/orders/:id` | Order details, accept/reject/status/edit | **API** |
-| Retailers | `pages/retailers.tsx` | `/retailers` | Connected retailers list | **Mock** |
+| Retailers | `pages/retailers.tsx` | `/retailers` | Connected retailers list | **API** |
 | Retailer Profile | `pages/retailer-profile.tsx` | `/retailers/:id` | Retailer details, outstanding balance | **Mock** |
 | Connection Requests | `pages/connection-requests.tsx` | `/connection-requests` | Approve/reject retailer requests | **API** |
 | Categories | `pages/categories.tsx` | `/categories` | Category management | **API** |
 | Category Detail | `pages/CategoryDetailPage.tsx` | `/categories/:categoryId` | Category with subcategories (create subcategory here) | **API** |
 | SubCategory Page | `pages/SubCategoryPage.tsx` | (no route in `App.tsx`; subcategories managed in CategoryDetailPage) | Subcategory management | **API** (when used) |
 | Add Product | `pages/product-new.tsx` | `/products/new` | Create new product | **API** |
-| Khatabook | `pages/khatabook.tsx` | `/khatabook` | Ledger view, retailer statements | **Mock** (ledger API not wired) |
+| Khatabook | `pages/khatabook.tsx` | `/khatabook` | Ledger view, retailer statements | **API** (ledger summary/list/statement) |
 | Business | `pages/business.tsx` | `/business` | Business profile, settings | — |
-| Analytics | `pages/analytics.tsx` | `/analytics` | Sales analytics, trends | **Mock** (analytics API not wired) |
+| Analytics | `pages/analytics.tsx` | `/analytics` | Sales analytics, trends | **API** (analytics endpoints) |
 | Settings | `pages/settings.tsx` | `/settings` | Account settings, visibility mode | **API** (visibility) |
 | Not Found | `pages/not-found.tsx` | `*` | 404 page | — |
 
@@ -437,31 +437,18 @@ Dashboard pages **Retailers**, **Retailer Profile**, **Khatabook**, and **Analyt
 - Custom theme configuration
 - Dark mode support (next-themes)
 
-### Server (Express)
+### Server (Express scaffold)
 
-**Location**: `server/`
+**Location**: `DiyaWholesalerDashboard/server/`
 
-Minimal Express server:
-- Static file serving
-- API proxy (if needed)
-- Session management (Passport.js)
-- WebSocket support (if implemented)
+This folder is an Express/Drizzle scaffold. The actual Diya API used by both the Flutter app and the dashboard is the Spring Boot backend under `backend/`.
 
-**Files:**
-- `app.ts` - Express app setup
-- `routes.ts` - Route definitions
-- `storage.ts` - Storage interface
-- `index-dev.ts` - Development server
-- `index-prod.ts` - Production server
+### Key Features (Dashboard - actual)
 
-### Key Features
-
-1. **Session Authentication**: Passport.js with local strategy
-2. **Real-time Updates**: WebSocket support (if implemented)
-3. **Responsive Design**: Mobile-friendly with Tailwind
-4. **Data Visualization**: Charts for analytics
-5. **Form Validation**: Zod schemas with React Hook Form
-6. **Type Safety**: Full TypeScript coverage
+1. **JWT Authentication**: axios attaches `Authorization: Bearer <token>` from `localStorage`
+2. **Responsive UI**: Tailwind + Radix UI components
+3. **Order + Catalog ops**: Create/edit products, accept orders, invoice generation
+4. **Ledger surfaces**: Khatabook + statements driven by backend ledger APIs
 
 ---
 
@@ -475,7 +462,7 @@ Minimal Express server:
 
 ### Dashboard ↔ Backend
 - Base URL: `http://localhost:8081` (same backend)
-- Auth: Session-based (Passport.js) or JWT
+- Auth: JWT in `Authorization` header (no Passport/session in current dashboard)
 - HTTP: Axios or fetch
 - CORS: Configured in `SecurityConfig.java`
 

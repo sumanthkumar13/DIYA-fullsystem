@@ -6,19 +6,13 @@ Complete REST API endpoint documentation for all controllers.
 
 | Endpoint | Method | Request Body | Response | Auth Required | Used By |
 |----------|--------|--------------|----------|---------------|---------|
-| `/api/auth/send-otp` | POST | `{ "phone": "9876543210" }` | `{ "success": boolean, "message": string }` | Public | Flutter: `signup_screen.dart` |
-| `/api/auth/verify-otp` | POST | `{ "phone": "9876543210", "otp": "123456" }` | `{ "success": boolean, "message": string }` | Public | Flutter: `signup_screen.dart` |
+| `/api/auth/send-otp` | POST | `{ "phone": "9876543210" }` | `{ "success": boolean, "message": string, "otp"?: string }` | Public | Dashboard: `signup.tsx` |
+| `/api/auth/verify-otp` | POST | `{ "phone": "9876543210", "otp": "123456" }` | `{ "success": boolean, "message": string }` | Public | Dashboard: `signup.tsx` |
 | `/api/auth/register` | POST | `RegisterWholesalerRequest` | `{ "success": boolean, "data": AuthResponse }` | Public | Dashboard: `signup.tsx` |
-| `/api/auth/register-retailer` | POST | `RegisterRetailerRequest` | `{ "success": boolean, "data": AuthResponse }` | Public | Flutter: `signup_screen.dart` |
-| `/api/auth/login` | POST | `{ "identifier": string, "password": string }` | `{ "success": boolean, "data": AuthResponse }` | Public | Flutter: `login_screen.dart`, Dashboard: `login.tsx` |
+| `/api/auth/register-retailer` | POST | `RegisterRetailerRequest` | `{ "success": boolean, "data": AuthResponse }` | Public | Flutter: retailer signup |
+| `/api/auth/login` | POST | `{ "identifier": string, "password": string }` | `{ "success": boolean, "data": AuthResponse }` | Public | Flutter + Dashboard |
 
-**AuthResponse Structure:**
-```json
-{
-  "token": "jwt_token_string",
-  "user": { "id": "uuid", "role": "RETAILER|WHOLESALER", ... }
-}
-```
+**AuthResponse (backend DTO)** is not wrapped as `{ user: ... }`. It returns token + selected fields.
 
 ## Retailer - Wholesaler Discovery
 
@@ -105,7 +99,7 @@ Complete REST API endpoint documentation for all controllers.
 |----------|--------|--------------|----------|---------------|---------|
 | `/api/wholesaler/orders` | GET | Query: `?status=string&search=string&dateRange=string&page=int&size=int` | `List<OrderListItemDTO>` | Wholesaler | Dashboard: `orders.tsx` |
 | `/api/wholesaler/orders/{orderId}` | GET | - | `WholesalerOrderDetailDTO` | Wholesaler | Dashboard: `order-detail.tsx` |
-| `/api/wholesaler/orders/{orderId}/accept` | POST | Optional: `WholesalerOrderAcceptRequest` (`paymentMode`, `creditDays`). Query: `?force=false` | `Order` | Wholesaler | Dashboard: `order-detail.tsx` |
+| `/api/wholesaler/orders/{orderId}/accept` | POST | Optional: `WholesalerOrderAcceptRequest` (`paymentMode`, `paidNow?`, `creditDays?`). Query: `?force=false` | `{ success, forced, warnings, order }` | Wholesaler | Dashboard: `order-detail.tsx` |
 | `/api/wholesaler/orders/{orderId}/reject` | POST | - | `Order` | Wholesaler | Dashboard: `order-detail.tsx` |
 | `/api/wholesaler/orders/{orderId}/packing` | POST | - | `Order` | Wholesaler | Dashboard: `order-detail.tsx` |
 | `/api/wholesaler/orders/{orderId}/dispatch` | POST | - | `Order` | Wholesaler | Dashboard: `order-detail.tsx` |
@@ -160,7 +154,7 @@ Complete REST API endpoint documentation for all controllers.
 |----------|--------|--------------|----------|---------------|---------|
 | `/api/ledger/wholesaler` | GET | Query: `?fromDate=yyyy-MM-dd&toDate=yyyy-MM-dd&type=DEBIT|CREDIT` | `List<LedgerEntry>` | Wholesaler | Dashboard: `khatabook.tsx` |
 | `/api/ledger/retailer` | GET | Query: `?fromDate=yyyy-MM-dd&toDate=yyyy-MM-dd&type=DEBIT|CREDIT` | `List<LedgerEntry>` | Retailer | Flutter: payments/ledger view |
-| `/api/ledger/wholesaler/retailer/{retailerId}/statement` | GET | - | `List<LedgerEntry>` | Wholesaler | Dashboard: `khatabook.tsx` |
+| `/api/ledger/wholesaler/retailer/{retailerId}/statement` | GET | - | `RetailerStatementResponseDTO` | Wholesaler | Dashboard: `retailer-statement.tsx` |
 | `/api/ledger/wholesaler/retailer/{retailerId}/outstanding` | GET | - | `{ "retailerId": "uuid", "outstanding": double }` | Wholesaler | Dashboard: retailer profile |
 
 ## Public Catalog
@@ -187,7 +181,7 @@ Authorization: Bearer <jwt_token>
 
 ## Response Format
 
-Standard response wrapper:
+Standard response wrapper (many endpoints, especially auth):
 ```json
 {
   "success": boolean,
@@ -204,6 +198,8 @@ Error responses:
 }
 ```
 
+> Note: Not all endpoints use this wrapper consistently. Some return entities/DTOs directly (e.g., many GETs), and the retailer login OTP controller often returns HTTP 200 with a `status` field for error states.
+
 ## Base URL
 
 - **Development**: `http://localhost:8081`
@@ -212,7 +208,8 @@ Error responses:
 
 ## CORS Configuration
 
-Allowed origins (configured in `SecurityConfig.java`):
-- `http://localhost:5000` (Dashboard)
-- `http://localhost:5173` (Vite dev)
-- `http://localhost:3000` (Alternative)
+Allowed origin patterns (configured in `backend/src/main/java/com/diya/backend/config/SecurityConfig.java`):
+- `http://localhost:*`
+- `https://*.vercel.app`
+
+Also note some controllers declare `@CrossOrigin(origins="*")`, which is more permissive than the global config.
