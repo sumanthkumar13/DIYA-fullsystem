@@ -1,8 +1,9 @@
 import axios from "axios";
 
 const api = axios.create({
-  baseURL: "http://localhost:8081/api", // local development URL
+  // baseURL: "http://localhost:8081/api", // local development URL
   // baseURL: "https://diya-fullsystem.onrender.com/api", // render.com URL
+  baseURL: "/api" // GCP 
 });
 
 /** ✅ Never attach token for these endpoints */

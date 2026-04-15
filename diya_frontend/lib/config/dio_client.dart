@@ -5,7 +5,8 @@ class DioClient {
   static final Dio dio = Dio(
     BaseOptions(
       // baseUrl: 'http://10.33.123.111:8081',
-      baseUrl: 'http://localhost:8081',
+      // baseUrl: 'http://localhost:8081',
+      baseUrl: 'https://diyadigital.in',
       connectTimeout: const Duration(seconds: 10),
       receiveTimeout: const Duration(seconds: 10),
       headers: {'Content-Type': 'application/json'},

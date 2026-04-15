@@ -109,7 +109,10 @@ public class SecurityConfig {
             // THIS is the magic line
             configuration.setAllowedOriginPatterns(Arrays.asList(
                         "http://localhost:*",
-                        "https://*.vercel.app"));
+                        "https://*.vercel.app",
+                        "https://diyadigital.in",
+                        "http://diyadigital.in"
+                        ));
 
             configuration.setAllowedMethods(Arrays.asList(
                         "GET", "POST", "PUT", "DELETE", "OPTIONS"));
