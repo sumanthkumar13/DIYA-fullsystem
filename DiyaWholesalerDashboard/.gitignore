@@ -3,4 +3,14 @@ dist
 .DS_Store
 server/public
 vite.config.ts.*
-*.tar.gz
+*.tar.gz 
+
+# .gitignore
+.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+
+# But DO push the template (optional)
+# .env.production.template

@@ -1,10 +1,15 @@
 import axios from "axios";
 
+// const api = axios.create({
+//   // baseURL: "http://localhost:8081/api", // local development URL
+//   // baseURL: "https://diya-fullsystem.onrender.com/api", // render.com URL
+//   baseURL: "/api" // GCP 
+// });
+console.log("Vite is hitting this API URL:", import.meta.env.VITE_API_BASE_URL);
 const api = axios.create({
-  // baseURL: "http://localhost:8081/api", // local development URL
-  // baseURL: "https://diya-fullsystem.onrender.com/api", // render.com URL
-  baseURL: "/api" // GCP 
-}); 
+  // Vite automatically picks the right URL based on the environment
+  baseURL: import.meta.env.VITE_API_BASE_URL 
+});
 
 /** ✅ Never attach token for these endpoints */
 const PUBLIC_ENDPOINTS = [
