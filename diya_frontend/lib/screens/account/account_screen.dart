@@ -1,15 +1,85 @@
+import 'dart:io';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:image_picker/image_picker.dart';
+
 import '../../providers/auth_provider.dart';
 import '../../providers/retailer_session_provider.dart';
+import '../../services/cloudinary_upload_service.dart';
+import '../../services/user_service.dart';
 import '../../widgets/ui/diya_button.dart';
 import '../../widgets/ui/diya_card.dart';
 
-class AccountScreen extends ConsumerWidget {
+class AccountScreen extends ConsumerStatefulWidget {
   const AccountScreen({super.key});
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<AccountScreen> createState() => _AccountScreenState();
+}
+
+class _AccountScreenState extends ConsumerState<AccountScreen> {
+  File? _pickedImage;
+  bool _uploading = false;
+  int _progress = 0;
+  String? _error;
+
+  Future<void> _pickAndUpload() async {
+    setState(() {
+      _error = null;
+    });
+
+    final picker = ImagePicker();
+    final x = await picker.pickImage(
+      source: ImageSource.gallery,
+      maxWidth: 1024,
+      imageQuality: 85,
+    );
+    if (x == null) return;
+
+    final file = File(x.path);
+
+    setState(() {
+      _pickedImage = file;
+      _uploading = true;
+      _progress = 0;
+    });
+
+    try {
+      final secureUrl = await CloudinaryUploadService().uploadImage(
+        file: file,
+        onProgress: (p) {
+          if (!mounted) return;
+          setState(() => _progress = p);
+        },
+      );
+
+      await UserService().updateAvatarUrl(secureUrl);
+      await ref.read(retailerSessionProvider.notifier).sync();
+
+      if (!mounted) return;
+      setState(() {
+        _uploading = false;
+        _pickedImage = null;
+        _progress = 0;
+      });
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Profile photo updated')),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _uploading = false;
+        _error = e.toString().replaceFirst('Exception: ', '');
+      });
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(_error ?? 'Upload failed')),
+      );
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
     final session = ref.watch(retailerSessionProvider).valueOrNull;
     final profile = session?.profile ?? const <String, dynamic>{};
 
@@ -20,6 +90,7 @@ class AccountScreen extends ConsumerWidget {
     final state = (profile['state'] ?? "").toString();
     final location = [city, state].where((s) => s.trim().isNotEmpty).join(", ");
     final name = shopName != "N/A" ? shopName : "Retailer";
+    final avatarUrl = (profile['avatarUrl'] ?? '').toString().trim();
 
     // ✅ IMPORTANT:
     // Do NOT wrap with RetailerShell here.
@@ -31,23 +102,85 @@ class AccountScreen extends ConsumerWidget {
         const SizedBox(height: 10),
 
         // Avatar
-        Container(
-          width: 96,
-          height: 96,
-          decoration: BoxDecoration(
-            color: const Color(0xFFE5E5E5),
-            shape: BoxShape.circle,
-            border: Border.all(color: Colors.white, width: 4),
-            boxShadow: const [
-              BoxShadow(
-                color: Color(0x22000000),
-                blurRadius: 18,
-                offset: Offset(0, 10),
-              )
+        Center(
+          child: Stack(
+            alignment: Alignment.bottomRight,
+            children: [
+              Container(
+                width: 96,
+                height: 96,
+                decoration: BoxDecoration(
+                  color: const Color(0xFFE5E5E5),
+                  shape: BoxShape.circle,
+                  border: Border.all(color: Colors.white, width: 4),
+                  boxShadow: const [
+                    BoxShadow(
+                      color: Color(0x22000000),
+                      blurRadius: 18,
+                      offset: Offset(0, 10),
+                    )
+                  ],
+                ),
+                clipBehavior: Clip.antiAlias,
+                child: _pickedImage != null
+                    ? Image.file(_pickedImage!, fit: BoxFit.cover)
+                    : avatarUrl.isNotEmpty
+                        ? Image.network(
+                            avatarUrl,
+                            fit: BoxFit.cover,
+                            errorBuilder: (_, __, ___) => const Icon(
+                              Icons.person_outline,
+                              size: 40,
+                              color: Color(0xFFA3A3A3),
+                            ),
+                          )
+                        : const Icon(Icons.person_outline, size: 40, color: Color(0xFFA3A3A3)),
+              ),
+              GestureDetector(
+                onTap: _uploading ? null : _pickAndUpload,
+                child: Container(
+                  width: 34,
+                  height: 34,
+                  decoration: BoxDecoration(
+                    color: const Color(0xFF171717),
+                    shape: BoxShape.circle,
+                    border: Border.all(color: Colors.white, width: 3),
+                  ),
+                  child: _uploading
+                      ? const Padding(
+                          padding: EdgeInsets.all(8),
+                          child: CircularProgressIndicator(
+                            strokeWidth: 2.5,
+                            color: Colors.white,
+                          ),
+                        )
+                      : const Icon(Icons.camera_alt_outlined, size: 16, color: Colors.white),
+                ),
+              ),
             ],
           ),
-          child: const Icon(Icons.person_outline, size: 40, color: Color(0xFFA3A3A3)),
         ),
+
+        if (_uploading) ...[
+          const SizedBox(height: 10),
+          Center(
+            child: Text(
+              _progress > 0 ? 'Uploading ($_progress%)' : 'Uploading…',
+              style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w700, color: Color(0xFF737373)),
+            ),
+          ),
+        ],
+
+        if (_error != null && _error!.trim().isNotEmpty) ...[
+          const SizedBox(height: 10),
+          Center(
+            child: Text(
+              _error!,
+              textAlign: TextAlign.center,
+              style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w700, color: Color(0xFFDC2626)),
+            ),
+          ),
+        ],
 
         const SizedBox(height: 12),
 

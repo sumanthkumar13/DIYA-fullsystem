@@ -18,11 +18,14 @@ export interface RetailerCreditSummary {
   shopName?: string;
   phoneContact?: string;
   address?: string;
+  region?: string;
   city?: string;
   state?: string;
   proprietorName?: string;
   totalCompletedPurchaseValue?: number;
   tier?: string;
+  /** APPROVED | BLOCKED | REMOVED */
+  connectionStatus?: string;
 }
 
 /** GET /api/wholesaler/retailers/{id}/credit-summary */
@@ -39,5 +42,20 @@ export async function patchRetailerCreditLimit(
   const res = await api.patch(`/wholesaler/retailers/${retailerId}/credit-limit`, {
     creditLimit,
   });
+  return res.data;
+}
+
+export async function blockRetailer(retailerId: string): Promise<unknown> {
+  const res = await api.post(`/wholesaler/retailers/${retailerId}/block`);
+  return res.data;
+}
+
+export async function unblockRetailer(retailerId: string): Promise<unknown> {
+  const res = await api.post(`/wholesaler/retailers/${retailerId}/unblock`);
+  return res.data;
+}
+
+export async function removeRetailerFromList(retailerId: string): Promise<unknown> {
+  const res = await api.post(`/wholesaler/retailers/${retailerId}/remove-from-list`);
   return res.data;
 }

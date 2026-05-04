@@ -43,6 +43,8 @@ public class RetailerCreditSummaryDTO {
     private String shopName;
     private String phoneContact;
     private String address;
+    /** Retailer region (canonical territory). */
+    private String region;
     private String city;
     private String state;
     private String proprietorName;
@@ -51,4 +53,7 @@ public class RetailerCreditSummaryDTO {
     private BigDecimal totalCompletedPurchaseValue;
     /** BEGINNER, BRONZE, SILVER, GOLD, DIAMOND */
     private String tier;
+
+    /** APPROVED | BLOCKED | REMOVED — wholesaler–retailer connection lifecycle */
+    private String connectionStatus;
 }

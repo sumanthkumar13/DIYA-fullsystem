@@ -42,6 +42,9 @@ public class User {
 
     private String name;
 
+    @Column(length = 2048)
+    private String avatarUrl;
+
     /*
      * ------------------------------------
      * ROLE MANAGEMENT

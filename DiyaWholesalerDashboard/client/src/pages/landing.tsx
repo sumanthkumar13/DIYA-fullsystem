@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Link, useLocation } from "wouter";
 import { 
   ArrowRight, 
@@ -30,6 +30,82 @@ import paymentMockup from "@assets/generated_images/retailer_app_payment_screen_
 export default function LandingPage() {
   const [isScrolled, setIsScrolled] = useState(false);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const categories = useMemo(
+    () => [
+      "Plumbing & Sanitary",
+      "Electrical & Hardware",
+      "Construction Material",
+      "Pumps & Borewell",
+      "FMCG Distributor",
+      "General Kirana",
+      "Medical & Pharma",
+      "Garments & Textiles",
+      "Agri Products",
+    ],
+    []
+  );
+
+  const scrollerRef = useRef<HTMLDivElement | null>(null);
+  const rafRef = useRef<number | null>(null);
+  const pausedRef = useRef(false);
+  const interactingRef = useRef(false);
+  const resumeTimeoutRef = useRef<number | null>(null);
+  const lastTimeRef = useRef<number | null>(null);
+
+  useEffect(() => {
+    const el = scrollerRef.current;
+    if (!el) return;
+
+    const media = window.matchMedia?.("(prefers-reduced-motion: reduce)");
+    if (media?.matches) return;
+
+    const speedPxPerSec = 28; // gentle, non-janky
+
+    const tick = (t: number) => {
+      if (lastTimeRef.current == null) lastTimeRef.current = t;
+      const dt = Math.min(40, t - lastTimeRef.current);
+      lastTimeRef.current = t;
+
+      const paused = pausedRef.current || interactingRef.current;
+      if (!paused) {
+        el.scrollLeft += (speedPxPerSec * dt) / 1000;
+
+        // Seamless loop: content is duplicated twice. When we cross the first half, jump back by half.
+        const half = el.scrollWidth / 2;
+        if (half > 0 && el.scrollLeft >= half) {
+          el.scrollLeft -= half;
+        }
+      }
+
+      rafRef.current = window.requestAnimationFrame(tick);
+    };
+
+    rafRef.current = window.requestAnimationFrame(tick);
+    return () => {
+      if (rafRef.current != null) window.cancelAnimationFrame(rafRef.current);
+      if (resumeTimeoutRef.current != null) window.clearTimeout(resumeTimeoutRef.current);
+      rafRef.current = null;
+      resumeTimeoutRef.current = null;
+      lastTimeRef.current = null;
+    };
+  }, []);
+
+  const pauseAutoScroll = () => {
+    pausedRef.current = true;
+  };
+  const resumeAutoScroll = () => {
+    pausedRef.current = false;
+  };
+  const markInteracting = () => {
+    interactingRef.current = true;
+    if (resumeTimeoutRef.current != null) window.clearTimeout(resumeTimeoutRef.current);
+  };
+  const unmarkInteractingSoon = () => {
+    if (resumeTimeoutRef.current != null) window.clearTimeout(resumeTimeoutRef.current);
+    resumeTimeoutRef.current = window.setTimeout(() => {
+      interactingRef.current = false;
+    }, 700);
+  };
 
   useEffect(() => {
     const handleScroll = () => {
@@ -138,19 +214,39 @@ export default function LandingPage() {
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 mb-8">
           <h3 className="text-lg font-semibold text-gray-900">Who We Serve</h3>
         </div>
-        <div className="flex gap-6 animate-scroll overflow-x-auto no-scrollbar px-4 sm:px-6 lg:px-8 pb-4 -mx-4 sm:-mx-6 lg:-mx-8">
-           {[
-             "Plumbing & Sanitary", "Electrical & Hardware", "Construction Material", 
-             "Pumps & Borewell", "FMCG Distributor", "General Kirana", 
-             "Medical & Pharma", "Garments & Textiles", "Agri Products"
-           ].map((cat, i) => (
-             <div key={i} className="flex-none w-64 p-6 bg-white rounded-xl border border-gray-200 shadow-sm hover:shadow-md transition-all hover:-translate-y-1 cursor-default">
+        <div
+          ref={scrollerRef}
+          className="overflow-x-auto no-scrollbar pb-4 -mx-4 sm:-mx-6 lg:-mx-8 px-4 sm:px-6 lg:px-8"
+          onMouseEnter={pauseAutoScroll}
+          onMouseLeave={resumeAutoScroll}
+          onPointerDown={markInteracting}
+          onPointerUp={unmarkInteractingSoon}
+          onPointerCancel={unmarkInteractingSoon}
+          onTouchStart={markInteracting}
+          onTouchEnd={unmarkInteractingSoon}
+          onScroll={unmarkInteractingSoon}
+          aria-label="Business categories auto-scroller"
+        >
+          <div className="flex gap-6 w-max pr-10 pl-2">
+            {/* Start padding */}
+            <div className="flex-none w-2" aria-hidden />
+
+            {/* Duplicate content for seamless looping */}
+            {[...categories, ...categories].map((cat, i) => (
+              <div
+                key={`${cat}-${i}`}
+                className="flex-none w-64 p-6 bg-white rounded-xl border border-gray-200 shadow-sm hover:shadow-md transition-all hover:-translate-y-1 cursor-default"
+              >
                 <div className="h-10 w-10 rounded-lg bg-orange-50 flex items-center justify-center text-primary mb-3">
-                   <LayoutDashboard className="h-5 w-5" />
+                  <LayoutDashboard className="h-5 w-5" />
                 </div>
                 <p className="font-semibold text-gray-900">{cat}</p>
-             </div>
-           ))}
+              </div>
+            ))}
+
+            {/* End padding */}
+            <div className="flex-none w-10" aria-hidden />
+          </div>
         </div>
       </section>
 

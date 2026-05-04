@@ -6,7 +6,6 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 
 import java.math.BigDecimal;
-import java.time.LocalDate;
 import java.time.ZoneId;
 import java.time.format.TextStyle;
 import java.util.*;
@@ -60,7 +59,8 @@ public class AnalyticsService {
                 summary.put("totalOrders", orders.size());
                 summary.put("totalSales", totalSales);
                 summary.put("totalReceived", totalReceived);
-                summary.put("outstandingAmount", totalSales.subtract(totalReceived));
+                BigDecimal outstanding = totalSales.subtract(totalReceived);
+                summary.put("outstandingAmount", (outstanding == null ? BigDecimal.ZERO : outstanding.max(BigDecimal.ZERO)));
                 summary.put("pendingOrders", pendingOrders);
                 summary.put("deliveredOrders", deliveredOrders);
                 summary.put("activeRetailers", retailerRepository.count());
@@ -100,7 +100,8 @@ public class AnalyticsService {
                 summary.put("totalOrders", orders.size());
                 summary.put("totalSpent", totalSpent);
                 summary.put("totalPaid", totalPaid);
-                summary.put("outstandingDue", totalSpent.subtract(totalPaid));
+                BigDecimal outstanding = totalSpent.subtract(totalPaid);
+                summary.put("outstandingDue", (outstanding == null ? BigDecimal.ZERO : outstanding.max(BigDecimal.ZERO)));
                 return summary;
         }
 

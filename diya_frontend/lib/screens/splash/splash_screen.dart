@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../providers/auth_provider.dart';
+import '../../services/auth_service.dart';
 
 class SplashScreen extends ConsumerStatefulWidget {
   const SplashScreen({super.key});
@@ -16,6 +17,7 @@ class _SplashScreenState extends ConsumerState<SplashScreen>
   late final Animation<double> _opacity;
 
   bool _navigated = false;
+  final AuthService _authService = AuthService();
 
   @override
   void initState() {
@@ -36,9 +38,14 @@ class _SplashScreenState extends ConsumerState<SplashScreen>
     );
 
     _controller.forward();
+
+    // Startup auth gate: never navigate based on token alone.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _bootstrap();
+    });
   }
 
-  void _navigateAfterDelay(AuthStatus status) async {
+  Future<void> _bootstrap() async {
     if (_navigated) return;
     _navigated = true;
 
@@ -46,9 +53,40 @@ class _SplashScreenState extends ConsumerState<SplashScreen>
 
     if (!mounted) return;
 
-    if (status == AuthStatus.authenticated) {
+    final token = await _authService.getToken();
+    if (!mounted) return;
+
+    if (token == null || token.isEmpty) {
+      Navigator.pushReplacementNamed(context, '/welcome');
+      return;
+    }
+
+    try {
+      final res = await _authService.me();
+      final ok = res['success'] == true;
+      final data = (res['data'] as Map?)?.cast<String, dynamic>();
+      final retailerProfileExists = data?['retailerProfileExists'] == true;
+
+      if (!mounted) return;
+
+      if (!ok) {
+        await ref.read(authProvider.notifier).logout();
+        if (!mounted) return;
+        Navigator.pushReplacementNamed(context, '/welcome');
+        return;
+      }
+
+      if (!retailerProfileExists) {
+        // Onboarding/profile creation flow (existing route).
+        Navigator.pushReplacementNamed(context, '/signup');
+        return;
+      }
+
       Navigator.pushReplacementNamed(context, '/home');
-    } else {
+    } catch (_) {
+      // 401/403 or unexpected → clear token and send to login.
+      await ref.read(authProvider.notifier).logout();
+      if (!mounted) return;
       Navigator.pushReplacementNamed(context, '/welcome');
     }
   }
@@ -61,15 +99,9 @@ class _SplashScreenState extends ConsumerState<SplashScreen>
 
   @override
   Widget build(BuildContext context) {
-    final authStatus = ref.watch(authProvider);
-
-    // Wait until auth status resolved (loading → authenticated/unauthenticated)
-    // Then navigate after 2 seconds like Next.js.
-    if (authStatus != AuthStatus.loading) {
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        _navigateAfterDelay(authStatus);
-      });
-    }
+    // Still watch authProvider so global auth state is initialized,
+    // but navigation is handled by `_bootstrap()` only.
+    ref.watch(authProvider);
 
     return Scaffold(
       backgroundColor: const Color(0xFFFF7A00), // primary

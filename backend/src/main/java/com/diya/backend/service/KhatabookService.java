@@ -19,6 +19,7 @@ import com.diya.backend.repository.OrderRepository;
 import com.diya.backend.repository.PaymentRepository;
 import com.diya.backend.repository.RetailerRepository;
 import com.diya.backend.repository.WholesalerRepository;
+import com.diya.backend.util.LedgerAccounting;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -26,11 +27,13 @@ import org.springframework.transaction.annotation.Transactional;
 import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.time.LocalTime;
 import java.time.YearMonth;
 import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -50,6 +53,8 @@ public class KhatabookService {
     private final RetailerRepository retailerRepository;
     private final WholesalerRepository wholesalerRepository;
 
+    private static final BigDecimal PAYMENT_TOLERANCE = new BigDecimal("0.01");
+
     /**
      * Dashboard summary for Khatabook page: total outstanding, critical overdue,
      * collected this month, and count of retailers with outstanding > 0.
@@ -60,12 +65,38 @@ public class KhatabookService {
                 .orElseThrow(() -> new RuntimeException("Wholesaler not found: " + wholesalerId));
 
         List<LedgerEntry> allEntries = ledgerEntryRepository.findByWholesaler(wholesaler);
+        LocalDate today = LocalDate.now();
+        LocalDateTime yesterdayEnd = today.minusDays(1).atTime(LocalTime.MAX);
 
-        // 1) totalOutstanding = Sum(DEBIT) - Sum(CREDIT)
-        BigDecimal totalOutstanding = allEntries.stream()
-                .map(e -> e.getEntryType() == LedgerEntry.EntryType.DEBIT ? e.getAmount() : e.getAmount().negate())
+        // 1) Compute per-retailer balances (DEBIT - CREDIT).
+        //    For summary totals, we exclude negative balances (advance/excess credits)
+        //    to avoid incorrect "negative outstanding" and mismatch vs retailer list.
+        Map<UUID, BigDecimal> perRetailer = allEntries.stream()
+                .filter(e -> e != null && e.getRetailer() != null && e.getRetailer().getId() != null)
+                .collect(Collectors.groupingBy(
+                        e -> e.getRetailer().getId(),
+                        Collectors.reducing(BigDecimal.ZERO,
+                                LedgerAccounting::signedEffect,
+                                BigDecimal::add)));
+
+        BigDecimal totalOutstanding = perRetailer.values().stream()
+                .filter(Objects::nonNull)
+                .map(b -> b.max(BigDecimal.ZERO))
                 .reduce(BigDecimal.ZERO, BigDecimal::add);
-        if (totalOutstanding == null) totalOutstanding = BigDecimal.ZERO;
+
+        Map<UUID, BigDecimal> perRetailerYesterday = allEntries.stream()
+                .filter(e -> e != null && e.getRetailer() != null && e.getRetailer().getId() != null)
+                .filter(e -> e.getEntryDate() != null && !e.getEntryDate().isAfter(yesterdayEnd))
+                .collect(Collectors.groupingBy(
+                        e -> e.getRetailer().getId(),
+                        Collectors.reducing(BigDecimal.ZERO,
+                                LedgerAccounting::signedEffect,
+                                BigDecimal::add)));
+
+        BigDecimal totalOutstandingYesterday = perRetailerYesterday.values().stream()
+                .filter(Objects::nonNull)
+                .map(b -> b.max(BigDecimal.ZERO))
+                .reduce(BigDecimal.ZERO, BigDecimal::add);
 
         // 2) criticalOverdue: DEBIT entries older than 7 days, sum of amounts
         LocalDateTime sevenDaysAgo = LocalDateTime.now().minusDays(7);
@@ -84,21 +115,25 @@ public class KhatabookService {
                 .reduce(BigDecimal.ZERO, BigDecimal::add);
         if (collectedThisMonth == null) collectedThisMonth = BigDecimal.ZERO;
 
+        BigDecimal collectedThisMonthYesterday = confirmedPayments.stream()
+                .filter(p -> p.getConfirmedAt() != null
+                        && !p.getConfirmedAt().isAfter(yesterdayEnd)
+                        && YearMonth.from(p.getConfirmedAt()).equals(currentMonth))
+                .map(Payment::getAmount)
+                .reduce(BigDecimal.ZERO, BigDecimal::add);
+        if (collectedThisMonthYesterday == null) collectedThisMonthYesterday = BigDecimal.ZERO;
+
         // 4) retailerCount: unique retailers with outstanding > 0
-        Map<UUID, BigDecimal> perRetailer = allEntries.stream()
-                .collect(Collectors.groupingBy(
-                        e -> e.getRetailer().getId(),
-                        Collectors.reducing(BigDecimal.ZERO,
-                                e -> e.getEntryType() == LedgerEntry.EntryType.DEBIT ? e.getAmount() : e.getAmount().negate(),
-                                BigDecimal::add)));
         long retailerCount = perRetailer.values().stream()
                 .filter(bal -> bal != null && bal.compareTo(BigDecimal.ZERO) > 0)
                 .count();
 
         return new KhatabookSummaryDTO(
                 totalOutstanding,
+                totalOutstandingYesterday,
                 criticalOverdue,
                 collectedThisMonth,
+                collectedThisMonthYesterday,
                 retailerCount
         );
     }
@@ -119,18 +154,31 @@ public class KhatabookService {
         Map<UUID, List<LedgerEntry>> byRetailer = allEntries.stream()
                 .collect(Collectors.groupingBy(e -> e.getRetailer().getId()));
 
+        Set<UUID> managedRetailerIds = connectionRepository
+                .findByWholesalerAndStatusInOrderByRequestedAtDesc(
+                        wholesaler,
+                        List.of(Connection.Status.APPROVED, Connection.Status.BLOCKED))
+                .stream()
+                .map(c -> c.getRetailer() != null ? c.getRetailer().getId() : null)
+                .filter(Objects::nonNull)
+                .collect(Collectors.toCollection(HashSet::new));
+
         List<RetailerDueDTO> result = new ArrayList<>();
 
         for (Map.Entry<UUID, List<LedgerEntry>> entry : byRetailer.entrySet()) {
             UUID retailerId = entry.getKey();
+            if (!managedRetailerIds.contains(retailerId)) {
+                continue;
+            }
             List<LedgerEntry> entries = entry.getValue();
 
             BigDecimal totalDue = entries.stream()
-                    .map(e -> e.getEntryType() == LedgerEntry.EntryType.DEBIT ? e.getAmount() : e.getAmount().negate())
+                    .map(LedgerAccounting::signedEffect)
                     .reduce(BigDecimal.ZERO, BigDecimal::add);
             if (totalDue == null) {
                 totalDue = BigDecimal.ZERO;
             }
+            totalDue = totalDue.max(BigDecimal.ZERO);
 
             BigDecimal overdueAmount = entries.stream()
                     .filter(e -> e.getEntryType() == LedgerEntry.EntryType.DEBIT
@@ -181,7 +229,9 @@ public class KhatabookService {
 
         // Also include retailers connected to this wholesaler even if they have no dues yet
         List<Connection> approvedConnections = connectionRepository
-                .findByWholesalerAndStatusOrderByRequestedAtDesc(wholesaler, Connection.Status.APPROVED);
+                .findByWholesalerAndStatusInOrderByRequestedAtDesc(
+                        wholesaler,
+                        List.of(Connection.Status.APPROVED, Connection.Status.BLOCKED));
 
         Set<UUID> existingIds = result.stream()
                 .map(RetailerDueDTO::getRetailerId)
@@ -227,6 +277,7 @@ public class KhatabookService {
                 .orElseThrow(() -> new RuntimeException("Wholesaler not found"));
         Retailer retailer = retailerRepository.findById(request.getRetailerId())
                 .orElseThrow(() -> new RuntimeException("Retailer not found"));
+        assertWholesalerCanMutateRetailer(wholesaler, retailer);
         if (request.getOrderId() == null) {
             throw new RuntimeException("orderId is required for payment");
         }
@@ -240,6 +291,22 @@ public class KhatabookService {
         }
         if (order.getStatus() == Order.Status.PLACED || order.getStatus() == Order.Status.REJECTED || order.getStatus() == Order.Status.CANCELLED) {
             throw new RuntimeException("Cannot record payment for this order status");
+        }
+        if (request.getAmount() == null || request.getAmount().compareTo(BigDecimal.ZERO) <= 0) {
+            throw new RuntimeException("Invalid payment amount");
+        }
+
+        // Prevent overpayment for this order (CONFIRMED payments only).
+        BigDecimal alreadyConfirmed = paymentRepository.findByOrder(order).stream()
+                .filter(p -> p != null && p.getStatus() == Payment.PaymentStatus.CONFIRMED)
+                .map(Payment::getAmount)
+                .filter(Objects::nonNull)
+                .reduce(BigDecimal.ZERO, BigDecimal::add);
+
+        BigDecimal orderTotal = order.getTotalAmount() == null ? BigDecimal.ZERO : order.getTotalAmount();
+        BigDecimal due = orderTotal.subtract(alreadyConfirmed);
+        if (request.getAmount().compareTo(due.add(PAYMENT_TOLERANCE)) > 0) {
+            throw new RuntimeException("Payment amount exceeds due amount");
         }
 
         Payment.PaymentMode paymentMode = Payment.PaymentMode.CASH;
@@ -288,10 +355,7 @@ public class KhatabookService {
         Retailer retailer = retailerRepository.findById(retailerId)
                 .orElseThrow(() -> new RuntimeException("Retailer not found"));
 
-        Optional<Connection> connection = connectionRepository.findByWholesalerAndRetailer(wholesaler, retailer);
-        if (connection.isEmpty() || connection.get().getStatus() != Connection.Status.APPROVED) {
-            throw new RuntimeException("Retailer not connected to wholesaler");
-        }
+        assertWholesalerCanReadRetailer(wholesaler, retailer);
 
         List<LedgerEntry> entries = ledgerEntryRepository.findByWholesalerAndRetailer(wholesaler, retailer);
         entries = entries.stream()
@@ -309,13 +373,11 @@ public class KhatabookService {
 
         for (LedgerEntry e : entries) {
             if (e.getEntryType() == LedgerEntry.EntryType.DEBIT) {
-                balance = balance.add(e.getAmount());
                 if (e.getEntryDate() != null && oldestDebitDate.isEmpty()) {
                     oldestDebitDate = Optional.of(e.getEntryDate());
                 }
-            } else {
-                balance = balance.subtract(e.getAmount());
             }
+            balance = balance.add(LedgerAccounting.signedEffect(e));
             String desc = e.getDescription() != null ? e.getDescription() : "";
             UUID orderId = e.getRelatedOrder() != null ? e.getRelatedOrder().getId() : null;
             String orderNumber = e.getRelatedOrder() != null ? e.getRelatedOrder().getOrderNumber() : null;
@@ -323,7 +385,8 @@ public class KhatabookService {
             String paymentMethod = null;
             LocalDateTime paymentDate = null;
 
-            if (e.getEntryType() == LedgerEntry.EntryType.CREDIT && orderId != null) {
+            if ((e.getEntryType() == LedgerEntry.EntryType.CREDIT
+                    || e.getEntryType() == LedgerEntry.EntryType.ORDER_PAYMENT_INFO) && orderId != null) {
                 // best-effort match to a confirmed payment for this order
                 Payment best = null;
                 long bestScore = Long.MAX_VALUE;
@@ -356,11 +419,12 @@ public class KhatabookService {
                     orderNumber,
                     orderDate,
                     paymentMethod,
-                    paymentDate
+                    paymentDate,
+                    e.getEntryType() == LedgerEntry.EntryType.ORDER_PAYMENT_INFO
             ));
         }
 
-        BigDecimal totalOutstanding = balance;
+        BigDecimal totalOutstanding = balance == null ? BigDecimal.ZERO : balance.max(BigDecimal.ZERO);
         long overdueDays = 0L;
         if (totalOutstanding.compareTo(BigDecimal.ZERO) > 0 && oldestDebitDate.isPresent()) {
             overdueDays = ChronoUnit.DAYS.between(
@@ -394,10 +458,7 @@ public class KhatabookService {
         Retailer retailer = retailerRepository.findById(retailerId)
                 .orElseThrow(() -> new RuntimeException("Retailer not found"));
 
-        Optional<Connection> connection = connectionRepository.findByWholesalerAndRetailer(wholesaler, retailer);
-        if (connection.isEmpty() || connection.get().getStatus() != Connection.Status.APPROVED) {
-            throw new RuntimeException("Retailer not connected to wholesaler");
-        }
+        Connection conn = assertWholesalerCanReadRetailer(wholesaler, retailer);
 
         List<Order> orders = orderRepository.findByWholesaler(wholesaler).stream()
                 .filter(o -> o.getRetailer().getId().equals(retailerId))
@@ -513,11 +574,13 @@ public class KhatabookService {
                 .shopName(retailer.getShopName() != null ? retailer.getShopName() : "")
                 .phoneContact(retailer.getPhoneContact() != null ? retailer.getPhoneContact() : "")
                 .address(retailer.getAddress() != null ? retailer.getAddress() : "")
+                .region(retailer.getRegion() != null ? retailer.getRegion() : "")
                 .city(retailer.getCity() != null ? retailer.getCity() : "")
                 .state(retailer.getState() != null ? retailer.getState() : "")
                 .proprietorName(proprietorName)
                 .totalCompletedPurchaseValue(completedPurchase)
                 .tier(tier)
+                .connectionStatus(conn.getStatus().name())
                 .build();
     }
 
@@ -547,8 +610,9 @@ public class KhatabookService {
         Wholesaler wholesaler = wholesalerRepository.findById(wholesalerId)
                 .orElseThrow(() -> new RuntimeException("Wholesaler not found"));
 
-        List<Connection> approved = connectionRepository.findByWholesalerAndStatusOrderByRequestedAtDesc(
-                wholesaler, Connection.Status.APPROVED);
+        List<Connection> approved = connectionRepository.findByWholesalerAndStatusInOrderByRequestedAtDesc(
+                wholesaler,
+                List.of(Connection.Status.APPROVED, Connection.Status.BLOCKED));
 
         List<RetailerCreditOverviewDTO> result = new ArrayList<>();
         for (Connection conn : approved) {
@@ -558,9 +622,10 @@ public class KhatabookService {
             List<LedgerEntry> entries = ledgerEntryRepository.findByWholesalerAndRetailer(wholesaler, retailer);
 
             BigDecimal outstanding = entries.stream()
-                    .map(e -> e.getEntryType() == LedgerEntry.EntryType.DEBIT ? e.getAmount() : e.getAmount().negate())
+                    .map(LedgerAccounting::signedEffect)
                     .reduce(BigDecimal.ZERO, BigDecimal::add);
             if (outstanding == null) outstanding = BigDecimal.ZERO;
+            outstanding = outstanding.max(BigDecimal.ZERO);
 
             int overdueDays = 0;
             if (outstanding.compareTo(BigDecimal.ZERO) > 0) {
@@ -595,5 +660,34 @@ public class KhatabookService {
             ));
         }
         return result;
+    }
+
+    private static boolean isReadableWholesalerRetailerConnection(Connection.Status s) {
+        return s == Connection.Status.APPROVED
+                || s == Connection.Status.BLOCKED
+                || s == Connection.Status.REMOVED;
+    }
+
+    private static boolean isMutableWholesalerRetailerConnection(Connection.Status s) {
+        return s == Connection.Status.APPROVED || s == Connection.Status.BLOCKED;
+    }
+
+    private Connection assertWholesalerCanReadRetailer(Wholesaler wholesaler, Retailer retailer) {
+        Optional<Connection> opt = connectionRepository.findByWholesalerAndRetailer(wholesaler, retailer);
+        if (opt.isEmpty()) {
+            throw new RuntimeException("Retailer not connected to wholesaler");
+        }
+        Connection c = opt.get();
+        if (!isReadableWholesalerRetailerConnection(c.getStatus())) {
+            throw new RuntimeException("Retailer not connected to wholesaler");
+        }
+        return c;
+    }
+
+    private void assertWholesalerCanMutateRetailer(Wholesaler wholesaler, Retailer retailer) {
+        Connection c = assertWholesalerCanReadRetailer(wholesaler, retailer);
+        if (!isMutableWholesalerRetailerConnection(c.getStatus())) {
+            throw new RuntimeException("This retailer has been removed from your active list");
+        }
     }
 }

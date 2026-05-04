@@ -32,7 +32,8 @@ public class JwtAuthFilter extends OncePerRequestFilter {
         @Override
         protected boolean shouldNotFilter(HttpServletRequest request) {
                 String path = request.getServletPath();
-                return path.startsWith("/api/auth/")
+                // Auth endpoints are public EXCEPT /api/auth/me which must validate token.
+                return (path.startsWith("/api/auth/") && !path.equals("/api/auth/me"))
                                 || path.startsWith("/api/public/")
                                 || path.startsWith("/uploads/")
                                 || path.startsWith("/static/")

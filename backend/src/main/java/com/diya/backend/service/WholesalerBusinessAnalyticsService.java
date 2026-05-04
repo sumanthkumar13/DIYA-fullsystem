@@ -57,6 +57,12 @@ public class WholesalerBusinessAnalyticsService {
         long ordersThisMonth = orderRepository.countOrdersForWholesalerBetween(wholesaler, monthStart, nextMonthStart);
 
         BigDecimal outstanding = ledgerEntryRepository.outstandingForWholesaler(wholesaler);
+        if (outstanding == null) {
+            outstanding = ZERO;
+        } else {
+            // Never show negative outstanding; excess credits are treated as advance (not shown here).
+            outstanding = outstanding.max(ZERO);
+        }
         BigDecimal avg = BigDecimal.ZERO;
         if (ordersThisMonth > 0) {
             avg = monthSales.divide(BigDecimal.valueOf(ordersThisMonth), 2, RoundingMode.HALF_UP);

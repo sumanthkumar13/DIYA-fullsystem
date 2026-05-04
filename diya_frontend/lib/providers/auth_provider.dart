@@ -1,5 +1,7 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../services/auth_service.dart';
+import 'approved_wholesalers_provider.dart';
+import 'selected_wholesaler_provider.dart';
 import 'retailer_session_provider.dart';
 
 enum AuthStatus { unauthenticated, authenticated, loading }
@@ -14,12 +16,37 @@ class AuthNotifier extends StateNotifier<AuthStatus> {
 
   Future<void> _checkAuth() async {
     final token = await _authService.getToken();
-    final authed = token != null && token.isNotEmpty;
-    if (authed) {
-      // Hydrate app state on cold start (both self-signup and wholesaler-created users)
-      await _ref.read(retailerSessionProvider.notifier).sync();
+    final hasToken = token != null && token.isNotEmpty;
+    if (!hasToken) {
+      state = AuthStatus.unauthenticated;
+      return;
     }
-    state = authed ? AuthStatus.authenticated : AuthStatus.unauthenticated;
+
+    try {
+      final res = await _authService.me();
+      final ok = res['success'] == true;
+      if (!ok) {
+        await logout();
+        return;
+      }
+
+      final data = (res['data'] as Map?)?.cast<String, dynamic>();
+      final retailerProfileExists = data?['retailerProfileExists'] == true;
+
+      // Ensure connection-related providers are rebuilt for current identity.
+      _ref.invalidate(approvedWholesalersProvider);
+      _ref.read(selectedWholesalerIdProvider.notifier).state = null;
+
+      // Hydrate app state only when retailer profile exists (avoids crashes for incomplete onboarding).
+      if (retailerProfileExists) {
+        await _ref.read(retailerSessionProvider.notifier).sync();
+      }
+
+      state = AuthStatus.authenticated;
+    } catch (e) {
+      // token invalid/expired/network issues → treat as unauthenticated on startup
+      await logout();
+    }
   }
 
   Future<bool> register(Map<String, dynamic> body) async {
@@ -36,6 +63,8 @@ class AuthNotifier extends StateNotifier<AuthStatus> {
       // ✅ If register succeeded, token should be saved
       final token = await _authService.getToken();
       if (token != null && token.isNotEmpty) {
+        _ref.invalidate(approvedWholesalersProvider);
+        _ref.read(selectedWholesalerIdProvider.notifier).state = null;
         await _ref.read(retailerSessionProvider.notifier).sync();
         state = AuthStatus.authenticated; // ✅ IMPORTANT FIX
       } else {
@@ -53,6 +82,8 @@ class AuthNotifier extends StateNotifier<AuthStatus> {
     try {
       state = AuthStatus.loading;
       await _authService.loginWithPassword(phone, password);
+      _ref.invalidate(approvedWholesalersProvider);
+      _ref.read(selectedWholesalerIdProvider.notifier).state = null;
       await _ref.read(retailerSessionProvider.notifier).sync();
       state = AuthStatus.authenticated;
       return true;
@@ -75,6 +106,8 @@ class AuthNotifier extends StateNotifier<AuthStatus> {
   Future<void> logout() async {
     await _authService.logout();
     _ref.read(retailerSessionProvider.notifier).clear();
+    _ref.invalidate(approvedWholesalersProvider);
+    _ref.read(selectedWholesalerIdProvider.notifier).state = null;
     state = AuthStatus.unauthenticated;
   }
 }

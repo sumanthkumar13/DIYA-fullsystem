@@ -93,12 +93,8 @@ public class AuthService {
      */
     public AuthResponse registerWholesaler(RegisterWholesalerRequest req) {
 
-        String region = req.getRegion();
-        if (region == null || region.isBlank()) {
-            throw new RuntimeException("Region is required");
-        }
-        RegionCatalog.requireValidRegion(region);
-        region = region.trim();
+        // Territory label (pincode → PostOffice name), same model as retailer self-signup.
+        String region = RegionCatalog.requireValidRetailerRegion(req.getRegion());
 
         if (req.getState() == null || req.getState().trim().isEmpty()) {
             throw new RuntimeException("State is required");
@@ -205,13 +201,8 @@ public class AuthService {
             throw new RuntimeException("Phone already registered");
         });
 
-        // Region is required for territory analytics.
-        String region = req.getRegion();
-        if (region == null || region.isBlank()) {
-            throw new RuntimeException("Region is required");
-        }
-        RegionCatalog.requireValidRegion(region);
-        region = region.trim();
+        // Territory label (pincode → PostOffice / city-town). Not limited to wholesaler canonical regions.
+        String region = RegionCatalog.requireValidRetailerRegion(req.getRegion());
 
         if (req.getState() == null || req.getState().trim().isEmpty()) {
             throw new RuntimeException("State is required");

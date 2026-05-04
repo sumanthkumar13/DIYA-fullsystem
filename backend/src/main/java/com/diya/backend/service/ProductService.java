@@ -69,8 +69,8 @@ public class ProductService {
                 .name(req.getName())
                 .description(req.getDescription())
                 .unit(req.getUnit())
-                .price(req.getPrice())
-                .mrp(req.getMrp())
+                .price(req.getPrice() != null ? BigDecimal.valueOf(req.getPrice()).setScale(2, java.math.RoundingMode.HALF_UP) : null)
+                .mrp(req.getMrp() != null ? BigDecimal.valueOf(req.getMrp()).setScale(2, java.math.RoundingMode.HALF_UP) : null)
                 .stock(req.getStock() == null ? 0 : req.getStock())
                 .imageUrl(req.getImageUrl())
                 .active(true)
@@ -149,8 +149,8 @@ public class ProductService {
                 .name(p.getName())
                 .description(p.getDescription())
                 .unit(p.getUnit())
-                .price(p.getPrice())
-                .mrp(p.getMrp())
+                .price(p.getPrice() != null ? p.getPrice().doubleValue() : null)
+                .mrp(p.getMrp() != null ? p.getMrp().doubleValue() : null)
                 .stock(getAvailableStock(p)) // ✅ use available stock not raw stock
                 .status(getStatus(getAvailableStock(p)))
                 .imageUrl(p.getImageUrl())
@@ -256,9 +256,9 @@ public class ProductService {
         if (req.getUnit() != null)
             p.setUnit(req.getUnit());
         if (req.getPrice() != null)
-            p.setPrice(req.getPrice());
+            p.setPrice(BigDecimal.valueOf(req.getPrice()).setScale(2, java.math.RoundingMode.HALF_UP));
         if (req.getMrp() != null)
-            p.setMrp(req.getMrp());
+            p.setMrp(BigDecimal.valueOf(req.getMrp()).setScale(2, java.math.RoundingMode.HALF_UP));
         if (req.getStock() != null)
             p.setStock(req.getStock());
         if (req.getImageUrl() != null)
@@ -449,8 +449,8 @@ public class ProductService {
                 .name(p.getName())
                 .description(p.getDescription())
                 .unit(p.getUnit())
-                .price(p.getPrice())
-                .mrp(p.getMrp())
+                .price(p.getPrice() != null ? p.getPrice().doubleValue() : null)
+                .mrp(p.getMrp() != null ? p.getMrp().doubleValue() : null)
                 .stock(p.getStock())
                 .status(getStatus(p.getStock()))
                 .imageUrl(p.getImageUrl())
@@ -507,8 +507,8 @@ public class ProductService {
                 .name(p.getName())
                 .description(p.getDescription())
                 .unit(p.getUnit())
-                .price(p.getPrice())
-                .mrp(p.getMrp())
+                .price(p.getPrice() != null ? p.getPrice().doubleValue() : null)
+                .mrp(p.getMrp() != null ? p.getMrp().doubleValue() : null)
                 .stock(p.getStock())
                 .status(status)
                 .imageUrl(p.getImageUrl())

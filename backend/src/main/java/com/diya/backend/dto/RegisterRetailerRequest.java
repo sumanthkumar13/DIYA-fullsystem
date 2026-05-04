@@ -19,7 +19,7 @@ public class RegisterRetailerRequest {
     private String gstin;
     private String pincode;
     /**
-     * Required. Canonical territory used for analytics (must be one of the predefined regions).
+     * Required. Territory label for analytics (e.g. India Post PostOffice name from pincode lookup).
      */
     private String region;
     private String city;

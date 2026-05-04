@@ -39,6 +39,7 @@ public class CategoryService {
         Category category = Category.builder()
                 .wholesaler(wholesaler)
                 .name(req.getName())
+                .imageUrl(req.getImageUrl() != null && !req.getImageUrl().trim().isEmpty() ? req.getImageUrl().trim() : null)
                 .build();
 
         return categoryRepository.save(category);
@@ -85,6 +86,7 @@ public class CategoryService {
                         return CategoryTreeDTO.SubNode.builder()
                                 .id(s.getId())
                                 .name(s.getName())
+                                .imageUrl(s.getImageUrl())
                                 .products(subProducts)
                                 .build();
                     })
@@ -93,6 +95,7 @@ public class CategoryService {
             return CategoryTreeDTO.builder()
                     .id(cat.getId())
                     .name(cat.getName())
+                    .imageUrl(cat.getImageUrl())
                     .products(categoryProducts)
                     .subcategories(subs)
                     .build();
@@ -102,7 +105,10 @@ public class CategoryService {
 
     public Category updateCategoryName(String identifier, String authType, UUID categoryId, CategoryUpdateRequest req) {
         Wholesaler wholesaler = getWholesaler(identifier, authType);
-        if (req == null || req.getName() == null || req.getName().trim().isEmpty()) {
+        if (req == null) {
+            throw new RuntimeException("Request body required");
+        }
+        if (req.getName() == null || req.getName().trim().isEmpty()) {
             throw new RuntimeException("Category name is required");
         }
         String name = req.getName().trim();
@@ -115,6 +121,10 @@ public class CategoryService {
                     }
                 });
         category.setName(name);
+        if (req.getImageUrl() != null) {
+            final String u = req.getImageUrl().trim();
+            category.setImageUrl(u.isEmpty() ? null : u);
+        }
         return categoryRepository.save(category);
     }
 
@@ -142,8 +152,8 @@ public class CategoryService {
                 .name(p.getName())
                 .description(p.getDescription())
                 .unit(p.getUnit())
-                .price(p.getPrice())
-                .mrp(p.getMrp())
+                .price(p.getPrice() != null ? p.getPrice().doubleValue() : null)
+                .mrp(p.getMrp() != null ? p.getMrp().doubleValue() : null)
                 .stock(p.getStock())
                 .status(p.getStock() == null ? "Unknown"
                         : p.getStock() == 0 ? "Out of Stock" : p.getStock() < 20 ? "Low Stock" : "In Stock")

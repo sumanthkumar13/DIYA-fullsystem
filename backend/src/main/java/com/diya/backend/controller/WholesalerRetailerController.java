@@ -9,6 +9,7 @@ import com.diya.backend.repository.ConnectionRepository;
 import com.diya.backend.repository.RetailerRepository;
 import com.diya.backend.repository.UserRepository;
 import com.diya.backend.repository.WholesalerRepository;
+import com.diya.backend.service.ConnectionService;
 import com.diya.backend.service.KhatabookService;
 import com.diya.backend.util.RegionCatalog;
 import lombok.RequiredArgsConstructor;
@@ -34,6 +35,11 @@ public class WholesalerRetailerController {
     private final RetailerRepository retailerRepository;
     private final ConnectionRepository connectionRepository;
     private final KhatabookService khatabookService;
+    private final ConnectionService connectionService;
+
+    private static String getAuthType(Authentication auth) {
+        return auth.getName().contains("@") ? "EMAIL" : "PHONE";
+    }
 
     /**
      * GET /api/wholesaler/retailers — list all retailers for the logged-in wholesaler.
@@ -56,9 +62,9 @@ public class WholesalerRetailerController {
             return ResponseEntity.badRequest().body(Map.of("message", "Wholesaler profile not found"));
         }
 
-        List<Connection> approved = connectionRepository.findByWholesalerAndStatusOrderByRequestedAtDesc(
-                wholesaler, Connection.Status.APPROVED);
-        List<Map<String, Object>> result = approved.stream()
+        List<Connection> connections = connectionRepository.findByWholesalerAndStatusInOrderByRequestedAtDesc(
+                wholesaler, List.of(Connection.Status.APPROVED, Connection.Status.BLOCKED));
+        List<Map<String, Object>> result = connections.stream()
                 .map(conn -> {
                     Retailer r = conn.getRetailer();
                     String name = r.getUser() != null && r.getUser().getName() != null
@@ -76,6 +82,7 @@ public class WholesalerRetailerController {
                             : (r.getCity() != null ? r.getCity() : ""));
                     m.put("retailerCity", r.getCity());
                     m.put("region", r.getRegion());
+                    m.put("connectionStatus", conn.getStatus().name());
                     return m;
                 })
                 .toList();
@@ -113,15 +120,14 @@ public class WholesalerRetailerController {
         String gstNumber = (String) body.getOrDefault("gstNumber", "");
         Object creditLimitRaw = body.get("creditLimit");
         String notes = (String) body.getOrDefault("notes", "");
-        String region = (String) body.getOrDefault("region", "");
+        String region;
         try {
-            RegionCatalog.requireValidRegion(region);
+            region = RegionCatalog.requireValidRetailerRegion((String) body.getOrDefault("region", ""));
         } catch (RuntimeException ex) {
             resp.put("success", false);
             resp.put("message", ex.getMessage());
             return ResponseEntity.badRequest().body(resp);
         }
-        region = region.trim();
 
         if (retailerName == null || retailerName.isBlank()
                 || phone == null || phone.isBlank()
@@ -131,13 +137,25 @@ public class WholesalerRetailerController {
             return ResponseEntity.badRequest().body(resp);
         }
 
+        phone = phone.trim();
         // Enforce global phone uniqueness across User and Retailer
-        userRepository.findByPhone(phone).ifPresent(u -> {
-            throw new RuntimeException("Phone already registered");
-        });
-        retailerRepository.findByPhoneContact(phone).ifPresent(r -> {
-            throw new RuntimeException("Phone already registered");
-        });
+        if (userRepository.existsByPhone(phone) || retailerRepository.findByPhoneContact(phone).isPresent()) {
+            return ResponseEntity.status(409).body(Map.of(
+                    "success", false,
+                    "message", "Retailer already exists"
+            ));
+        }
+
+        String gst = gstNumber != null ? gstNumber.trim().toUpperCase() : "";
+        if (!gst.isBlank()) {
+            // Duplicate GSTIN check (best-effort). Format is validated on frontend; backend just ensures uniqueness.
+            if (retailerRepository.existsByGstNumber(gst)) {
+                return ResponseEntity.status(409).body(Map.of(
+                        "success", false,
+                        "message", "Retailer already exists"
+                ));
+            }
+        }
 
         BigDecimal creditLimit = null;
         if (creditLimitRaw instanceof Number) {
@@ -154,7 +172,7 @@ public class WholesalerRetailerController {
                 .phoneContact(phone)
                 .isActive(true)
                 .accountStatus(Retailer.AccountStatus.CREATED_BY_WHOLESALER)
-                .gstNumber(gstNumber)
+                .gstNumber(gst)
                 .creditLimit(creditLimit)
                 .notes(notes)
                 .build();
@@ -204,10 +222,10 @@ public class WholesalerRetailerController {
         // Start from all APPROVED connections so we include:
         // 1) Retailers created by wholesaler
         // 2) Self-signup retailers connected to this wholesaler
-        List<Connection> approved = connectionRepository.findByWholesalerAndStatusOrderByRequestedAtDesc(
-                wholesaler, Connection.Status.APPROVED);
+        List<Connection> connections = connectionRepository.findByWholesalerAndStatusInOrderByRequestedAtDesc(
+                wholesaler, List.of(Connection.Status.APPROVED, Connection.Status.BLOCKED));
 
-        List<Map<String, Object>> all = approved.stream()
+        List<Map<String, Object>> all = connections.stream()
                 .map(conn -> {
                     Retailer r = conn.getRetailer();
                     String retailerName = r.getUser() != null && r.getUser().getName() != null
@@ -308,7 +326,8 @@ public class WholesalerRetailerController {
             return ResponseEntity.badRequest().body(resp);
         }
         Optional<Connection> conn = connectionRepository.findByWholesalerAndRetailer(wholesaler, retailer);
-        if (conn.isEmpty() || conn.get().getStatus() != Connection.Status.APPROVED) {
+        Connection.Status st = conn.map(Connection::getStatus).orElse(null);
+        if (conn.isEmpty() || (st != Connection.Status.APPROVED && st != Connection.Status.BLOCKED)) {
             resp.put("success", false);
             resp.put("message", "Retailer is not connected to your business");
             return ResponseEntity.status(403).body(resp);
@@ -336,5 +355,35 @@ public class WholesalerRetailerController {
         resp.put("success", true);
         resp.put("creditLimit", limit);
         return ResponseEntity.ok(resp);
+    }
+
+    @PostMapping("/{retailerId}/block")
+    public ResponseEntity<?> blockRetailer(@PathVariable UUID retailerId) {
+        Authentication auth = SecurityContextHolder.getContext().getAuthentication();
+        try {
+            return ResponseEntity.ok(connectionService.blockRetailer(auth.getName(), getAuthType(auth), retailerId));
+        } catch (RuntimeException e) {
+            return ResponseEntity.badRequest().body(Map.of("message", e.getMessage() != null ? e.getMessage() : "Failed"));
+        }
+    }
+
+    @PostMapping("/{retailerId}/unblock")
+    public ResponseEntity<?> unblockRetailer(@PathVariable UUID retailerId) {
+        Authentication auth = SecurityContextHolder.getContext().getAuthentication();
+        try {
+            return ResponseEntity.ok(connectionService.unblockRetailer(auth.getName(), getAuthType(auth), retailerId));
+        } catch (RuntimeException e) {
+            return ResponseEntity.badRequest().body(Map.of("message", e.getMessage() != null ? e.getMessage() : "Failed"));
+        }
+    }
+
+    @PostMapping("/{retailerId}/remove-from-list")
+    public ResponseEntity<?> removeRetailerFromList(@PathVariable UUID retailerId) {
+        Authentication auth = SecurityContextHolder.getContext().getAuthentication();
+        try {
+            return ResponseEntity.ok(connectionService.removeRetailer(auth.getName(), getAuthType(auth), retailerId));
+        } catch (RuntimeException e) {
+            return ResponseEntity.badRequest().body(Map.of("message", e.getMessage() != null ? e.getMessage() : "Failed"));
+        }
     }
 }

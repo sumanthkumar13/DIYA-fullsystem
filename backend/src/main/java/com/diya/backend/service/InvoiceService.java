@@ -93,7 +93,7 @@ public class InvoiceService {
                         + " (required base units: " + qtyBase + ", available: " + available + ")");
             }
 
-            BigDecimal rate = BigDecimal.valueOf(oi.getUnitPriceSnapshot() != null ? oi.getUnitPriceSnapshot() : 0);
+            BigDecimal rate = oi.getUnitPriceSnapshot() != null ? oi.getUnitPriceSnapshot() : BigDecimal.ZERO;
             BigDecimal taxableValue = qtySelling.multiply(rate).setScale(SCALE, ROUNDING);
 
             BigDecimal gstRatePct = product.getGstRate() != null ? product.getGstRate() : BigDecimal.ZERO;

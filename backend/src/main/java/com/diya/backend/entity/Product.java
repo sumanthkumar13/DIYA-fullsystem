@@ -51,8 +51,11 @@ public class Product {
         private String description;
         private String unit;
 
-        private Double price;
-        private Double mrp;
+        @Column(precision = 19, scale = 2)
+        private BigDecimal price;
+
+        @Column(precision = 19, scale = 2)
+        private BigDecimal mrp;
         private Integer stock;
         private String imageUrl;
 

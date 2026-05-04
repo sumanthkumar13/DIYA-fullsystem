@@ -19,6 +19,8 @@ public interface PaymentRepository extends JpaRepository<Payment, UUID> {
 
     List<Payment> findByWholesalerAndRetailer(Wholesaler wholesaler, Retailer retailer);
 
+    List<Payment> findByWholesalerAndRetailerAndReferenceIgnoreCase(Wholesaler wholesaler, Retailer retailer, String reference);
+
     // ✅ new
     List<Payment> findByWholesalerAndStatus(Wholesaler wholesaler, Payment.PaymentStatus status);
 

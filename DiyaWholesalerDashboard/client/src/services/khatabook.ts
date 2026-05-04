@@ -17,14 +17,25 @@ export async function fetchKhatabookRetailers() {
       .join("")
       .toUpperCase();
 
-    let status = "Settled";
-    if (r.overdueDays > 7) status = "Critical";
-    else if (r.overdueDays > 0) status = "Pending";
+    const outstanding = Math.max(0, Number(r.totalDue ?? 0));
+    const overdueDays = Number(r.overdueDays ?? 0);
+
+    let status: string;
+    if (outstanding <= 0) {
+      status = "Settled";
+    } else if (overdueDays > 7) {
+      status = "Critical";
+    } else if (overdueDays > 0) {
+      status = "Pending";
+    } else {
+      status = "Due";
+    }
 
     return {
       id: r.retailerId,
       name: name,
       location: "",
+      outstanding,
       due: `₹${Number(r.totalDue || 0).toLocaleString("en-IN")}`,
       overdue: `₹${Number(r.overdueAmount || 0).toLocaleString("en-IN")}`,
       lastPayment: r.lastPaymentDate

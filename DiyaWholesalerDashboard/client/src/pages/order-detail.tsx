@@ -46,6 +46,8 @@ import {
 } from "@/components/ui/dialog";
 import { useToast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
+import { formatINR } from "@/lib/money";
+import { getRetailerOutstanding } from "@/services/ledger";
 import {
   fetchOrderDetail,
   acceptOrder,
@@ -53,7 +55,6 @@ import {
   updateOrderStatus,
   editOrder,
   patchOrderCredit,
-  fetchPreviousDue,
 } from "@/services/order";
 import { finalizeInvoice } from "@/services/invoice";
 import { invalidateAfterMutation } from "@/lib/invalidate";
@@ -93,8 +94,22 @@ function formatDate(dateString: string | null): string {
 
 // Format amount
 function formatAmount(amount: number | null): string {
-  if (amount === null || amount === undefined) return "₹0";
-  return `₹${amount.toLocaleString("en-IN", { maximumFractionDigits: 2 })}`;
+  return formatINR(amount ?? 0);
+}
+
+function paymentMethodDisplay(raw: unknown): string {
+  const s = String(raw ?? "").trim();
+  if (!s) return "—";
+  const up = s.toUpperCase();
+  const map: Record<string, string> = {
+    UPI: "UPI",
+    CASH: "Cash",
+    NEFT: "NEFT",
+    IMPS: "IMPS",
+    CARD: "Card",
+    CREDIT: "Credit",
+  };
+  return map[up] ?? s;
 }
 
 export default function OrderDetail() {
@@ -115,7 +130,8 @@ export default function OrderDetail() {
 
   const { data: previousDue = 0 } = useQuery({
     queryKey: ["previous-due", retailerId, orderId],
-    queryFn: () => fetchPreviousDue(retailerId, orderId),
+    // Use ledger-based outstanding to match Khatabook + Retailer Profile.
+    queryFn: () => getRetailerOutstanding(retailerId),
     enabled: !!retailerId && !!orderId,
     refetchOnMount: "always",
   });
@@ -337,10 +353,21 @@ export default function OrderDetail() {
   const canEditCredit =
     order.status !== "CANCELLED" && order.status !== "REJECTED";
 
-  const canEditOrder =
-    order.status !== "CANCELLED" &&
-    order.status !== "REJECTED" &&
-    order.status !== "COMPLETED";
+  const nonEditableStatuses = new Set([
+    "PACKING",
+    "DISPATCHED",
+    "DELIVERED",
+    "INVOICED",
+    "COMPLETED",
+    "CANCELLED",
+    "REJECTED",
+  ]);
+  const canEditOrder = !nonEditableStatuses.has(order.status);
+
+  const editDisabledReason = (() => {
+    if (!nonEditableStatuses.has(order.status)) return "";
+    return "Order cannot be edited after it is packed.";
+  })();
 
   const isAcceptedOrLater =
     order.status !== "PLACED" &&
@@ -348,9 +375,17 @@ export default function OrderDetail() {
     order.status !== "CANCELLED";
 
   const orderTotal = Number(order.totalAmount ?? 0);
-  const paidAmount = Number((order as any).paidAmount ?? 0);
-  const unpaidAmount = isAcceptedOrLater ? Math.max(0, orderTotal - paidAmount) : 0;
-  const boxPaymentStatus = unpaidAmount > 0 ? "UNPAID" : "PAID";
+  const paidAmount = Math.max(0, Number((order as any).paidAmount ?? 0));
+  const unpaidAmount = Math.max(0, orderTotal - paidAmount);
+
+  const computedPaymentStatus = (() => {
+    // Before wholesaler approval, never show PAID/UNPAID based on math.
+    if (order.status === "PLACED") return "AWAITING_APPROVAL";
+    if (order.status === "REJECTED" || order.status === "CANCELLED") return "UNPAID";
+    if (paidAmount <= 0) return "UNPAID";
+    if (unpaidAmount <= 0) return "PAID";
+    return "PARTIALLY PAID";
+  })();
 
   // For accept dialog calculations
   const paidNowNum =
@@ -359,8 +394,37 @@ export default function OrderDetail() {
     paymentMode === "CREDIT" ? orderTotal : Math.max(0, orderTotal - paidNowNum);
 
   // Current-order credit exposure (works for CREDIT and partial CASH/UPI acceptance)
-  const creditGiven = Number((order as any).creditGiven ?? 0);
+  const creditGiven = Math.max(0, Number((order as any).creditGiven ?? 0));
+  const creditGivenDisplay =
+    order.status === "PLACED" ? 0 : Math.max(creditGiven, unpaidAmount > 0 ? unpaidAmount : 0);
+
+  const dueDateLabelFinal = creditGivenDisplay > 0 ? dueDateLabel : "—";
   const paymentHistory = Array.isArray((order as any).paymentHistory) ? (order as any).paymentHistory : [];
+  const paymentHistoryChronological = [...paymentHistory].sort((a: any, b: any) => {
+    const ta = a?.createdAt ? new Date(a.createdAt).getTime() : 0;
+    const tb = b?.createdAt ? new Date(b.createdAt).getTime() : 0;
+    return ta - tb;
+  });
+  let cumulativeForHistory = 0;
+  const paymentHistoryWithRemaining = paymentHistoryChronological.map((p: any, idx: number) => {
+    const amt = Math.max(0, Number(p?.amount ?? 0));
+    cumulativeForHistory += amt;
+    const remainingAfter = Math.max(0, orderTotal - cumulativeForHistory);
+    const dateLabel = p?.createdAt
+      ? new Date(p.createdAt).toLocaleDateString("en-IN", {
+          day: "numeric",
+          month: "short",
+          year: "numeric",
+        })
+      : "—";
+    return {
+      key: p?.id != null ? String(p.id) : `ph-${idx}`,
+      amt,
+      remainingAfter,
+      dateLabel,
+      methodLabel: paymentMethodDisplay(p?.paymentMethod),
+    };
+  });
   const lastPayment = paymentHistory.length ? paymentHistory[paymentHistory.length - 1] : null;
   const lastPaymentDateLabel =
     lastPayment?.createdAt
@@ -582,7 +646,7 @@ export default function OrderDetail() {
             </>
           )}
 
-          {canEditOrder && (
+          {canEditOrder ? (
             <Dialog open={editOpen} onOpenChange={(open) => {
               setEditOpen(open);
               if (open) {
@@ -703,6 +767,10 @@ export default function OrderDetail() {
                 </DialogFooter>
               </DialogContent>
             </Dialog>
+          ) : (
+            <Button variant="outline" className="gap-2" disabled title={editDisabledReason}>
+              <Edit2 className="h-4 w-4" /> Edit Order
+            </Button>
           )}
           
           {status === "Approved" && (
@@ -811,7 +879,7 @@ export default function OrderDetail() {
                     </div>
                     <div className="flex justify-between items-center gap-2">
                       <span className="text-orange-800/80">Credit given</span>
-                      <span className="font-medium text-orange-900">{formatAmount(creditGiven)}</span>
+                      <span className="font-medium text-orange-900">{formatAmount(creditGivenDisplay)}</span>
                     </div>
                     <div className="flex justify-between items-center gap-2">
                       <span className="text-orange-800/80">Credit days</span>
@@ -852,8 +920,8 @@ export default function OrderDetail() {
                         </span>
                       ) : (
                         <span className="flex items-center gap-1 font-medium text-orange-900">
-                          {orderCreditDays}
-                          {canEditCredit && (
+                          {creditGivenDisplay > 0 ? orderCreditDays : "—"}
+                          {creditGivenDisplay > 0 && canEditCredit && (
                             <button
                               type="button"
                               className="p-0.5 rounded hover:bg-orange-100 text-orange-700"
@@ -871,11 +939,11 @@ export default function OrderDetail() {
                     </div>
                     <div className="flex justify-between gap-2 pt-1 border-t border-orange-200/60">
                       <span className="text-orange-800/80">Due date</span>
-                      <span className="font-medium text-orange-900">{dueDateLabel}</span>
+                      <span className="font-medium text-orange-900">{dueDateLabelFinal}</span>
                     </div>
                   </div>
                   <p className="text-xs text-orange-600">
-                    Payment: {order.paymentStatus || boxPaymentStatus}
+                    Payment: {computedPaymentStatus}
                   </p>
                 </div>
               </div>
@@ -1039,11 +1107,20 @@ export default function OrderDetail() {
                   <Separator />
                   <div className="pt-3 space-y-2">
                     <p className="text-sm font-semibold text-gray-900">Payment History</p>
-                    <div className="space-y-1 text-sm text-gray-700">
-                      {paymentHistory.map((p: any, idx: number) => (
-                        <div key={idx}>
-                          - ₹{Number(p?.amount ?? 0).toLocaleString("en-IN")} paid via {p?.paymentMethod || "—"} on{" "}
-                          {p?.createdAt ? new Date(p.createdAt).toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" }) : "—"}
+                    <div className="space-y-3 text-sm text-gray-700">
+                      {paymentHistoryWithRemaining.map((row) => (
+                        <div
+                          key={row.key}
+                          className="rounded-lg border border-gray-100 bg-gray-50/80 px-3 py-2.5"
+                        >
+                          <p className="font-medium text-gray-900">
+                            {formatAmount(row.amt)} paid via {row.methodLabel} on {row.dateLabel}
+                          </p>
+                          <p className="mt-1 text-xs font-semibold text-gray-600">
+                            {row.remainingAfter <= 0
+                              ? "Fully Paid"
+                              : `Remaining: ${formatAmount(row.remainingAfter)}`}
+                          </p>
                         </div>
                       ))}
                     </div>
@@ -1065,7 +1142,7 @@ export default function OrderDetail() {
               (Shown only inside the Accept dialog while accepting an order.) */}
 
           {/* Credit Limit Warning - Only show if needed */}
-           {order.paymentStatus === "UNPAID" && order.totalAmount && order.totalAmount > 10000 && (
+           {computedPaymentStatus === "UNPAID" && order.totalAmount && order.totalAmount > 10000 && (
              <div className="bg-red-50 border border-red-100 rounded-xl p-4 flex items-start gap-3">
                 <Info className="h-5 w-5 text-red-600 shrink-0 mt-0.5" />
                 <div>

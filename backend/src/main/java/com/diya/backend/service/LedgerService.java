@@ -110,8 +110,14 @@ public class LedgerService {
                 .filter(e -> e.getEntryType() == LedgerEntry.EntryType.CREDIT)
                 .map(LedgerEntry::getAmount)
                 .reduce(BigDecimal.ZERO, BigDecimal::add);
+        // ORDER_PAYMENT_INFO excluded by filters above
 
-        return totalDebit.subtract(totalCredit);
+        BigDecimal outstanding = totalDebit.subtract(totalCredit);
+        if (outstanding == null) {
+            return BigDecimal.ZERO;
+        }
+        // Outstanding should never be negative; excess credits are treated as advance (not shown as negative).
+        return outstanding.max(BigDecimal.ZERO);
     }
 
     public List<LedgerEntry> getStatementForPair(Wholesaler wholesaler, Retailer retailer) {

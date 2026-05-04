@@ -79,6 +79,7 @@ public class SubCategoryService {
                 .name(cleanName)
                 .category(category)
                 .parentSubCategory(parent)
+                .imageUrl(req.getImageUrl() != null && !req.getImageUrl().trim().isEmpty() ? req.getImageUrl().trim() : null)
                 .build();
 
         return subCategoryRepository.save(sub);
@@ -120,7 +121,10 @@ public class SubCategoryService {
 
     public SubCategory updateSubCategoryName(String identifier, String authType, UUID subcategoryId, SubCategoryUpdateRequest req) {
         Wholesaler wholesaler = getWholesaler(identifier, authType);
-        if (req == null || req.getName() == null || req.getName().trim().isEmpty()) {
+        if (req == null) {
+            throw new RuntimeException("Request body required");
+        }
+        if (req.getName() == null || req.getName().trim().isEmpty()) {
             throw new RuntimeException("Subcategory name is required");
         }
         String name = req.getName().trim();
@@ -147,6 +151,10 @@ public class SubCategoryService {
         }
 
         sub.setName(name);
+        if (req.getImageUrl() != null) {
+            final String u = req.getImageUrl().trim();
+            sub.setImageUrl(u.isEmpty() ? null : u);
+        }
         return subCategoryRepository.save(sub);
     }
 

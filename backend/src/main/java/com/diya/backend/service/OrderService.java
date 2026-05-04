@@ -125,7 +125,8 @@ public class OrderService {
             }
 
             // Note: allow ordering beyond available stock (partial reservation happens later)
-            BigDecimal lineTotal = BigDecimal.valueOf(p.getPrice()).multiply(BigDecimal.valueOf(qty)).setScale(SCALE, ROUNDING);
+            BigDecimal unitPrice = p.getPrice() != null ? p.getPrice() : BigDecimal.ZERO;
+            BigDecimal lineTotal = unitPrice.multiply(BigDecimal.valueOf(qty)).setScale(SCALE, ROUNDING);
             subtotal = subtotal.add(lineTotal);
         }
 
@@ -173,8 +174,8 @@ public class OrderService {
             int reserved = p.getReservedStock() == null ? 0 : p.getReservedStock();
             int available = Math.max(0, stock - reserved);
 
-            double unitPrice = p.getPrice();
-            double lineTotal = unitPrice * qty;
+            BigDecimal unitPrice = p.getPrice() != null ? p.getPrice() : BigDecimal.ZERO;
+            BigDecimal lineTotal = unitPrice.multiply(BigDecimal.valueOf(qty)).setScale(SCALE, ROUNDING);
 
             // ✅ Handle null/empty unit - default to "pcs" if null or empty
             String unitSnapshot = (p.getUnit() == null || p.getUnit().trim().isEmpty())
@@ -415,7 +416,8 @@ public class OrderService {
                     .orElseThrow(() -> new RuntimeException("Product not found: " + item.getProductId()));
 
             int qty = item.getQuantity();
-            BigDecimal lineTotal = BigDecimal.valueOf(p.getPrice())
+            BigDecimal unitPrice = p.getPrice() != null ? p.getPrice() : BigDecimal.ZERO;
+            BigDecimal lineTotal = unitPrice
                     .multiply(BigDecimal.valueOf(qty))
                     .setScale(SCALE, ROUNDING);
             subtotal = subtotal.add(lineTotal);
@@ -457,8 +459,8 @@ public class OrderService {
             int reserved = p.getReservedStock() == null ? 0 : p.getReservedStock();
             int available = Math.max(0, stock - reserved);
 
-            double unitPrice = p.getPrice();
-            double lineTotal = unitPrice * qty;
+            BigDecimal unitPrice = p.getPrice() != null ? p.getPrice() : BigDecimal.ZERO;
+            BigDecimal lineTotal = unitPrice.multiply(BigDecimal.valueOf(qty)).setScale(SCALE, ROUNDING);
 
             String unitSnapshot = (p.getUnit() == null || p.getUnit().trim().isEmpty())
                     ? "pcs"
@@ -663,8 +665,8 @@ public class OrderService {
                         .productNameSnapshot(oi.getProductNameSnapshot())
                         .orderedQty(oi.getQty())
                         .unitSnapshot(oi.getUnitSnapshot())
-                        .unitPriceSnapshot(oi.getUnitPriceSnapshot())
-                        .lineTotal(oi.getLineTotal())
+                        .unitPriceSnapshot(oi.getUnitPriceSnapshot() != null ? oi.getUnitPriceSnapshot().doubleValue() : null)
+                        .lineTotal(oi.getLineTotal() != null ? oi.getLineTotal().doubleValue() : null)
                         .currentStock(stock)
                         .currentReservedStock(reserved)
                         .availableStock(available)
@@ -1180,8 +1182,20 @@ public class OrderService {
             throw new RuntimeException("Access denied: Order not linked to this wholesaler");
         }
 
-        if (order.getStatus() == Order.Status.COMPLETED || order.getStatus() == Order.Status.CANCELLED) {
-            throw new RuntimeException("Cannot edit order after COMPLETED/CANCELLED");
+        // Order becomes immutable once it reaches PACKING (Packed) or later.
+        // Also block edit for terminal/invalid states.
+        Order.Status st = order.getStatus();
+        if (st == null) {
+            throw new RuntimeException("Order status unavailable");
+        }
+        if (st == Order.Status.PACKING
+                || st == Order.Status.DISPATCHED
+                || st == Order.Status.DELIVERED
+                || st == Order.Status.INVOICED
+                || st == Order.Status.COMPLETED
+                || st == Order.Status.CANCELLED
+                || st == Order.Status.REJECTED) {
+            throw new RuntimeException("Order cannot be edited after it is packed");
         }
 
         // Index items by ID for quick lookup
@@ -1226,16 +1240,19 @@ public class OrderService {
                 anyFieldChanged = true;
             }
 
-            if (newUnitPrice != null && !newUnitPrice.equals(oi.getUnitPriceSnapshot())) {
-                changed.add(oi.getProductNameSnapshot() + ": price " + oi.getUnitPriceSnapshot() + " → " + newUnitPrice);
-                oi.setUnitPriceSnapshot(newUnitPrice);
+            BigDecimal newUnitPriceBd = newUnitPrice != null
+                    ? BigDecimal.valueOf(newUnitPrice).setScale(SCALE, ROUNDING)
+                    : null;
+            if (newUnitPriceBd != null && (oi.getUnitPriceSnapshot() == null || newUnitPriceBd.compareTo(oi.getUnitPriceSnapshot()) != 0)) {
+                changed.add(oi.getProductNameSnapshot() + ": price " + oi.getUnitPriceSnapshot() + " → " + newUnitPriceBd);
+                oi.setUnitPriceSnapshot(newUnitPriceBd);
                 anyFieldChanged = true;
             }
 
             if (anyFieldChanged) {
                 int qty = oi.getQty() == null ? 0 : oi.getQty();
-                double price = oi.getUnitPriceSnapshot() == null ? 0.0 : oi.getUnitPriceSnapshot();
-                oi.setLineTotal(price * qty);
+                BigDecimal price = oi.getUnitPriceSnapshot() == null ? BigDecimal.ZERO : oi.getUnitPriceSnapshot();
+                oi.setLineTotal(price.multiply(BigDecimal.valueOf(qty)).setScale(SCALE, ROUNDING));
                 orderItemRepository.save(oi);
             }
         }
@@ -1244,7 +1261,7 @@ public class OrderService {
         BigDecimal subtotal = BigDecimal.ZERO;
         if (order.getOrderItems() != null) {
             for (OrderItem oi : order.getOrderItems()) {
-                BigDecimal lineTotal = oi.getLineTotal() == null ? BigDecimal.ZERO : BigDecimal.valueOf(oi.getLineTotal());
+                BigDecimal lineTotal = oi.getLineTotal() == null ? BigDecimal.ZERO : oi.getLineTotal();
                 subtotal = subtotal.add(lineTotal);
             }
         }

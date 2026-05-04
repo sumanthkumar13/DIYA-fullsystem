@@ -11,7 +11,9 @@ import java.math.BigDecimal;
 @AllArgsConstructor
 public class KhatabookSummaryDTO {
     private BigDecimal totalOutstanding;
+    private BigDecimal totalOutstandingYesterday;
     private BigDecimal criticalOverdue;
     private BigDecimal collectedThisMonth;
+    private BigDecimal collectedThisMonthYesterday;
     private Long retailerCount;
 }

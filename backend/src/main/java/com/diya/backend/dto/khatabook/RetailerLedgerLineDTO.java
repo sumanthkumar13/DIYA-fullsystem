@@ -22,4 +22,6 @@ public class RetailerLedgerLineDTO {
     private LocalDateTime orderDate;
     private String paymentMethod;
     private LocalDateTime paymentDate;
+    /** True when line is audit-only (e.g. cash at order acceptance); running balance unchanged for this row. */
+    private Boolean informational;
 }

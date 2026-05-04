@@ -1,18 +1,37 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../providers/approved_wholesalers_provider.dart';
+import '../catalogue/wholesaler_catalogue_screen.dart';
 import '../../widgets/ui/diya_card.dart';
 import '../../widgets/ui/diya_button.dart';
+import 'package:flutter/foundation.dart';
 
-class ConnectedWholesalersScreen extends ConsumerWidget {
+class ConnectedWholesalersScreen extends ConsumerStatefulWidget {
   const ConnectedWholesalersScreen({super.key});
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<ConnectedWholesalersScreen> createState() =>
+      _ConnectedWholesalersScreenState();
+}
+
+class _ConnectedWholesalersScreenState
+    extends ConsumerState<ConnectedWholesalersScreen> {
+  @override
+  void initState() {
+    super.initState();
+    // Always refetch when this screen opens (prevents stale cross-login state).
+    Future.microtask(() => ref.read(approvedWholesalersProvider.notifier).load());
+  }
+
+  @override
+  Widget build(BuildContext context) {
     final wholesalersAsync = ref.watch(approvedWholesalersProvider);
 
-    return CustomScrollView(
-      slivers: [
+    return RefreshIndicator(
+      color: const Color(0xFFFF7A00),
+      onRefresh: () => ref.read(approvedWholesalersProvider.notifier).load(),
+      child: CustomScrollView(
+        slivers: [
         // Header
         SliverToBoxAdapter(
           child: Container(
@@ -96,6 +115,22 @@ class ConnectedWholesalersScreen extends ConsumerWidget {
                       padding: EdgeInsets.only(bottom: index == wholesalers.length - 1 ? 0 : 12),
                       child: DiyaCard(
                         padding: const EdgeInsets.all(16),
+                        onTap: () {
+                          if (!kReleaseMode) {
+                            debugPrint(
+                              '🧭 [ConnectedWholesalersScreen] open catalogue wholesalerId=${wholesaler.wholesalerId} name=${wholesaler.wholesalerBusinessName}',
+                            );
+                          }
+                          Navigator.push(
+                            context,
+                            MaterialPageRoute(
+                              builder: (_) => WholesalerCatalogueScreen(
+                                wholesalerId: wholesaler.wholesalerId,
+                                wholesalerName: wholesaler.wholesalerBusinessName,
+                              ),
+                            ),
+                          );
+                        },
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
@@ -221,6 +256,7 @@ class ConnectedWholesalersScreen extends ConsumerWidget {
           ),
         ),
       ],
+      ),
     );
   }
 }

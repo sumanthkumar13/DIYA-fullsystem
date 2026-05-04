@@ -24,14 +24,15 @@ export function RetailerTierBadge({
   tier?: string | null;
   className?: string;
 }) {
-  const key = (tier || "BEGINNER").toUpperCase();
+  const key = (tier || "").toUpperCase();
+  if (!key || key === "BEGINNER") return null;
   const label = TIER_LABELS[key] || key;
   return (
     <Badge
       variant="outline"
       className={cn(
         "font-semibold text-xs shrink-0",
-        TIER_STYLES[key] || TIER_STYLES.BEGINNER,
+        TIER_STYLES[key] || "bg-slate-100 text-slate-700 border-slate-200",
         className
       )}
     >

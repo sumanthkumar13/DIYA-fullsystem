@@ -3,6 +3,7 @@ package com.diya.backend.entity;
 import jakarta.persistence.*;
 import lombok.*;
 
+import java.math.BigDecimal;
 import java.util.UUID;
 
 @Entity
@@ -43,15 +44,17 @@ public class OrderItem {
     // edit history (nullable; captured only on first edit)
     private Integer originalQty;
 
-    @Column(nullable = false)
-    private Double unitPriceSnapshot;
+    @Column(nullable = false, precision = 19, scale = 2)
+    private BigDecimal unitPriceSnapshot;
 
     // edit history (nullable; captured only on first edit)
-    private Double originalUnitPrice;
+    @Column(precision = 19, scale = 2)
+    private BigDecimal originalUnitPrice;
 
-    @Column(nullable = false)
-    private Double lineTotal;
+    @Column(nullable = false, precision = 19, scale = 2)
+    private BigDecimal lineTotal;
 
     // edit history (nullable; captured only on first edit)
-    private Double originalLineTotal;
+    @Column(precision = 19, scale = 2)
+    private BigDecimal originalLineTotal;
 }

@@ -35,6 +35,9 @@ public interface RetailerRepository extends JpaRepository<Retailer, UUID> {
     */
    Optional<Retailer> findByPhoneContact(String phoneContact);
 
+   /** Check duplicate GSTIN (case-insensitive handled by normalizing input). */
+   boolean existsByGstNumber(String gstNumber);
+
    /**
     * Global retailer search (name, shop, city, state)
     */

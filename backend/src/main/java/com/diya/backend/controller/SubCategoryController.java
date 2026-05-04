@@ -60,6 +60,7 @@ public class SubCategoryController {
         return new SubCategoryDTO(
                 sc.getId(),
                 sc.getName(),
+                sc.getImageUrl(),
                 sc.getCategory() != null ? sc.getCategory().getId() : null,
                 sc.getParentSubCategory() != null ? sc.getParentSubCategory().getId() : null);
     }

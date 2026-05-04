@@ -4,7 +4,7 @@ const api = axios.create({
   // baseURL: "http://localhost:8081/api", // local development URL
   // baseURL: "https://diya-fullsystem.onrender.com/api", // render.com URL
   baseURL: "/api" // GCP 
-});
+}); 
 
 /** ✅ Never attach token for these endpoints */
 const PUBLIC_ENDPOINTS = [
@@ -42,11 +42,9 @@ api.interceptors.response.use(
     const status = error?.response?.status;
     const url = error?.config?.url || "";
 
-    // ✅ Only redirect to login for actual authentication failures
-    // 401 Unauthorized - token is invalid/expired
-    // 403 Forbidden - user is authenticated but not authorized
-    // Don't redirect for other errors (4xx, 5xx) as they should be handled by the page
-    if (!isPublicEndpoint(url) && (status === 401 || status === 403)) {
+    // ✅ Only redirect to login for actual authentication failures (expired/invalid token).
+    // IMPORTANT: Do NOT logout on 403. 403 means "authenticated but not authorized" and should be handled in-page.
+    if (!isPublicEndpoint(url) && status === 401) {
       localStorage.removeItem("token");
       if (typeof window !== "undefined") window.location.href = "/login";
     }

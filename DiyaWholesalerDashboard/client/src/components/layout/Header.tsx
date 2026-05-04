@@ -12,6 +12,7 @@ import avatarImage from "@assets/generated_images/professional_business_avatar_f
 import { Button } from "@/components/ui/button";
 import { useAuth } from "@/context/AuthContext";
 import { getInitials, getUserDisplayName } from "@/lib/greeting";
+import { useLocation } from "wouter";
 
 interface HeaderProps {
   isSidebarCollapsed: boolean;
@@ -22,6 +23,8 @@ export function Header({ isSidebarCollapsed, onToggleSidebar }: HeaderProps) {
   const { user, logout } = useAuth();
   const displayName = getUserDisplayName(user);
   const initials = getInitials(displayName || "User");
+  const [, setLocation] = useLocation();
+  const avatarUrl = (user as any)?.avatarUrl as string | undefined;
 
   return (
     <header className="h-16 bg-white border-b border-gray-200 px-6 flex items-center justify-between sticky top-0 z-10 shadow-sm">
@@ -41,7 +44,7 @@ export function Header({ isSidebarCollapsed, onToggleSidebar }: HeaderProps) {
           <DropdownMenuTrigger asChild>
             <button className="flex items-center gap-3 hover:bg-gray-50 p-1.5 rounded-full pr-3 transition-colors outline-none">
               <Avatar className="h-9 w-9 border-2 border-white shadow-sm">
-                <AvatarImage src={avatarImage} alt="Profile" />
+                <AvatarImage src={avatarUrl || avatarImage} alt="Profile" />
                 <AvatarFallback>{initials}</AvatarFallback>
               </Avatar>
               <div className="text-left hidden sm:block">
@@ -54,8 +57,8 @@ export function Header({ isSidebarCollapsed, onToggleSidebar }: HeaderProps) {
           <DropdownMenuContent align="end" className="w-56">
             <DropdownMenuLabel>My Account</DropdownMenuLabel>
             <DropdownMenuSeparator />
-            <DropdownMenuItem>Profile</DropdownMenuItem>
-            <DropdownMenuItem>Settings</DropdownMenuItem>
+            <DropdownMenuItem onSelect={() => setLocation("/profile")}>Profile</DropdownMenuItem>
+            <DropdownMenuItem onSelect={() => setLocation("/settings")}>Settings</DropdownMenuItem>
             <DropdownMenuSeparator />
             <DropdownMenuItem
               className="text-red-600"

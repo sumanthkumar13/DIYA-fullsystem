@@ -16,10 +16,11 @@ import Khatabook from "@/pages/khatabook";
 import MyBusiness from "@/pages/business";
 import Analytics from "@/pages/analytics";
 import SettingsPage from "@/pages/settings";
+import ProfilePage from "@/pages/profile";
+import ActivityPage from "@/pages/activity";
 import LandingPage from "@/pages/landing";
 import LoginPage from "@/pages/login";
 import SignupFlow from "@/pages/signup";
-import OnboardingChecklist from "@/pages/onboarding";
 import NotFound from "@/pages/not-found";
 import AddProductPage from "@/pages/product-new";
 import CategoriesPage from "@/pages/categories";
@@ -43,7 +44,6 @@ function Router() {
       <Route path="/landing" component={LandingPage} />
       <Route path="/login" component={LoginPage} />
       <Route path="/signup" component={SignupFlow} />
-      <Route path="/onboarding" component={OnboardingChecklist} />
 
       <Route path="/products/new">
         <AppLayout>
@@ -61,6 +61,12 @@ function Router() {
       <Route path="/dashboard">
         <AppLayout>
           <Dashboard />
+        </AppLayout>
+      </Route>
+
+      <Route path="/activity">
+        <AppLayout>
+          <ActivityPage />
         </AppLayout>
       </Route>
 
@@ -131,6 +137,12 @@ function Router() {
       <Route path="/analytics">
         <AppLayout>
           <Analytics />
+        </AppLayout>
+      </Route>
+
+      <Route path="/profile">
+        <AppLayout>
+          <ProfilePage />
         </AppLayout>
       </Route>
 

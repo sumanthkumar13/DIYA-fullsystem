@@ -6,6 +6,7 @@ import '../../widgets/ui/diya_button.dart';
 import '../../services/order_service.dart';
 import '../../services/payment_service.dart';
 import '../../providers/retailer_session_provider.dart';
+import '../orders/order_detail_screen.dart';
 
 class PaymentsScreen extends ConsumerStatefulWidget {
   const PaymentsScreen({super.key});
@@ -43,21 +44,12 @@ class _PaymentsScreenState extends ConsumerState<PaymentsScreen> {
       paymentSvc.getRetailerPayments(),
     ]);
 
+    // Keep ledger fetch for compatibility/future UI, but do not use it to compute outstanding.
     final ledgerEntries = results[0] as List<Map<String, dynamic>>;
     final orders = results[1] as List<Map<String, dynamic>>;
     final payments = results[2] as List<Map<String, dynamic>>;
 
-    double totalDebit = 0;
-    double totalCredit = 0;
-
-    for (final e in ledgerEntries) {
-      final type = (e["entryType"] ?? "").toString().toUpperCase();
-      final amt = (e["amount"] as num? ?? 0).toDouble();
-      if (type == "DEBIT") totalDebit += amt;
-      if (type == "CREDIT") totalCredit += amt;
-    }
-
-    final outstanding = (totalDebit - totalCredit);
+    // Single source of truth: compute outstanding from orders minus CONFIRMED payments (never negative).
 
     final confirmedByOrderId = <String, double>{};
     for (final p in payments) {
@@ -73,7 +65,7 @@ class _PaymentsScreenState extends ConsumerState<PaymentsScreen> {
 
     final dueOrders = orders.map((o) {
       final orderId = (o["id"] ?? "").toString();
-      final total = (o["amount"] as num? ?? 0).toDouble();
+      final total = (o["amount"] as num? ?? o["totalAmount"] as num? ?? 0).toDouble();
       final confirmed = confirmedByOrderId[orderId] ?? 0;
       final remaining = (total - confirmed);
       final status = (o["status"] ?? "").toString().toUpperCase();
@@ -95,6 +87,9 @@ class _PaymentsScreenState extends ConsumerState<PaymentsScreen> {
         .toList()
       ..sort((a, b) => b.outstanding.compareTo(a.outstanding));
 
+    // Keep it strictly `double` (clamp() returns `num`, which breaks _PaymentsData typing).
+    final outstanding = dueOrders.fold<double>(0.0, (sum, o) => sum + o.outstanding);
+
     payments.sort((a, b) {
       final ad = DateTime.tryParse((a["createdAt"] ?? "").toString()) ?? DateTime.fromMillisecondsSinceEpoch(0);
       final bd = DateTime.tryParse((b["createdAt"] ?? "").toString()) ?? DateTime.fromMillisecondsSinceEpoch(0);
@@ -102,7 +97,7 @@ class _PaymentsScreenState extends ConsumerState<PaymentsScreen> {
     });
 
     return _PaymentsData(
-      outstanding: outstanding < 0 ? 0 : outstanding,
+      outstanding: outstanding,
       dueOrders: dueOrders,
       payments: payments,
     );
@@ -350,6 +345,16 @@ class _PaymentsScreenState extends ConsumerState<PaymentsScreen> {
                   return Padding(
                     padding: const EdgeInsets.only(bottom: 12),
                     child: DiyaCard(
+                      onTap: () async {
+                        await Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                            builder: (_) => OrderDetailScreen(orderId: o.id),
+                          ),
+                        );
+                        if (!mounted) return;
+                        await _refresh();
+                      },
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
@@ -406,6 +411,14 @@ class _PaymentsScreenState extends ConsumerState<PaymentsScreen> {
                   final status = (p["status"] ?? "").toString();
                   final createdAt = DateTime.tryParse((p["createdAt"] ?? "").toString());
 
+                  final order = p["order"];
+                  String orderRef = "";
+                  if (order is Map) {
+                    final orderNumber = (order["orderNumber"] ?? "").toString();
+                    final oid = (order["id"] ?? "").toString();
+                    orderRef = orderNumber.isNotEmpty ? "Order #$orderNumber" : (oid.isNotEmpty ? "Order #${oid.substring(0, 8)}" : "");
+                  }
+
                   Color badgeBg = const Color(0xFFF5F5F5);
                   Color badgeFg = const Color(0xFF404040);
                   String statusLabel = status;
@@ -448,7 +461,9 @@ class _PaymentsScreenState extends ConsumerState<PaymentsScreen> {
                               crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
                                 Text(
-                                  "₹${amt.toStringAsFixed(0)} • $mode",
+                                  orderRef.isEmpty
+                                      ? "₹${amt.toStringAsFixed(0)} • $mode"
+                                      : "₹${amt.toStringAsFixed(0)} paid for $orderRef • $mode",
                                   style: const TextStyle(fontWeight: FontWeight.w900),
                                 ),
                                 const SizedBox(height: 4),

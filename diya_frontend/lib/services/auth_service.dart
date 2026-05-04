@@ -8,6 +8,14 @@ class AuthService {
 
   static const _tokenKey = 'jwt_token';
 
+  /// Validate current token and return identity payload.
+  /// Backend contract: GET /api/auth/me
+  Future<Map<String, dynamic>> me() async {
+    final response = await _dio.get('/api/auth/me');
+    final res = response.data as Map<String, dynamic>;
+    return res;
+  }
+
   /// Step 1: phone-first login – determine flow
   Future<Map<String, dynamic>> loginPhone(String phone) async {
     final response = await _dio.post(

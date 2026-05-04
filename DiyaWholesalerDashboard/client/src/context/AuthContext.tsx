@@ -1,4 +1,5 @@
 import React, { createContext, useContext, useEffect, useState } from "react";
+import api from "@/lib/api";
 
 type AuthUser = {
   token: string;
@@ -14,6 +15,8 @@ type AuthContextValue = {
 };
 
 const AuthContext = createContext<AuthContextValue | undefined>(undefined);
+
+const AVATAR_URL_STORAGE_KEY = "diya_avatar_url";
 
 function parseJwt(token: string): any {
   try {
@@ -43,7 +46,26 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
     if (token) {
       const payload = parseJwt(token);
       console.log("AuthContext init - Parsed JWT payload:", payload);
-      setUser({ token, ...payload });
+      const avatarUrl = localStorage.getItem(AVATAR_URL_STORAGE_KEY) || undefined;
+      setUser({ token, ...payload, ...(avatarUrl ? { avatarUrl } : {}) });
+
+      // Best-effort: load persisted profile fields from backend (e.g. avatarUrl).
+      api
+        .get("/users/me")
+        .then((res) => {
+          const serverAvatar = (res.data as any)?.avatarUrl;
+          const serverName = (res.data as any)?.name;
+          const serverBusinessName = (res.data as any)?.businessName;
+          if (typeof serverAvatar === "string" && serverAvatar.trim()) {
+            setUser((prev) => (prev ? ({ ...(prev as any), avatarUrl: serverAvatar.trim() } as any) : prev));
+          }
+          if (typeof serverName === "string" && serverName.trim()) {
+            setUser((prev) => (prev ? ({ ...(prev as any), name: serverName.trim() } as any) : prev));
+          } else if (typeof serverBusinessName === "string" && serverBusinessName.trim()) {
+            setUser((prev) => (prev ? ({ ...(prev as any), businessName: serverBusinessName.trim() } as any) : prev));
+          }
+        })
+        .catch(() => {});
     } else {
       setUser(null);
     }
@@ -56,9 +78,18 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
       value={{
         user,
         authLoaded,
-        setUser,
+        setUser: (next) => {
+          setUser(next);
+          const url = (next as any)?.avatarUrl;
+          if (typeof url === "string" && url.trim()) {
+            localStorage.setItem(AVATAR_URL_STORAGE_KEY, url.trim());
+          } else {
+            localStorage.removeItem(AVATAR_URL_STORAGE_KEY);
+          }
+        },
         logout: () => {
           localStorage.removeItem("token");
+          localStorage.removeItem(AVATAR_URL_STORAGE_KEY);
           setUser(null);
         },
       }}

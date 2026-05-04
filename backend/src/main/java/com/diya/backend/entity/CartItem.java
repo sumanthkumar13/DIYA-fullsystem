@@ -3,6 +3,7 @@ package com.diya.backend.entity;
 import jakarta.persistence.*;
 import lombok.*;
 
+import java.math.BigDecimal;
 import java.util.UUID;
 
 @Entity
@@ -25,7 +26,10 @@ public class CartItem {
 
     private Integer quantity;
 
-    private Double priceAtTime;
-    private Double mrpAtTime;
+    @Column(precision = 19, scale = 2)
+    private BigDecimal priceAtTime;
+
+    @Column(precision = 19, scale = 2)
+    private BigDecimal mrpAtTime;
     private Integer stockSnapshot;
 }

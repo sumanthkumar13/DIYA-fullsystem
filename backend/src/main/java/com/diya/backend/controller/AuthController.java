@@ -4,10 +4,15 @@ import com.diya.backend.dto.AuthResponse;
 import com.diya.backend.dto.LoginRequest;
 import com.diya.backend.dto.RegisterRetailerRequest;
 import com.diya.backend.dto.RegisterWholesalerRequest;
+import com.diya.backend.entity.User;
+import com.diya.backend.repository.RetailerRepository;
+import com.diya.backend.repository.UserRepository;
 import com.diya.backend.service.AuthService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.security.core.Authentication;
+import org.springframework.security.core.context.SecurityContextHolder;
 
 import java.util.HashMap;
 import java.util.Map;
@@ -21,6 +26,57 @@ import java.util.Map;
 public class AuthController {
 
     private final AuthService authService;
+    private final UserRepository userRepository;
+    private final RetailerRepository retailerRepository;
+
+    @GetMapping("/me")
+    public ResponseEntity<Map<String, Object>> me() {
+        Authentication auth = SecurityContextHolder.getContext().getAuthentication();
+        if (auth == null || auth.getName() == null || auth.getName().isBlank()) {
+            Map<String, Object> resp = new HashMap<>();
+            resp.put("success", false);
+            resp.put("message", "Unauthorized");
+            return ResponseEntity.status(401).body(resp);
+        }
+
+        String identifier = auth.getName(); // email or phone (JWT subject)
+        String authType = identifier.contains("@") ? "EMAIL" : "PHONE";
+        String role = auth.getAuthorities() == null || auth.getAuthorities().isEmpty()
+                ? null
+                : auth.getAuthorities().iterator().next().getAuthority(); // e.g. ROLE_RETAILER
+        if (role != null && role.startsWith("ROLE_")) role = role.substring(5);
+
+        User user = "EMAIL".equals(authType)
+                ? userRepository.findByEmail(identifier).orElse(null)
+                : userRepository.findByPhone(identifier).orElse(null);
+
+        boolean retailerProfileExists = false;
+        try {
+            retailerProfileExists = "EMAIL".equals(authType)
+                    ? retailerRepository.findByUserEmail(identifier).isPresent()
+                    : retailerRepository.findByUserPhone(identifier).isPresent();
+        } catch (Exception ignored) {
+            retailerProfileExists = false;
+        }
+
+        Map<String, Object> data = new HashMap<>();
+        data.put("identifier", identifier);
+        data.put("authType", authType);
+        data.put("role", role);
+        data.put("retailerProfileExists", retailerProfileExists);
+        if (user != null) {
+            data.put("id", user.getId());
+            data.put("name", user.getName());
+            data.put("phone", user.getPhone());
+            data.put("email", user.getEmail());
+            data.put("isActive", user.isActive());
+        }
+
+        Map<String, Object> resp = new HashMap<>();
+        resp.put("success", true);
+        resp.put("data", data);
+        return ResponseEntity.ok(resp);
+    }
 
     /*
      * ----------------------------------------------------

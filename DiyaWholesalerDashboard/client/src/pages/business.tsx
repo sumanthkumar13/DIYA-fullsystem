@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useMemo, useState, useEffect } from "react";
 import { useLocation } from "wouter";
 import {
   Search,
@@ -18,6 +18,13 @@ import { Button } from "@/components/ui/button";
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import {
   Table,
   TableBody,
@@ -64,6 +71,7 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { useToast } from "@/hooks/use-toast";
+import { formatINR } from "@/lib/money";
 
 
 
@@ -94,6 +102,15 @@ export default function MyBusiness() {
   const [page, setPage] = useState(0);
   const [loading, setLoading] = useState(false);
   const [categories, setCategories] = useState<any[]>([]);
+  const [subcategories, setSubcategories] = useState<any[]>([]);
+  const [subcategoriesLoading, setSubcategoriesLoading] = useState(false);
+
+  // Filters
+  const [filterCategoryId, setFilterCategoryId] = useState<string>("all");
+  const [filterSubcategoryId, setFilterSubcategoryId] = useState<string>("all");
+  const [filterStatus, setFilterStatus] = useState<string>("all"); // in_stock | low_stock | out_of_stock
+  const [filterVisibility, setFilterVisibility] = useState<string>("all"); // visible | hidden
+  const [filterActive, setFilterActive] = useState<string>("all"); // active | inactive
 
   const [mrpEditId, setMrpEditId] = useState<string | null>(null);
   const [mrpDraft, setMrpDraft] = useState("");
@@ -121,12 +138,42 @@ export default function MyBusiness() {
 
   useEffect(() => {
     load();
-  }, [page, searchQuery]);
+  }, [page, searchQuery, filterCategoryId, filterSubcategoryId]);
+
+  useEffect(() => {
+    // Reset subcategory when category changes, and load subcategories.
+    if (!filterCategoryId || filterCategoryId === "all") {
+      setSubcategories([]);
+      setFilterSubcategoryId("all");
+      return;
+    }
+
+    let cancelled = false;
+    setSubcategoriesLoading(true);
+    fetchSubcategoriesByCategory(filterCategoryId)
+      .then((list) => {
+        if (cancelled) return;
+        setSubcategories(Array.isArray(list) ? list : []);
+      })
+      .catch(() => {
+        if (!cancelled) setSubcategories([]);
+      })
+      .finally(() => {
+        if (!cancelled) setSubcategoriesLoading(false);
+      });
+
+    setFilterSubcategoryId("all");
+    return () => {
+      cancelled = true;
+    };
+  }, [filterCategoryId]);
 
   async function load() {
     try {
       setLoading(true);
-      const data = await fetchProducts(page, 20, searchQuery);
+      const categoryId = filterCategoryId !== "all" ? filterCategoryId : undefined;
+      const subcategoryId = filterSubcategoryId !== "all" ? filterSubcategoryId : undefined;
+      const data = await fetchProducts(page, 20, searchQuery, categoryId, subcategoryId);
       setProducts(data.content || []);
       setSelectedIds({});
     } catch (error) {
@@ -136,22 +183,47 @@ export default function MyBusiness() {
     }
   }
 
+  const displayedProducts = useMemo(() => {
+    const statusKey = filterStatus;
+    const visKey = filterVisibility;
+    const actKey = filterActive;
+
+    return products.filter((p) => {
+      if (statusKey !== "all") {
+        const label =
+          (p.status || (p.stock > 0 ? "In Stock" : "Out of Stock")).toLowerCase();
+        if (statusKey === "in_stock" && label !== "in stock") return false;
+        if (statusKey === "low_stock" && label !== "low stock") return false;
+        if (statusKey === "out_of_stock" && label !== "out of stock") return false;
+      }
+      if (visKey !== "all") {
+        if (visKey === "visible" && !p.visibleToRetailer) return false;
+        if (visKey === "hidden" && p.visibleToRetailer) return false;
+      }
+      if (actKey !== "all") {
+        if (actKey === "active" && !p.isActive) return false;
+        if (actKey === "inactive" && p.isActive) return false;
+      }
+      return true;
+    });
+  }, [products, filterStatus, filterVisibility, filterActive]);
+
   const selectedCount = Object.values(selectedIds).filter(Boolean).length;
   const allOnPageSelected =
-    products.length > 0 && products.every((p) => selectedIds[p.id] === true);
+    displayedProducts.length > 0 && displayedProducts.every((p) => selectedIds[p.id] === true);
   const someOnPageSelected =
-    products.some((p) => selectedIds[p.id] === true) && !allOnPageSelected;
+    displayedProducts.some((p) => selectedIds[p.id] === true) && !allOnPageSelected;
 
   function toggleSelectAllOnPage(next: boolean) {
     const m: Record<string, boolean> = {};
-    for (const p of products) {
+    for (const p of displayedProducts) {
       m[p.id] = next;
     }
     setSelectedIds(m);
   }
 
   async function bulkDeleteSelected() {
-    const ids = products.filter((p) => selectedIds[p.id]).map((p) => p.id);
+    const ids = displayedProducts.filter((p) => selectedIds[p.id]).map((p) => p.id);
     if (ids.length === 0) return;
     setDeleteLoading(true);
     try {
@@ -339,11 +411,140 @@ export default function MyBusiness() {
                 }}
               />
             </div>
-            <Button variant="outline" className="gap-2 bg-white">
-              <Filter className="h-4 w-4" />
-              Filter Category
-            </Button>
+            <div className="flex items-center gap-2 w-full md:w-auto flex-wrap justify-end">
+              <Select
+                value={filterCategoryId}
+                onValueChange={(v) => {
+                  setPage(0);
+                  setFilterCategoryId(v);
+                }}
+              >
+                <SelectTrigger className="w-[180px] bg-gray-50 border-gray-200">
+                  <SelectValue placeholder="Category" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All categories</SelectItem>
+                  {categories.map((c: any) => (
+                    <SelectItem key={c.id} value={String(c.id)}>
+                      {c.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+
+              <Select
+                value={filterSubcategoryId}
+                onValueChange={(v) => {
+                  setPage(0);
+                  setFilterSubcategoryId(v);
+                }}
+                disabled={filterCategoryId === "all" || subcategoriesLoading}
+              >
+                <SelectTrigger className="w-[180px] bg-gray-50 border-gray-200">
+                  <SelectValue placeholder={subcategoriesLoading ? "Loading…" : "Subcategory"} />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All subcategories</SelectItem>
+                  {subcategories.map((s: any) => (
+                    <SelectItem key={s.id} value={String(s.id)}>
+                      {s.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+
+              <Select value={filterStatus} onValueChange={setFilterStatus}>
+                <SelectTrigger className="w-[150px] bg-gray-50 border-gray-200">
+                  <SelectValue placeholder="Status" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All status</SelectItem>
+                  <SelectItem value="in_stock">In Stock</SelectItem>
+                  <SelectItem value="low_stock">Low Stock</SelectItem>
+                  <SelectItem value="out_of_stock">Out of Stock</SelectItem>
+                </SelectContent>
+              </Select>
+
+              <Select value={filterVisibility} onValueChange={setFilterVisibility}>
+                <SelectTrigger className="w-[150px] bg-gray-50 border-gray-200">
+                  <SelectValue placeholder="Visibility" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All visibility</SelectItem>
+                  <SelectItem value="visible">Visible</SelectItem>
+                  <SelectItem value="hidden">Hidden</SelectItem>
+                </SelectContent>
+              </Select>
+
+              <Select value={filterActive} onValueChange={setFilterActive}>
+                <SelectTrigger className="w-[140px] bg-gray-50 border-gray-200">
+                  <SelectValue placeholder="Active" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All</SelectItem>
+                  <SelectItem value="active">Active</SelectItem>
+                  <SelectItem value="inactive">Inactive</SelectItem>
+                </SelectContent>
+              </Select>
+
+              {(filterCategoryId !== "all" ||
+                filterSubcategoryId !== "all" ||
+                filterStatus !== "all" ||
+                filterVisibility !== "all" ||
+                filterActive !== "all") && (
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="gap-2 bg-white"
+                  onClick={() => {
+                    setPage(0);
+                    setFilterCategoryId("all");
+                    setFilterSubcategoryId("all");
+                    setFilterStatus("all");
+                    setFilterVisibility("all");
+                    setFilterActive("all");
+                  }}
+                >
+                  <Filter className="h-4 w-4" />
+                  Clear
+                </Button>
+              )}
+            </div>
           </div>
+
+          {(filterCategoryId !== "all" ||
+            filterSubcategoryId !== "all" ||
+            filterStatus !== "all" ||
+            filterVisibility !== "all" ||
+            filterActive !== "all") && (
+            <div className="flex flex-wrap gap-2">
+              {filterCategoryId !== "all" && (
+                <Badge variant="secondary" className="bg-gray-100 text-gray-700">
+                  Category: {categories.find((c: any) => String(c.id) === String(filterCategoryId))?.name || "Selected"}
+                </Badge>
+              )}
+              {filterSubcategoryId !== "all" && (
+                <Badge variant="secondary" className="bg-gray-100 text-gray-700">
+                  Subcategory: {subcategories.find((s: any) => String(s.id) === String(filterSubcategoryId))?.name || "Selected"}
+                </Badge>
+              )}
+              {filterStatus !== "all" && (
+                <Badge variant="secondary" className="bg-gray-100 text-gray-700">
+                  Status: {filterStatus.replaceAll("_", " ")}
+                </Badge>
+              )}
+              {filterVisibility !== "all" && (
+                <Badge variant="secondary" className="bg-gray-100 text-gray-700">
+                  Visibility: {filterVisibility}
+                </Badge>
+              )}
+              {filterActive !== "all" && (
+                <Badge variant="secondary" className="bg-gray-100 text-gray-700">
+                  Active: {filterActive}
+                </Badge>
+              )}
+            </div>
+          )}
 
           {selectedCount > 0 && (
             <div className="flex items-center justify-between gap-3 rounded-xl border border-gray-200 bg-white p-3 shadow-sm">
@@ -414,7 +615,15 @@ export default function MyBusiness() {
                   </TableRow>
                 )}
 
-                {products.map((product) => (
+                {!loading && products.length > 0 && displayedProducts.length === 0 && (
+                  <TableRow>
+                    <TableCell colSpan={7} className="text-center text-gray-500">
+                      No products match the selected filters.
+                    </TableCell>
+                  </TableRow>
+                )}
+
+                {displayedProducts.map((product) => (
                   <TableRow key={product.id}>
                     <TableCell>
                       <Checkbox
@@ -498,7 +707,7 @@ export default function MyBusiness() {
                             );
                           }}
                         >
-                          {product.mrp != null ? `₹${product.mrp}` : "—"}
+                          {product.mrp != null ? formatINR(product.mrp) : "—"}
                         </button>
                       )}
                     </TableCell>

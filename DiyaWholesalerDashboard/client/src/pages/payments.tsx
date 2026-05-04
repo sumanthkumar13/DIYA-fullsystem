@@ -21,10 +21,10 @@ import {
   rejectPendingPayment,
   type PendingPayment,
 } from "@/services/payments";
+import { formatINR } from "@/lib/money";
 
 function formatMoney(amount: number | null | undefined) {
-  const n = typeof amount === "number" ? amount : 0;
-  return new Intl.NumberFormat("en-IN", { style: "currency", currency: "INR" }).format(n);
+  return formatINR(amount ?? 0);
 }
 
 function formatDate(dateString?: string | null) {
@@ -42,7 +42,9 @@ function formatDate(dateString?: string | null) {
 
 type KhatabookSummary = {
   totalOutstanding?: number;
+  totalOutstandingYesterday?: number;
   collectedThisMonth?: number;
+  collectedThisMonthYesterday?: number;
   criticalOverdue?: number;
   retailerCount?: number;
 };

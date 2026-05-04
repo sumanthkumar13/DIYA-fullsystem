@@ -12,32 +12,54 @@ class RetailerSessionData {
   final Map<String, dynamic> profile;
   final List<Map<String, dynamic>> orders;
   final List<Map<String, dynamic>> ledgerEntries;
+  final List<Map<String, dynamic>> payments;
   final List<dynamic> approvedWholesalers; // uses DTO elsewhere; keep flexible here
 
   const RetailerSessionData({
     required this.profile,
     required this.orders,
     required this.ledgerEntries,
+    required this.payments,
     required this.approvedWholesalers,
   });
 
   num get totalDue {
-    // ledger endpoint is list of entries; dashboard needs a single number.
-    // If backend ledger entries include DEBIT/CREDIT, compute (DEBIT - CREDIT).
-    num sum = 0;
-    for (final e in ledgerEntries) {
-      final type = (e['entryType'] ?? e['type'] ?? '').toString().toUpperCase();
-      final amount = (e['amount'] is num)
-          ? (e['amount'] as num)
-          : num.tryParse((e['amount'] ?? '0').toString()) ?? 0;
-      if (type == 'CREDIT') {
-        sum -= amount;
-      } else {
-        // default to DEBIT
-        sum += amount;
-      }
+    // Single source of truth: sum(max(orderTotal - confirmedPaid, 0)) across eligible orders.
+    // This matches backend outstanding logic used in dashboard/khatabook-like views.
+    final confirmedByOrderId = <String, num>{};
+    for (final p in payments) {
+      final status = (p['status'] ?? '').toString().toUpperCase();
+      if (status != 'CONFIRMED') continue;
+      final order = p['order'];
+      if (order is! Map) continue;
+      final oid = (order['id'] ?? '').toString();
+      if (oid.isEmpty) continue;
+      final amt = (p['amount'] is num)
+          ? (p['amount'] as num)
+          : num.tryParse((p['amount'] ?? '0').toString()) ?? 0;
+      confirmedByOrderId[oid] = (confirmedByOrderId[oid] ?? 0) + amt;
     }
-    return sum;
+
+    num sum = 0;
+    for (final o in orders) {
+      final oid = (o['id'] ?? '').toString();
+      if (oid.isEmpty) continue;
+      final status = (o['status'] ?? '').toString().toUpperCase();
+      if (status == 'PLACED' || status == 'REJECTED' || status == 'CANCELLED') continue;
+
+      final total = (o['amount'] is num)
+          ? (o['amount'] as num)
+          : (o['totalAmount'] is num)
+              ? (o['totalAmount'] as num)
+              : num.tryParse((o['amount'] ?? o['totalAmount'] ?? '0').toString()) ?? 0;
+
+      final confirmed = confirmedByOrderId[oid] ?? 0;
+      final remaining = total - confirmed;
+      if (remaining > 0) sum += remaining;
+    }
+
+    // Never show negative due values anywhere.
+    return sum < 0 ? 0 : sum;
   }
 
   Map<String, dynamic>? get lastOrder {
@@ -99,7 +121,10 @@ class RetailerSessionNotifier extends StateNotifier<AsyncValue<RetailerSessionDa
       // 3) Get Retailer Ledger / Due Balance (entries)
       final ledger = await _paymentService.getRetailerLedgerEntries();
 
-      // 4) Get Wholesaler Info (relationships)
+      // 4) Get Retailer Payments (for confirmed-paid aggregation)
+      final payments = await _paymentService.getRetailerPayments();
+
+      // 5) Get Wholesaler Info (relationships)
       final wholesalers = await _connectionService.getApprovedWholesalers();
 
       state = AsyncValue.data(
@@ -107,6 +132,7 @@ class RetailerSessionNotifier extends StateNotifier<AsyncValue<RetailerSessionDa
           profile: profile,
           orders: orders,
           ledgerEntries: ledger,
+          payments: payments,
           approvedWholesalers: wholesalers,
         ),
       );

@@ -14,6 +14,7 @@ import 'screens/orders/orders_screen.dart';
 import 'screens/payments/payments_screen.dart';
 import 'screens/account/account_screen.dart';
 import 'screens/new_order/new_order_screen.dart';
+import 'screens/cart/cart_screen.dart';
 import 'screens/wholesalers/connected_wholesalers_screen.dart';
 import 'widgets/layout/retailer_shell.dart';
 
@@ -63,6 +64,11 @@ class DiyaApp extends StatelessWidget {
               current: NavTab.orders,
               title: "Orders",
               child: const OrdersScreen(),
+            ),
+        '/cart': (_) => RetailerShell(
+              current: NavTab.cart,
+              title: "Cart",
+              child: const CartScreen(),
             ),
         '/payments': (_) => RetailerShell(
               current: NavTab.payments,

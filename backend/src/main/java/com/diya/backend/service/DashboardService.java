@@ -10,6 +10,7 @@ import org.springframework.stereotype.Service;
 import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.time.LocalTime;
 import java.util.*;
 
 @Service
@@ -51,12 +52,21 @@ public class DashboardService {
                 Set<UUID> retailerScope = resolveRetailerScope(wholesaler, regionFilter);
 
                 LocalDate today = LocalDate.now();
+                LocalDate yesterday = today.minusDays(1);
+                LocalDateTime yesterdayEnd = yesterday.atTime(LocalTime.MAX);
 
                 int newOrdersToday = (int) orderRepository
                                 .findByWholesaler(wholesaler)
                                 .stream()
                                 .filter(o -> retailerScope == null || retailerScope.contains(o.getRetailer().getId()))
                                 .filter(o -> o.getPlacedAt().toLocalDate().isEqual(today))
+                                .count();
+
+                int newOrdersYesterday = (int) orderRepository
+                                .findByWholesaler(wholesaler)
+                                .stream()
+                                .filter(o -> retailerScope == null || retailerScope.contains(o.getRetailer().getId()))
+                                .filter(o -> o.getPlacedAt().toLocalDate().isEqual(yesterday))
                                 .count();
 
                 BigDecimal paymentsToday = paymentRepository.findByWholesaler(wholesaler).stream()
@@ -67,11 +77,32 @@ public class DashboardService {
                                 .map(Payment::getAmount)
                                 .reduce(BigDecimal.ZERO, BigDecimal::add);
 
+                BigDecimal paymentsYesterday = paymentRepository.findByWholesaler(wholesaler).stream()
+                                .filter(p -> retailerScope == null || retailerScope.contains(p.getRetailer().getId()))
+                                .filter(p -> p.getStatus() == Payment.PaymentStatus.CONFIRMED)
+                                .filter(p -> p.getConfirmedAt() != null
+                                                && p.getConfirmedAt().toLocalDate().isEqual(yesterday))
+                                .map(Payment::getAmount)
+                                .reduce(BigDecimal.ZERO, BigDecimal::add);
+
                 int pendingOrders = (int) orderRepository
                                 .findByWholesaler(wholesaler)
                                 .stream()
                                 .filter(o -> retailerScope == null || retailerScope.contains(o.getRetailer().getId()))
                                 .filter(o -> o.getStatus() == Order.Status.PLACED)
+                                .count();
+
+                int pendingOrdersYesterday = (int) orderRepository
+                                .findByWholesaler(wholesaler)
+                                .stream()
+                                .filter(o -> o != null && o.getRetailer() != null && o.getRetailer().getId() != null)
+                                .filter(o -> retailerScope == null || retailerScope.contains(o.getRetailer().getId()))
+                                // must exist by yesterday end
+                                .filter(o -> o.getPlacedAt() != null && !o.getPlacedAt().isAfter(yesterdayEnd))
+                                // consider it pending "as of yesterday end" if it wasn't accepted/cancelled yet
+                                .filter(o -> o.getStatus() != Order.Status.REJECTED && o.getStatus() != Order.Status.CANCELLED)
+                                .filter(o -> o.getAcceptedAt() == null || o.getAcceptedAt().isAfter(yesterdayEnd))
+                                .filter(o -> o.getCancelledAt() == null || o.getCancelledAt().isAfter(yesterdayEnd))
                                 .count();
 
                 // Outstanding = sum(totalAmount - confirmedPaid) for accepted orders only.
@@ -104,11 +135,53 @@ public class DashboardService {
                         totalOutstanding = totalOutstanding.add(out);
                 }
 
+                // Outstanding "as of yesterday end" = accepted on/before yesterday end minus confirmed payments on/before yesterday end.
+                Map<UUID, BigDecimal> paidByOrderIdYesterday = new HashMap<>();
+                for (Payment p : paymentRepository.findByWholesaler(wholesaler)) {
+                        if (p == null || p.getOrder() == null || p.getStatus() != Payment.PaymentStatus.CONFIRMED) {
+                                continue;
+                        }
+                        if (p.getConfirmedAt() == null || p.getConfirmedAt().isAfter(yesterdayEnd)) {
+                                continue;
+                        }
+                        if (retailerScope != null
+                                        && (p.getRetailer() == null || !retailerScope.contains(p.getRetailer().getId()))) {
+                                continue;
+                        }
+                        UUID oid = p.getOrder().getId();
+                        BigDecimal amt = p.getAmount() != null ? p.getAmount() : BigDecimal.ZERO;
+                        paidByOrderIdYesterday.merge(oid, amt, BigDecimal::add);
+                }
+
+                BigDecimal totalOutstandingYesterday = BigDecimal.ZERO;
+                for (Order o : orderRepository.findByWholesaler(wholesaler)) {
+                        if (o == null || o.getRetailer() == null || o.getRetailer().getId() == null) continue;
+                        if (retailerScope != null && !retailerScope.contains(o.getRetailer().getId())) continue;
+                        if (o.getAcceptedAt() == null || o.getAcceptedAt().isAfter(yesterdayEnd)) {
+                                continue; // not yet accepted by yesterday
+                        }
+                        if (o.getCancelledAt() != null && !o.getCancelledAt().isAfter(yesterdayEnd)) {
+                                continue; // cancelled by yesterday
+                        }
+                        Order.Status st = o.getStatus();
+                        if (st == Order.Status.REJECTED || st == Order.Status.CANCELLED || st == Order.Status.PLACED) {
+                                continue;
+                        }
+                        BigDecimal total = o.getTotalAmount() != null ? o.getTotalAmount() : BigDecimal.ZERO;
+                        BigDecimal paid = paidByOrderIdYesterday.getOrDefault(o.getId(), BigDecimal.ZERO);
+                        BigDecimal out = total.subtract(paid).max(BigDecimal.ZERO);
+                        totalOutstandingYesterday = totalOutstandingYesterday.add(out);
+                }
+
                 return DashboardKpiDTO.builder()
                                 .newOrdersToday(newOrdersToday)
+                                .newOrdersYesterday(newOrdersYesterday)
                                 .paymentsReceivedToday(paymentsToday)
+                                .paymentsReceivedYesterday(paymentsYesterday)
                                 .pendingOrders(pendingOrders)
+                                .pendingOrdersYesterday(pendingOrdersYesterday)
                                 .totalOutstanding(totalOutstanding)
+                                .totalOutstandingYesterday(totalOutstandingYesterday)
                                 .build();
         }
 
@@ -194,26 +267,65 @@ public class DashboardService {
         public List<ActivityItemDTO> getActivityFeed(String identifier, String authType) {
                 Wholesaler wholesaler = getWholesaler(identifier, authType);
 
-                List<ActivityItemDTO> list = new ArrayList<>();
+                LocalDate today = LocalDate.now();
+
+                class Event {
+                        LocalDateTime at;
+                        ActivityItemDTO dto;
+                        Event(LocalDateTime at, ActivityItemDTO dto) { this.at = at; this.dto = dto; }
+                }
+
+                List<Event> events = new ArrayList<>();
 
                 orderRepository.findByWholesaler(wholesaler).forEach(o -> {
-                        list.add(ActivityItemDTO.builder()
+                        if (o == null || o.getPlacedAt() == null) return;
+                        if (!o.getPlacedAt().toLocalDate().isEqual(today)) return;
+                        String retailerName = (o.getRetailer() != null && o.getRetailer().getUser() != null
+                                && o.getRetailer().getUser().getName() != null)
+                                ? o.getRetailer().getUser().getName()
+                                : "Retailer";
+                        events.add(new Event(
+                                o.getPlacedAt(),
+                                ActivityItemDTO.builder()
                                         .type("ORDER")
                                         .title("New Order " + o.getOrderNumber())
-                                        .subtitle(o.getRetailer().getUser().getName() + " • ₹" + o.getTotalAmount())
+                                        .subtitle(retailerName + " • ₹" + o.getTotalAmount())
                                         .timeAgo(timeAgo(o.getPlacedAt()))
-                                        .build());
+                                        .build()
+                        ));
                 });
 
                 paymentRepository.findByWholesaler(wholesaler).forEach(p -> {
-                        list.add(ActivityItemDTO.builder()
+                        if (p == null) return;
+                        LocalDateTime at = p.getConfirmedAt() != null ? p.getConfirmedAt() : p.getCreatedAt();
+                        if (at == null) return;
+                        if (!at.toLocalDate().isEqual(today)) return;
+                        String retailerName = (p.getRetailer() != null && p.getRetailer().getUser() != null
+                                && p.getRetailer().getUser().getName() != null)
+                                ? p.getRetailer().getUser().getName()
+                                : "Retailer";
+                        events.add(new Event(
+                                at,
+                                ActivityItemDTO.builder()
                                         .type("PAYMENT")
                                         .title("Payment Received")
-                                        .subtitle(p.getRetailer().getUser().getName() + " • ₹" + p.getAmount())
-                                        .timeAgo(timeAgo(p.getCreatedAt()))
-                                        .build());
+                                        .subtitle(retailerName + " • ₹" + p.getAmount())
+                                        .timeAgo(timeAgo(at))
+                                        .build()
+                        ));
                 });
 
+                events.sort((a, b) -> {
+                        if (a.at == null && b.at == null) return 0;
+                        if (a.at == null) return 1;
+                        if (b.at == null) return -1;
+                        return b.at.compareTo(a.at); // newest first
+                });
+
+                List<ActivityItemDTO> list = new ArrayList<>();
+                for (Event e : events) {
+                        if (e.dto != null) list.add(e.dto);
+                }
                 return list;
         }
 

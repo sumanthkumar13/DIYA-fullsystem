@@ -12,16 +12,7 @@ import {
   useAnalyticsTopProducts,
   useAnalyticsTopRetailers,
 } from "@/hooks/useAnalytics";
-
-function formatINR(value: unknown, digits = 0) {
-  const n = typeof value === "number" ? value : Number(value);
-  if (!Number.isFinite(n)) return "—";
-  return new Intl.NumberFormat("en-IN", {
-    style: "currency",
-    currency: "INR",
-    maximumFractionDigits: digits,
-  }).format(n);
-}
+import { formatINR } from "@/lib/money";
 
 function formatMonthLabel(year: number, month: number) {
   const d = new Date(year, month - 1, 1);
@@ -45,13 +36,13 @@ export default function Analytics() {
   const orderStatusQ = useAnalyticsOrderStatus();
 
   const anyError =
-    summaryQ.error ||
-    topProductsQ.error ||
-    slowProductsQ.error ||
-    topRetailersQ.error ||
-    pendingPaymentsQ.error ||
-    monthlySalesQ.error ||
-    orderStatusQ.error;
+    summaryQ.isError ||
+    topProductsQ.isError ||
+    slowProductsQ.isError ||
+    topRetailersQ.isError ||
+    pendingPaymentsQ.isError ||
+    monthlySalesQ.isError ||
+    orderStatusQ.isError;
 
   return (
     <div className="space-y-6">
@@ -374,60 +365,7 @@ export default function Analytics() {
         </CardContent>
       </Card>
 
-      {/* Section 5 — Order Status Summary */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-        <Card className="border-none shadow-sm bg-white">
-          <CardContent className="p-5">
-            <div className="flex items-center justify-between">
-              <p className="text-sm font-medium text-gray-500">Pending Orders</p>
-              <div className="h-9 w-9 rounded-lg bg-orange-50 text-orange-600 flex items-center justify-center">
-                <Package className="h-4 w-4" />
-              </div>
-            </div>
-            {orderStatusQ.isLoading ? (
-              <Skeleton className="mt-2 h-8 w-16" />
-            ) : (
-              <div className="mt-2 text-2xl font-bold text-gray-900 font-display">
-                {(orderStatusQ.data?.pendingOrders ?? 0).toLocaleString("en-IN")}
-              </div>
-            )}
-          </CardContent>
-        </Card>
-        <Card className="border-none shadow-sm bg-white">
-          <CardContent className="p-5">
-            <div className="flex items-center justify-between">
-              <p className="text-sm font-medium text-gray-500">Dispatched Orders</p>
-              <div className="h-9 w-9 rounded-lg bg-blue-50 text-blue-600 flex items-center justify-center">
-                <Truck className="h-4 w-4" />
-              </div>
-            </div>
-            {orderStatusQ.isLoading ? (
-              <Skeleton className="mt-2 h-8 w-16" />
-            ) : (
-              <div className="mt-2 text-2xl font-bold text-gray-900 font-display">
-                {(orderStatusQ.data?.dispatchedOrders ?? 0).toLocaleString("en-IN")}
-              </div>
-            )}
-          </CardContent>
-        </Card>
-        <Card className="border-none shadow-sm bg-white">
-          <CardContent className="p-5">
-            <div className="flex items-center justify-between">
-              <p className="text-sm font-medium text-gray-500">Delivered Orders</p>
-              <div className="h-9 w-9 rounded-lg bg-green-50 text-green-600 flex items-center justify-center">
-                <Truck className="h-4 w-4" />
-              </div>
-            </div>
-            {orderStatusQ.isLoading ? (
-              <Skeleton className="mt-2 h-8 w-16" />
-            ) : (
-              <div className="mt-2 text-2xl font-bold text-gray-900 font-display">
-                {(orderStatusQ.data?.deliveredOrders ?? 0).toLocaleString("en-IN")}
-              </div>
-            )}
-          </CardContent>
-        </Card>
-      </div>
+      {/* Section 5 — Order Status Summary removed (per updated dashboard spec) */}
     </div>
   );
 }

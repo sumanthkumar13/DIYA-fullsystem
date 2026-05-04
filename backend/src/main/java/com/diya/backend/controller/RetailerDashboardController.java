@@ -12,6 +12,7 @@ import com.diya.backend.repository.OrderRepository;
 import com.diya.backend.repository.PaymentRepository;
 import com.diya.backend.repository.ProductRepository;
 import com.diya.backend.repository.RetailerRepository;
+import com.diya.backend.util.LedgerAccounting;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.ResponseEntity;
@@ -79,6 +80,7 @@ public class RetailerDashboardController {
         profile.put("state", retailer.getState());
         profile.put("phone", retailer.getPhoneContact());
         profile.put("gstNumber", retailer.getGstNumber());
+        profile.put("avatarUrl", retailer.getUser() != null ? retailer.getUser().getAvatarUrl() : null);
         resp.put("retailerProfile", profile);
 
         // Orders for this retailer
@@ -110,13 +112,13 @@ public class RetailerDashboardController {
                 })
                 .collect(Collectors.toList()));
 
-        // Outstanding & overdue from ledger entries (DEBIT - CREDIT)
+        // Outstanding from ledger: DEBIT − CREDIT only (immediate cash at acceptance is ORDER_PAYMENT_INFO).
         List<LedgerEntry> ledgerEntries = ledgerEntryRepository.findByRetailer(retailer);
         BigDecimal outstanding = ledgerEntries.stream()
-                .map(e -> e.getEntryType() == LedgerEntry.EntryType.DEBIT ? e.getAmount() : e.getAmount().negate())
+                .map(LedgerAccounting::signedEffect)
                 .reduce(BigDecimal.ZERO, BigDecimal::add);
         if (outstanding == null) outstanding = BigDecimal.ZERO;
-        resp.put("outstandingBalance", outstanding);
+        resp.put("outstandingBalance", outstanding.max(BigDecimal.ZERO));
 
         LocalDateTime now = LocalDateTime.now();
         BigDecimal overdue = ledgerEntries.stream()
@@ -156,7 +158,7 @@ public class RetailerDashboardController {
                 Map<String, Object> m = new HashMap<>();
                 m.put("id", p.getId());
                 m.put("name", p.getName());
-                m.put("price", p.getPrice());
+                m.put("price", p.getPrice() != null ? p.getPrice().doubleValue() : null);
                 m.put("sku", p.getSku());
                 m.put("stock", p.getStock());
                 m.put("imageUrl", p.getImageUrl());

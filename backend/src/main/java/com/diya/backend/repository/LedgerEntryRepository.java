@@ -42,7 +42,8 @@ public interface LedgerEntryRepository extends JpaRepository<LedgerEntry, UUID> 
             select coalesce(sum(
               case
                 when e.entryType = com.diya.backend.entity.LedgerEntry.EntryType.DEBIT then e.amount
-                else -e.amount
+                when e.entryType = com.diya.backend.entity.LedgerEntry.EntryType.CREDIT then -e.amount
+                else 0
               end
             ), 0)
             from LedgerEntry e
@@ -57,7 +58,8 @@ public interface LedgerEntryRepository extends JpaRepository<LedgerEntry, UUID> 
               coalesce(sum(
                 case
                   when e.entryType = com.diya.backend.entity.LedgerEntry.EntryType.DEBIT then e.amount
-                  else -e.amount
+                  when e.entryType = com.diya.backend.entity.LedgerEntry.EntryType.CREDIT then -e.amount
+                  else 0
                 end
               ), 0)
             from LedgerEntry e
@@ -66,13 +68,15 @@ public interface LedgerEntryRepository extends JpaRepository<LedgerEntry, UUID> 
             having coalesce(sum(
                 case
                   when e.entryType = com.diya.backend.entity.LedgerEntry.EntryType.DEBIT then e.amount
-                  else -e.amount
+                  when e.entryType = com.diya.backend.entity.LedgerEntry.EntryType.CREDIT then -e.amount
+                  else 0
                 end
               ), 0) > 0
             order by coalesce(sum(
                 case
                   when e.entryType = com.diya.backend.entity.LedgerEntry.EntryType.DEBIT then e.amount
-                  else -e.amount
+                  when e.entryType = com.diya.backend.entity.LedgerEntry.EntryType.CREDIT then -e.amount
+                  else 0
                 end
               ), 0) desc
             """)

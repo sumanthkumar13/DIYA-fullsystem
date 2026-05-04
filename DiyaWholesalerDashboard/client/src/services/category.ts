@@ -18,8 +18,19 @@ export async function createCategory(name: string) {
   return res.data;
 }
 
-export async function renameCategory(categoryId: string, name: string) {
-  const res = await api.put(`/wholesaler/categories/${categoryId}`, { name });
+export async function createCategoryWithImage(name: string, imageUrl?: string | null) {
+  const res = await api.post("/wholesaler/categories", {
+    name,
+    imageUrl: imageUrl || null,
+  });
+  return res.data;
+}
+
+export async function renameCategory(categoryId: string, name: string, imageUrl?: string | null) {
+  const res = await api.put(`/wholesaler/categories/${categoryId}`, {
+    name,
+    ...(imageUrl !== undefined ? { imageUrl } : {}),
+  });
   return res.data;
 }
 
@@ -56,6 +67,7 @@ export async function createSubcategory(params: {
   name: string;
   categoryId?: string;
   parentSubId?: string;
+  imageUrl?: string | null;
 }) {
   if (!params?.name?.trim()) {
     throw new Error("Subcategory name is required");
@@ -76,8 +88,11 @@ export async function createSubcategory(params: {
   return res.data;
 }
 
-export async function renameSubcategory(subcategoryId: string, name: string) {
-  const res = await api.put(`/wholesaler/subcategories/${subcategoryId}`, { name });
+export async function renameSubcategory(subcategoryId: string, name: string, imageUrl?: string | null) {
+  const res = await api.put(`/wholesaler/subcategories/${subcategoryId}`, {
+    name,
+    ...(imageUrl !== undefined ? { imageUrl } : {}),
+  });
   return res.data;
 }
 

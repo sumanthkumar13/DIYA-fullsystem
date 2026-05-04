@@ -30,6 +30,7 @@ import { useToast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
 import { createProduct, fetchProduct, updateProduct } from "@/services/product";
 import { suggestHsn } from "@/services/hsn";
+import { uploadImageUnsignedToCloudinary, validateImageFile } from "@/lib/cloudinary";
 import {
   fetchCategories,
   fetchSubcategoriesByCategory,
@@ -67,6 +68,13 @@ export default function AddProductPage() {
   const [price, setPrice] = useState("");
   const [mrp, setMrp] = useState("");
   const [stock, setStock] = useState("");
+  const [imageUrl, setImageUrl] = useState<string>("");
+  const [imagePreviewUrl, setImagePreviewUrl] = useState<string | null>(null);
+  const [imageFile, setImageFile] = useState<File | null>(null);
+  const [imageUploading, setImageUploading] = useState(false);
+  const [imageProgress, setImageProgress] = useState(0);
+  const [imageError, setImageError] = useState<string | null>(null);
+  const imageInputRef = useRef<HTMLInputElement | null>(null);
 
   const [loading, setLoading] = useState(false);
   const [initialLoading, setInitialLoading] = useState(!!productId);
@@ -264,6 +272,8 @@ export default function AddProductPage() {
         setPrice(p.price != null ? String(p.price) : "");
         setMrp(p.mrp != null ? String(p.mrp) : "");
         setStock(p.stock != null ? String(p.stock) : "");
+        const img = p.imageUrl ? String(p.imageUrl) : "";
+        setImageUrl(img);
         const cid = p.categoryId ? String(p.categoryId) : "";
         setCategoryId(cid);
         setSubcategoryId(p.subcategoryId ? String(p.subcategoryId) : "");
@@ -292,6 +302,12 @@ export default function AddProductPage() {
       cancelled = true;
     };
   }, [productId, setLocation, toast]);
+
+  useEffect(() => {
+    return () => {
+      if (imagePreviewUrl) URL.revokeObjectURL(imagePreviewUrl);
+    };
+  }, [imagePreviewUrl]);
 
   // ✅ When category changes => load subcategories & auto select preset
   useEffect(() => {
@@ -418,6 +434,17 @@ export default function AddProductPage() {
     setLoading(true);
 
     try {
+      let finalImageUrl = imageUrl.trim() || undefined;
+      if (imageFile) {
+        setImageUploading(true);
+        setImageProgress(0);
+        const { secureUrl } = await uploadImageUnsignedToCloudinary({
+          file: imageFile,
+          onProgress: (p) => setImageProgress(p),
+        });
+        finalImageUrl = secureUrl;
+      }
+
       const payload: Record<string, unknown> = {
         name,
         price: Number(price),
@@ -425,6 +452,7 @@ export default function AddProductPage() {
         stock: stock ? Number(stock) : 0,
         categoryId,
         subcategoryId: subcategoryId || undefined,
+        imageUrl: finalImageUrl,
       };
       if (hsnCode.trim()) payload.hsnCode = hsnCode.trim();
       if (gstRate !== "") payload.gstRate = Number(gstRate);
@@ -462,6 +490,7 @@ export default function AddProductPage() {
         variant: "destructive",
       });
     } finally {
+      setImageUploading(false);
       setLoading(false);
     }
   };
@@ -585,6 +614,85 @@ export default function AddProductPage() {
                 value={stock}
                 onChange={(e) => setStock(e.target.value)}
               />
+
+              {/* PRODUCT IMAGE */}
+              <div className="space-y-2">
+                <Label>Product image</Label>
+                <div className="flex items-center gap-4 flex-wrap">
+                  <div className="h-20 w-20 rounded-xl border border-gray-200 bg-gray-50 overflow-hidden flex items-center justify-center">
+                    {imagePreviewUrl ? (
+                      <img src={imagePreviewUrl} alt="Preview" className="h-full w-full object-cover" />
+                    ) : imageUrl ? (
+                      <img src={imageUrl} alt="Product" className="h-full w-full object-cover" />
+                    ) : (
+                      <span className="text-xs font-semibold text-gray-400">No Image</span>
+                    )}
+                  </div>
+
+                  <input
+                    ref={imageInputRef}
+                    type="file"
+                    accept="image/jpeg,image/png,image/webp"
+                    className="hidden"
+                    onChange={(e) => {
+                      const f = e.target.files?.[0] ?? null;
+                      setImageError(null);
+                      if (!f) {
+                        setImageFile(null);
+                        if (imagePreviewUrl) URL.revokeObjectURL(imagePreviewUrl);
+                        setImagePreviewUrl(null);
+                        return;
+                      }
+                      const err = validateImageFile(f);
+                      if (err) {
+                        setImageError(err);
+                        setImageFile(null);
+                        if (imagePreviewUrl) URL.revokeObjectURL(imagePreviewUrl);
+                        setImagePreviewUrl(null);
+                        return;
+                      }
+                      setImageFile(f);
+                      if (imagePreviewUrl) URL.revokeObjectURL(imagePreviewUrl);
+                      setImagePreviewUrl(URL.createObjectURL(f));
+                    }}
+                  />
+
+                  <div className="flex items-center gap-2">
+                    <Button
+                      type="button"
+                      variant="outline"
+                      onClick={() => imageInputRef.current?.click()}
+                      disabled={loading || imageUploading}
+                    >
+                      {imageFile ? "Change image" : "Select image"}
+                    </Button>
+                    {imagePreviewUrl ? (
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        onClick={() => {
+                          setImageFile(null);
+                          if (imagePreviewUrl) URL.revokeObjectURL(imagePreviewUrl);
+                          setImagePreviewUrl(null);
+                        }}
+                        disabled={loading || imageUploading}
+                      >
+                        Clear
+                      </Button>
+                    ) : null}
+                  </div>
+                </div>
+                {imageUploading ? (
+                  <p className="text-xs text-gray-500">
+                    Uploading{imageProgress ? ` (${imageProgress}%)` : "…"}
+                  </p>
+                ) : (
+                  <p className="text-xs text-gray-500">
+                    JPG / PNG / WEBP up to 5MB.
+                  </p>
+                )}
+                {imageError ? <p className="text-xs text-red-600">{imageError}</p> : null}
+              </div>
 
               <Collapsible open={taxSectionOpen} onOpenChange={setTaxSectionOpen}>
                 <CollapsibleTrigger asChild>
@@ -710,7 +818,7 @@ export default function AddProductPage() {
                   Cancel
                 </Button>
 
-                <Button disabled={loading}>
+                <Button disabled={loading || imageUploading}>
                   {loading ? (
                     <>
                       <Loader2 className="mr-2 h-4 w-4 animate-spin" />

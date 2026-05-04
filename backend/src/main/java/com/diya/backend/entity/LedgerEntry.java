@@ -53,12 +53,17 @@ public class LedgerEntry {
     private LocalDateTime entryDate = LocalDateTime.now();
 
     /**
-     * ✅ Ledger meaning (Retailer Outstanding):
-     * DEBIT = Retailer owes wholesaler (increase outstanding)
-     * CREDIT = Retailer paid wholesaler (decrease outstanding)
+     * Ledger line classification (retailer–wholesaler outstanding):
+     * <ul>
+     *   <li>DEBIT — credit extended (increases amount owed; "CREDIT_ENTRY" in product terms)</li>
+     *   <li>CREDIT — payment received against that credit (decreases amount owed; "PAYMENT_ENTRY")</li>
+     *   <li>ORDER_PAYMENT_INFO — cash/UPI collected at order acceptance; informational only, does not change balance</li>
+     * </ul>
      */
     public enum EntryType {
         DEBIT,
-        CREDIT
+        CREDIT,
+        /** Cash/UPI at order acceptance — display/audit only; must not affect outstanding. */
+        ORDER_PAYMENT_INFO
     }
 }

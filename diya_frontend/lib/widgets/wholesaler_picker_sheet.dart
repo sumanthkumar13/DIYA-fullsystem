@@ -3,12 +3,15 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../providers/approved_wholesalers_provider.dart';
 import '../providers/selected_wholesaler_provider.dart';
 import '../models/connections/connection_response_dto.dart';
+import '../screens/catalogue/wholesaler_catalogue_screen.dart';
 import '../widgets/ui/diya_card.dart';
 import '../widgets/ui/diya_button.dart';
 
-/// Opens a bottom sheet to select a wholesaler, then navigates to new order screen
+/// Opens a bottom sheet to select a wholesaler, then navigates to catalogue.
 Future<void> openWholesalerPickerAndProceed(BuildContext context, WidgetRef ref) async {
-  final wholesalersAsync = ref.read(approvedWholesalersProvider.notifier).state;
+  // Always refetch before opening to avoid stale state after approvals.
+  await ref.read(approvedWholesalersProvider.notifier).load();
+  final wholesalersAsync = ref.read(approvedWholesalersProvider);
 
   await wholesalersAsync.when(
     data: (wholesalers) async {
@@ -35,8 +38,16 @@ Future<void> openWholesalerPickerAndProceed(BuildContext context, WidgetRef ref)
         // Set selected wholesaler in provider
         ref.read(selectedWholesalerIdProvider.notifier).state = selected.wholesalerId;
         
-        // Navigate to new order screen
-        Navigator.pushNamed(context, '/new-order');
+        // Navigate to catalogue (single consistent flow across app)
+        Navigator.push(
+          context,
+          MaterialPageRoute(
+            builder: (_) => WholesalerCatalogueScreen(
+              wholesalerId: selected.wholesalerId,
+              wholesalerName: selected.wholesalerBusinessName,
+            ),
+          ),
+        );
       }
     },
     loading: () async {

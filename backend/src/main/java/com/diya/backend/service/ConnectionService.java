@@ -67,6 +67,13 @@ public class ConnectionService {
                 throw new RuntimeException("Connection blocked by wholesaler");
             }
 
+            if (existing.getStatus() == Connection.Status.REMOVED) {
+                existing.setStatus(Connection.Status.PENDING);
+                existing.setRequestedAt(LocalDateTime.now());
+                existing.setRespondedAt(null);
+                return toDto(connectionRepository.save(existing));
+            }
+
             return toDto(existing);
         }
 
@@ -199,8 +206,54 @@ public class ConnectionService {
         return connectionRepository
                 .findByWholesalerOrderByRequestedAtDesc(wholesaler)
                 .stream()
+                .filter(c -> c.getStatus() != Connection.Status.REMOVED)
                 .map(this::toDto)
                 .toList();
+    }
+
+    @org.springframework.transaction.annotation.Transactional
+    public ConnectionResponseDTO blockRetailer(String identifier, String authType, UUID retailerId) {
+        Wholesaler wholesaler = resolveWholesaler(identifier, authType);
+        Retailer retailer = retailerRepository.findById(retailerId)
+                .orElseThrow(() -> new RuntimeException("Retailer not found"));
+        Connection conn = connectionRepository.findByWholesalerAndRetailer(wholesaler, retailer)
+                .orElseThrow(() -> new RuntimeException("No connection"));
+        if (conn.getStatus() != Connection.Status.APPROVED) {
+            throw new RuntimeException("Only an active retailer can be blocked");
+        }
+        conn.setStatus(Connection.Status.BLOCKED);
+        conn.setRespondedAt(LocalDateTime.now());
+        return toDto(connectionRepository.save(conn));
+    }
+
+    @org.springframework.transaction.annotation.Transactional
+    public ConnectionResponseDTO unblockRetailer(String identifier, String authType, UUID retailerId) {
+        Wholesaler wholesaler = resolveWholesaler(identifier, authType);
+        Retailer retailer = retailerRepository.findById(retailerId)
+                .orElseThrow(() -> new RuntimeException("Retailer not found"));
+        Connection conn = connectionRepository.findByWholesalerAndRetailer(wholesaler, retailer)
+                .orElseThrow(() -> new RuntimeException("No connection"));
+        if (conn.getStatus() != Connection.Status.BLOCKED) {
+            throw new RuntimeException("Retailer is not blocked");
+        }
+        conn.setStatus(Connection.Status.APPROVED);
+        conn.setRespondedAt(LocalDateTime.now());
+        return toDto(connectionRepository.save(conn));
+    }
+
+    @org.springframework.transaction.annotation.Transactional
+    public ConnectionResponseDTO removeRetailer(String identifier, String authType, UUID retailerId) {
+        Wholesaler wholesaler = resolveWholesaler(identifier, authType);
+        Retailer retailer = retailerRepository.findById(retailerId)
+                .orElseThrow(() -> new RuntimeException("Retailer not found"));
+        Connection conn = connectionRepository.findByWholesalerAndRetailer(wholesaler, retailer)
+                .orElseThrow(() -> new RuntimeException("No connection"));
+        if (conn.getStatus() != Connection.Status.APPROVED && conn.getStatus() != Connection.Status.BLOCKED) {
+            throw new RuntimeException("Only active or blocked retailers can be removed from the list");
+        }
+        conn.setStatus(Connection.Status.REMOVED);
+        conn.setRespondedAt(LocalDateTime.now());
+        return toDto(connectionRepository.save(conn));
     }
 
     private ConnectionResponseDTO toDto(Connection c) {
@@ -222,8 +275,18 @@ public class ConnectionService {
 
                 // retailer preview (for wholesaler)
                 .retailerBusinessName(r != null ? r.getShopName() : null)
-                .retailerCity(r != null ? r.getCity() : null)
+                .retailerCity(r != null ? emptyToNull(r.getCity()) : null)
+                .retailerRegion(r != null ? emptyToNull(r.getRegion()) : null)
+                .retailerState(r != null ? emptyToNull(r.getState()) : null)
                 .retailerPhone(r != null ? r.getPhoneContact() : null)
                 .build();
+    }
+
+    private static String emptyToNull(String s) {
+        if (s == null) {
+            return null;
+        }
+        String t = s.trim();
+        return t.isEmpty() ? null : t;
     }
 }

@@ -78,11 +78,38 @@ public class WholesalerSettingsService {
             if (dto.getPhone() != null) {
                 u.setPhone(dto.getPhone());
             }
+            if (dto.getEmail() != null) {
+                String nextEmail = dto.getEmail().trim().toLowerCase();
+                if (nextEmail.isBlank()) {
+                    throw new RuntimeException("Email cannot be empty");
+                }
+                // Basic email format validation
+                if (!nextEmail.matches("^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$")) {
+                    throw new RuntimeException("Invalid email format");
+                }
+                String currentEmail = u.getEmail() != null ? u.getEmail().trim().toLowerCase() : "";
+                if (!nextEmail.equals(currentEmail)) {
+                    if (userRepository.existsByEmail(nextEmail)) {
+                        throw new RuntimeException("Email already in use");
+                    }
+                    u.setEmail(nextEmail);
+                }
+            }
             userRepository.save(u);
         }
 
         wholesalerRepository.save(w);
 
-        return getSettings(identifier);
+        // Avoid resolve-by-identifier issues if identifier is email and it was changed.
+        return new WholesalerSettingsDTO(
+                w.getBusinessName(),
+                u != null ? u.getName() : null,
+                u != null ? u.getPhone() : null,
+                w.getAddress(),
+                w.getGstin(),
+                w.getBusinessType(),
+                w.getVisibilityMode(),
+                u != null ? u.getEmail() : null
+        );
     }
 }

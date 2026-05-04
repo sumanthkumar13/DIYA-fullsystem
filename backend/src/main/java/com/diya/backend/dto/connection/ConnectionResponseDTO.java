@@ -23,5 +23,8 @@ public class ConnectionResponseDTO {
     // ✅ retailer preview fields (for wholesaler UI)
     public String retailerBusinessName;
     public String retailerCity;
+    /** Territory / region from retailer profile (fallback when city is blank). */
+    public String retailerRegion;
+    public String retailerState;
     public String retailerPhone;
 }

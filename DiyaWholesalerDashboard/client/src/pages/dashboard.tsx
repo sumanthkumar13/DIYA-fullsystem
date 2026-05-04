@@ -1,4 +1,5 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { Link } from "wouter";
 import { Switch } from "@/components/ui/switch";
 import { useToast } from "@/hooks/use-toast";
 import { useWholesalerVisibility } from "@/hooks/useWholesalerVisibility";
@@ -28,12 +29,14 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { cn } from "@/lib/utils";
+import { formatINR } from "@/lib/money";
+import { ScrollArea } from "@/components/ui/scroll-area";
 import {
   useDashboardKpi,
   useDashboardActivity,
   useTerritoryPerformance,
-  useActiveRegions,
 } from "@/hooks/useDashboard";
+import { useRetailerRegions } from "@/hooks/useRetailerRegions";
 import type { TerritoryPerformanceRow } from "@/services/analytics";
 import { useAuth } from "@/context/AuthContext";
 import { getGreeting, getUserDisplayName } from "@/lib/greeting";
@@ -44,7 +47,7 @@ export default function Dashboard() {
   const [createOrderOpen, setCreateOrderOpen] = useState(false);
   const [kpiRegion, setKpiRegion] = useState<string>("all");
   const { data: kpi } = useDashboardKpi(kpiRegion);
-  const { data: activeRegions = [], isLoading: activeRegionsLoading } = useActiveRegions();
+  const { data: regions = [], isLoading: regionsLoading } = useRetailerRegions();
   const [territorySort, setTerritorySort] = useState<"revenue" | "risk">("revenue");
   const { data: territoryRows, isLoading: territoryLoading, isError: territoryError } =
     useTerritoryPerformance(territorySort);
@@ -52,27 +55,55 @@ export default function Dashboard() {
 
   const visibleTerritoryRows = useMemo(() => {
     if (!territoryRows?.length) return [];
-    if (!activeRegions.length) return [];
-    const allowed = new Set(activeRegions);
+    if (!regions.length) return [];
+    const allowed = new Set(regions);
     return territoryRows.filter((r) => allowed.has(r.region));
-  }, [territoryRows, activeRegions]);
+  }, [territoryRows, regions]);
 
   useEffect(() => {
     if (
       kpiRegion !== "all" &&
-      !activeRegionsLoading &&
-      activeRegions.length > 0 &&
-      !activeRegions.includes(kpiRegion)
+      !regionsLoading &&
+      regions.length > 0 &&
+      !regions.includes(kpiRegion)
     ) {
       setKpiRegion("all");
     }
-  }, [kpiRegion, activeRegions, activeRegionsLoading]);
+  }, [kpiRegion, regions, regionsLoading]);
   const { toast } = useToast();
   const { mode, loading: visibilityLoading, saving, setVisibility } = useWholesalerVisibility();
   const { user } = useAuth();
 
   const greeting = getGreeting();
   const userName = getUserDisplayName(user);
+
+  const newOrdersTrend = useMemo(
+    () => computeTrend(kpi?.newOrdersToday ?? 0, kpi?.newOrdersYesterday ?? 0),
+    [kpi?.newOrdersToday, kpi?.newOrdersYesterday],
+  );
+
+  const paymentsTrend = useMemo(
+    () =>
+      computeTrend(
+        Number(kpi?.paymentsReceivedToday ?? 0),
+        Number(kpi?.paymentsReceivedYesterday ?? 0),
+      ),
+    [kpi?.paymentsReceivedToday, kpi?.paymentsReceivedYesterday],
+  );
+
+  const pendingTrend = useMemo(
+    () => computeTrend(kpi?.pendingOrders ?? 0, kpi?.pendingOrdersYesterday ?? 0),
+    [kpi?.pendingOrders, kpi?.pendingOrdersYesterday],
+  );
+
+  const outstandingTrend = useMemo(
+    () =>
+      computeTrend(
+        Number(kpi?.totalOutstanding ?? 0),
+        Number(kpi?.totalOutstandingYesterday ?? 0),
+      ),
+    [kpi?.totalOutstanding, kpi?.totalOutstandingYesterday],
+  );
 
   return (
     <div className="space-y-6">
@@ -87,13 +118,13 @@ export default function Dashboard() {
 
         <div className="flex items-center gap-2 bg-white px-2 py-1 rounded-xl shadow-sm border border-gray-100 max-w-full">
           <MapPin className="h-4 w-4 text-primary shrink-0 ml-1" aria-hidden />
-          <Select value={kpiRegion} onValueChange={setKpiRegion} disabled={activeRegionsLoading}>
+          <Select value={kpiRegion} onValueChange={setKpiRegion} disabled={regionsLoading}>
             <SelectTrigger className="min-w-[10rem] max-w-[220px] border-0 bg-transparent focus:ring-0 font-medium text-gray-700 shadow-none h-9">
-              <SelectValue placeholder={activeRegionsLoading ? "Loading regions…" : "Region filter"} />
+              <SelectValue placeholder={regionsLoading ? "Loading regions…" : "Region filter"} />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="all">All regions</SelectItem>
-              {activeRegions.map((r) => (
+              <SelectItem value="all">All Regions</SelectItem>
+              {regions.map((r) => (
                 <SelectItem key={r} value={r}>
                   {r}
                 </SelectItem>
@@ -108,38 +139,34 @@ export default function Dashboard() {
         <KpiCard
           title="New Orders Today"
           value={kpi?.newOrdersToday ?? 0}
-          trend="+12%"
+          trend={newOrdersTrend}
           icon={Package}
           color="text-blue-600"
           bg="bg-blue-50"
-          trendUp={true}
         />
         <KpiCard
           title="Payments Received"
-          value={`₹${kpi?.paymentsReceivedToday ?? 0}`}
-          trend="+8%"
+          value={formatINR(kpi?.paymentsReceivedToday ?? 0)}
+          trend={paymentsTrend}
           icon={CheckCircle2}
           color="text-green-600"
           bg="bg-green-50"
-          trendUp={true}
         />
         <KpiCard
           title="Pending Orders"
           value={kpi?.pendingOrders ?? 0}
-          trend="-2"
+          trend={pendingTrend}
           icon={Clock}
           color="text-orange-600"
           bg="bg-orange-50"
-          trendUp={false}
         />
         <KpiCard
           title="Total Outstanding"
-          value={`₹${kpi?.totalOutstanding ?? 0}`}
-          trend="+5%"
+          value={formatINR(kpi?.totalOutstanding ?? 0)}
+          trend={outstandingTrend}
           icon={AlertCircle}
           color="text-red-600"
           bg="bg-red-50"
-          trendUp={true}
           isNegative={true}
         />
       </div>
@@ -206,29 +233,29 @@ export default function Dashboard() {
                     Could not load territory performance. Please refresh or try again.
                   </p>
                 )}
-                {!territoryLoading && !territoryError && activeRegionsLoading && (
+                {!territoryLoading && !territoryError && regionsLoading && (
                   <div className="flex items-center justify-center py-12 text-gray-500 gap-2 text-sm">
                     <Loader2 className="h-4 w-4 animate-spin" /> Loading regions…
                   </div>
                 )}
                 {!territoryLoading &&
                   !territoryError &&
-                  !activeRegionsLoading &&
-                  activeRegions.length === 0 && (
+                  !regionsLoading &&
+                  regions.length === 0 && (
                     <p className="text-sm text-gray-500 text-center py-12">
                       Add retailers with a region to see territory cards here.
                     </p>
                   )}
                 {!territoryLoading &&
                   !territoryError &&
-                  !activeRegionsLoading &&
-                  activeRegions.length > 0 &&
+                  !regionsLoading &&
+                  regions.length > 0 &&
                   visibleTerritoryRows.length === 0 && (
                     <p className="text-sm text-gray-500 text-center py-12">
                       No territory metrics for your regions yet.
                     </p>
                   )}
-                {!territoryLoading && !territoryError && !activeRegionsLoading && visibleTerritoryRows.length > 0 && (
+                {!territoryLoading && !territoryError && !regionsLoading && visibleTerritoryRows.length > 0 && (
                   <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-4">
                     {visibleTerritoryRows.map((row) => (
                       <TerritoryRegionCard key={row.region} row={row} />
@@ -329,28 +356,37 @@ export default function Dashboard() {
 
         {/* Right Sidebar - Activity Stream */}
         <div className="lg:col-span-1">
-          <Card className="h-full border-none shadow-sm bg-white">
+          <Card className="border-none shadow-sm bg-white flex flex-col max-h-[min(28rem,65vh)]">
             <CardHeader className="border-b border-gray-100 pb-3 sticky top-0 bg-white z-10">
               <CardTitle className="text-base font-semibold flex items-center justify-between">
                 Live Activity
                 <Badge variant="secondary" className="text-xs font-normal">Today</Badge>
               </CardTitle>
             </CardHeader>
-            <CardContent className="p-0">
-              <div className="divide-y divide-gray-50">
-                {activity?.map((item: any, index: number) => (
-                  <ActivityItem
-                    key={index}
-                    title={item.title}
-                    subtitle={item.subtitle}
-                    time={item.timeAgo}
-                    icon={resolveIcon(item.type)}
-                    iconBg={resolveColor(item.type)}
-                  />
-                ))}
-              </div>
-              <div className="p-4 text-center">
-                <Button variant="link" size="sm" className="text-primary">View All Activity</Button>
+            <CardContent className="p-0 flex flex-col flex-1 min-h-0">
+              <ScrollArea className="flex-1 min-h-0">
+                <div className="divide-y divide-gray-50">
+                  {activity?.map((item: any, index: number) => (
+                    <ActivityItem
+                      key={index}
+                      title={item.title}
+                      subtitle={item.subtitle}
+                      time={item.timeAgo}
+                      icon={resolveIcon(item.type)}
+                      iconBg={resolveColor(item.type)}
+                    />
+                  ))}
+                  {!activity?.length && (
+                    <div className="p-6 text-center text-sm text-gray-500">
+                      No activity yet.
+                    </div>
+                  )}
+                </div>
+              </ScrollArea>
+              <div className="p-4 text-center border-t border-gray-100">
+                <Button asChild variant="link" size="sm" className="text-primary">
+                  <Link href="/activity">View All Activity</Link>
+                </Button>
               </div>
             </CardContent>
           </Card>
@@ -365,8 +401,7 @@ export default function Dashboard() {
 }
 
 function formatTerritoryRupee(n: number) {
-  const v = Number.isFinite(n) ? Math.round(n) : 0;
-  return `₹${v.toLocaleString("en-IN")}`;
+  return formatINR(n);
 }
 
 function TerritoryRegionCard({ row }: { row: TerritoryPerformanceRow }) {
@@ -417,7 +452,45 @@ function TerritoryRegionCard({ row }: { row: TerritoryPerformanceRow }) {
   );
 }
 
-function KpiCard({ title, value, trend, icon: Icon, color, bg, trendUp, isNegative }: any) {
+type TrendStatus = "up" | "down" | "neutral";
+type Trend = { status: TrendStatus; label: string };
+
+function KpiCard({
+  title,
+  value,
+  trend,
+  icon: Icon,
+  color,
+  bg,
+  isNegative,
+}: {
+  title: string;
+  value: ReactNode;
+  trend: Trend;
+  icon: any;
+  color: string;
+  bg: string;
+  isNegative?: boolean;
+}) {
+  const isGood =
+    trend.status === "neutral"
+      ? null
+      : isNegative
+        ? trend.status === "down"
+        : trend.status === "up";
+
+  const pillClass =
+    trend.status === "neutral"
+      ? "bg-gray-100 text-gray-700"
+      : isGood
+        ? "bg-green-100 text-green-700"
+        : "bg-red-100 text-red-700";
+
+  const TrendIcon =
+    trend.status === "neutral" ? null : (
+      <TrendingUp className={cn("h-3 w-3", trend.status === "down" && "rotate-180")} />
+    );
+
   return (
     <Card className="border-none shadow-sm hover:shadow-md transition-all duration-200 hover:-translate-y-1 cursor-pointer group bg-white">
       <CardContent className="p-5">
@@ -431,20 +504,38 @@ function KpiCard({ title, value, trend, icon: Icon, color, bg, trendUp, isNegati
           </div>
         </div>
         <div className="mt-3 flex items-center gap-2">
-          <span className={cn(
-            "text-xs font-medium px-1.5 py-0.5 rounded flex items-center gap-0.5",
-            trendUp
-              ? (isNegative ? "bg-red-100 text-red-700" : "bg-green-100 text-green-700")
-              : (isNegative ? "bg-green-100 text-green-700" : "bg-red-100 text-red-700")
-          )}>
-            {trendUp ? <TrendingUp className="h-3 w-3" /> : <TrendingUp className="h-3 w-3 rotate-180" />}
-            {trend}
+          <span
+            className={cn(
+              "text-xs font-medium px-1.5 py-0.5 rounded flex items-center gap-0.5",
+              pillClass,
+            )}
+          >
+            {TrendIcon}
+            {trend.label}
           </span>
           <span className="text-xs text-gray-400">vs yesterday</span>
         </div>
       </CardContent>
     </Card>
   );
+}
+
+function computeTrend(today: number, yesterday: number): Trend {
+  const t = Number.isFinite(today) ? today : 0;
+  const y = Number.isFinite(yesterday) ? yesterday : 0;
+
+  if (y === 0) {
+    if (t === 0) return { status: "neutral", label: "0%" };
+    return { status: "neutral", label: "No previous data" };
+  }
+
+  const pct = ((t - y) / y) * 100;
+  if (!Number.isFinite(pct)) return { status: "neutral", label: "—" };
+
+  const rounded = Math.round(pct);
+  if (rounded === 0) return { status: "neutral", label: "0%" };
+  if (rounded > 0) return { status: "up", label: `+${rounded}%` };
+  return { status: "down", label: `${rounded}%` };
 }
 
 function ActivityItem({ title, subtitle, time, icon: Icon, iconBg }: any) {

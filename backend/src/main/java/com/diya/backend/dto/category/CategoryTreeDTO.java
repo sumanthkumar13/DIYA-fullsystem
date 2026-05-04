@@ -12,6 +12,7 @@ import java.util.*;
 public class CategoryTreeDTO {
     private UUID id;
     private String name;
+    private String imageUrl;
 
     @Builder.Default
     private List<ProductResponseDTO> products = new ArrayList<>();
@@ -27,6 +28,7 @@ public class CategoryTreeDTO {
     public static class SubNode {
         private UUID id;
         private String name;
+        private String imageUrl;
 
         @Builder.Default
         private List<ProductResponseDTO> products = new ArrayList<>();

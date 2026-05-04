@@ -28,7 +28,7 @@ public class RegisterWholesalerRequest {
     private String businessName;
     private String gstin;
     private String pincode;
-    /** Required. Must be one of the predefined regions. */
+    /** Required. Territory label (e.g. India Post PostOffice from pincode lookup). */
     private String region;
     /** @deprecated Kept for backward-compatible JSON (ignored for region). */
     @Deprecated

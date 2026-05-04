@@ -59,6 +59,20 @@ public class PaymentService {
             throw new RuntimeException("Invalid payment amount");
         }
 
+        // Best-effort duplicate protection: same reference for same retailer/wholesaler should not be recorded twice.
+        if (reference != null && !reference.isBlank()) {
+            String ref = reference.trim();
+            boolean duplicate = paymentRepository
+                    .findByWholesalerAndRetailerAndReferenceIgnoreCase(order.getWholesaler(), retailer, ref)
+                    .stream()
+                    .anyMatch(p -> p != null
+                            && p.getStatus() != Payment.PaymentStatus.REJECTED
+                            && p.getStatus() != Payment.PaymentStatus.FAILED);
+            if (duplicate) {
+                throw new RuntimeException("Duplicate payment reference detected");
+            }
+        }
+
         // Do not accept payment greater than due for this order (CONFIRMED payments only).
         // This supports partial payments.
         BigDecimal alreadyConfirmed = paymentRepository.findByOrder(order).stream()
@@ -88,7 +102,7 @@ public class PaymentService {
                 .amount(amount)
                 .mode(paymentMode)
                 .status(Payment.PaymentStatus.PENDING_VERIFICATION)
-                .reference(reference)
+                .reference(reference != null ? reference.trim() : null)
                 .note(note)
                 .createdAt(LocalDateTime.now())
                 .build();
@@ -216,7 +230,7 @@ public class PaymentService {
 
     // ==========================================================
     // 4) Wholesaler records an immediate payment at acceptance
-    // Creates payment as CONFIRMED and writes ledger CREDIT immediately.
+    // Creates payment as CONFIRMED; ledger line is ORDER_PAYMENT_INFO (does not reduce credit balance).
     // ==========================================================
     @Transactional
     public Payment recordImmediateWholesalerPayment(
@@ -281,10 +295,10 @@ public class PaymentService {
                 .wholesaler(wholesaler)
                 .retailer(order.getRetailer())
                 .relatedOrder(order)
-                .entryType(LedgerEntry.EntryType.CREDIT)
+                .entryType(LedgerEntry.EntryType.ORDER_PAYMENT_INFO)
                 .amount(amount)
-                .description("Order #" + (order.getOrderNumber() != null ? order.getOrderNumber() : order.getId())
-                        + ": Paid ₹" + amount + " via " + mode.name() + " (at acceptance)")
+                .description("Paid ₹" + amount.toPlainString() + " via " + mode.name()
+                        + " (at order acceptance)")
                 .entryDate(LocalDateTime.now())
                 .build();
 

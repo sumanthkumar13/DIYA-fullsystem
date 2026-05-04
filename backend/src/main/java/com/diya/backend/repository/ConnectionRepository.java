@@ -15,6 +15,10 @@ public interface ConnectionRepository extends JpaRepository<Connection, UUID> {
 
     List<Connection> findByWholesalerAndStatusOrderByRequestedAtDesc(Wholesaler wholesaler, Connection.Status status);
 
+    List<Connection> findByWholesalerAndStatusInOrderByRequestedAtDesc(
+            Wholesaler wholesaler,
+            Collection<Connection.Status> statuses);
+
     List<Connection> findByRetailerAndStatusOrderByRequestedAtDesc(Retailer retailer, Connection.Status status);
 
     List<Connection> findByWholesalerOrderByRequestedAtDesc(Wholesaler wholesaler);

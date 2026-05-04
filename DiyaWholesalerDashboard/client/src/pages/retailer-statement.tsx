@@ -6,6 +6,7 @@ import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { fetchRetailerStatement } from "@/services/khatabook";
 import { cn } from "@/lib/utils";
+import { formatINR } from "@/lib/money";
 
 function formatDate(dateStr: string) {
   try {
@@ -20,7 +21,7 @@ function formatDate(dateStr: string) {
 }
 
 function formatAmount(n: number) {
-  return "₹" + Number(n).toLocaleString("en-IN");
+  return formatINR(n);
 }
 
 export default function RetailerStatementPage() {
@@ -147,20 +148,42 @@ export default function RetailerStatementPage() {
             ) : (
               <div className="space-y-3">
                 {statement.ledger.map((line: any, index: number) => {
-                  const isDebit = (line.type || "").toUpperCase() === "DEBIT";
-                  const label = isDebit ? "Goods Given" : "Payment Received";
+                  const t = (line.type || "").toUpperCase();
+                  const isInfo =
+                    line.informational === true || t === "ORDER_PAYMENT_INFO";
+                  const isDebit = t === "DEBIT";
+                  const label = isInfo
+                    ? "Payment at order (informational)"
+                    : isDebit
+                      ? "Credit on account"
+                      : "Payment received";
                   const amountNum = Number(line.amount ?? 0);
                   const balanceNum = Number(line.runningBalance ?? 0);
                   return (
                     <Card
                       key={index}
-                      className="bg-white border-gray-200 shadow-sm hover:shadow-md transition-all"
+                      className={cn(
+                        "bg-white border-gray-200 shadow-sm hover:shadow-md transition-all",
+                        isInfo && "border-sky-100 bg-sky-50/40",
+                      )}
                     >
                       <CardContent className="p-4 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
                         <div className="flex-1 min-w-0">
-                          <p className="text-sm font-medium text-gray-500">{label}</p>
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <p className="text-sm font-medium text-gray-500">{label}</p>
+                            {isInfo && (
+                              <Badge variant="secondary" className="text-[10px] font-semibold bg-sky-100 text-sky-800 border-0">
+                                Does not change balance
+                              </Badge>
+                            )}
+                          </div>
                           <p className="text-sm text-gray-900 mt-0.5">
-                            {line.description || (isDebit ? "Goods supplied" : "Payment received")}
+                            {line.description ||
+                              (isDebit
+                                ? "Credit on account"
+                                : isInfo
+                                  ? "Cash paid when order was accepted"
+                                  : "Payment received")}
                           </p>
                           <p className="text-xs text-gray-400 mt-1">
                             {formatDate(line.date)}
@@ -170,13 +193,23 @@ export default function RetailerStatementPage() {
                           <p
                             className={cn(
                               "text-lg font-bold",
-                              isDebit ? "text-red-600" : "text-green-600"
+                              isInfo && "text-sky-800",
+                              !isInfo && isDebit && "text-red-600",
+                              !isInfo && !isDebit && "text-green-600",
                             )}
                           >
-                            {isDebit ? "+" : "−"} {formatAmount(amountNum)}
+                            {isInfo ? (
+                              <span>{formatAmount(amountNum)}</span>
+                            ) : (
+                              <>
+                                {isDebit ? "+" : "−"} {formatAmount(amountNum)}
+                              </>
+                            )}
                           </p>
                           <p className="text-xs text-gray-500 mt-1">
-                            Balance after this: {formatAmount(balanceNum)}
+                            {isInfo
+                              ? `Outstanding unchanged: ${formatAmount(balanceNum)}`
+                              : `Balance after this: ${formatAmount(balanceNum)}`}
                           </p>
                         </div>
                       </CardContent>

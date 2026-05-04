@@ -38,17 +38,64 @@ export function AddRetailerModal({ open, onClose }: AddRetailerModalProps) {
   const [notes, setNotes] = useState("");
   const [region, setRegion] = useState<string>("");
   const [saving, setSaving] = useState(false);
+  const [touched, setTouched] = useState<Record<string, boolean>>({});
   const { toast } = useToast();
   const queryClient = useQueryClient();
+
+  const retailerNameTrim = retailerName.trim();
+  const shopNameTrim = shopName.trim();
+  const gstTrim = gstNumber.trim().toUpperCase();
+  const phoneDigits = phone.replace(/\D/g, "");
+
+  const retailerNameError = (() => {
+    if (!retailerNameTrim) return "Retailer name is required.";
+    if (!/^[A-Za-z ]+$/.test(retailerNameTrim)) return "Retailer name can contain only alphabets and spaces.";
+    return "";
+  })();
+
+  const shopNameError = (() => {
+    if (!shopNameTrim) return "Shop name is required.";
+    if (!/^[A-Za-z0-9&., -]+$/.test(shopNameTrim)) {
+      return "Shop name can include letters, numbers, spaces, and symbols: & . , -";
+    }
+    if (!/[A-Za-z0-9]/.test(shopNameTrim)) return "Shop name must include at least one letter or number.";
+    return "";
+  })();
+
+  const phoneError = (() => {
+    if (!phoneDigits) return "Phone number is required.";
+    if (phoneDigits.length !== 10) return "Enter a valid 10-digit phone number.";
+    return "";
+  })();
+
+  const gstError = (() => {
+    if (!gstTrim) return "";
+    const GSTIN_RE = /^[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z][1-9A-Z]Z[0-9A-Z]$/;
+    if (!GSTIN_RE.test(gstTrim)) return "Please enter a valid GSTIN (15 characters).";
+    return "";
+  })();
+
+  const regionError = !region ? "Region is required." : "";
+
+  const formValid = !retailerNameError && !shopNameError && !phoneError && !gstError && !!region;
+
+  const markTouched = (key: string) => setTouched((p) => ({ ...p, [key]: true }));
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
-    const trimmedPhone = phone.replace(/\D/g, "");
-    if (!retailerName.trim() || !shopName.trim() || trimmedPhone.length !== 10 || !region) {
+    setTouched({
+      retailerName: true,
+      phone: true,
+      shopName: true,
+      gstNumber: true,
+      region: true,
+    });
+
+    if (!formValid) {
       toast({
         title: "Invalid input",
-        description: "Please fill all required fields, select a region, and enter a valid 10-digit phone number.",
+        description: "Please fix the highlighted fields and try again.",
         variant: "destructive",
       });
       return;
@@ -57,12 +104,12 @@ export function AddRetailerModal({ open, onClose }: AddRetailerModalProps) {
     setSaving(true);
     try {
       await createRetailer({
-        retailerName: retailerName.trim(),
-        phone: trimmedPhone,
-        shopName: shopName.trim(),
+        retailerName: retailerNameTrim,
+        phone: phoneDigits,
+        shopName: shopNameTrim,
         region,
         address: address.trim() || undefined,
-        gstNumber: gstNumber.trim() || undefined,
+        gstNumber: gstTrim || undefined,
         creditLimit: creditLimit ? Number(creditLimit) : undefined,
         notes: notes.trim() || undefined,
       });
@@ -75,7 +122,7 @@ export function AddRetailerModal({ open, onClose }: AddRetailerModalProps) {
       // Refresh retailer-related data
       queryClient.invalidateQueries({ queryKey: ["khatabook-retailers"] });
       queryClient.invalidateQueries({ queryKey: ["territory-performance"] });
-      queryClient.invalidateQueries({ queryKey: ["active-regions"] });
+      queryClient.invalidateQueries({ queryKey: ["retailer-regions"] });
 
       setRetailerName("");
       setPhone("");
@@ -87,9 +134,17 @@ export function AddRetailerModal({ open, onClose }: AddRetailerModalProps) {
       setRegion("");
       onClose();
     } catch (err: any) {
+      const status = err?.response?.status;
+      const apiMsg = err?.response?.data?.message;
+      const friendly =
+        status === 409
+          ? "Retailer already exists"
+          : typeof apiMsg === "string" && apiMsg.trim()
+            ? apiMsg
+            : "Please try again.";
       toast({
-        title: "Failed to add retailer",
-        description: err?.response?.data?.message || "Please try again.",
+        title: status === 409 ? "Retailer already exists" : "Failed to add retailer",
+        description: friendly,
         variant: "destructive",
       });
     } finally {
@@ -114,9 +169,13 @@ export function AddRetailerModal({ open, onClose }: AddRetailerModalProps) {
               id="retailerName"
               value={retailerName}
               onChange={(e) => setRetailerName(e.target.value)}
+              onBlur={() => markTouched("retailerName")}
               placeholder="Owner / Contact name"
               required
             />
+            {touched.retailerName && retailerNameError && (
+              <p className="text-xs text-red-600">{retailerNameError}</p>
+            )}
           </div>
           <div className="space-y-2">
             <Label htmlFor="phone">Phone Number</Label>
@@ -126,13 +185,15 @@ export function AddRetailerModal({ open, onClose }: AddRetailerModalProps) {
               </span>
               <Input
                 id="phone"
-                value={phone}
-                onChange={(e) => setPhone(e.target.value)}
+                value={phoneDigits}
+                onChange={(e) => setPhone(e.target.value.replace(/\\D/g, "").slice(0, 10))}
+                onBlur={() => markTouched("phone")}
                 placeholder="98765 43210"
                 className="rounded-l-none"
                 maxLength={10}
               />
             </div>
+            {touched.phone && phoneError && <p className="text-xs text-red-600">{phoneError}</p>}
           </div>
           <div className="space-y-2">
             <Label htmlFor="shopName">Shop Name</Label>
@@ -140,13 +201,22 @@ export function AddRetailerModal({ open, onClose }: AddRetailerModalProps) {
               id="shopName"
               value={shopName}
               onChange={(e) => setShopName(e.target.value)}
+              onBlur={() => markTouched("shopName")}
               placeholder="Retailer shop name"
               required
             />
+            {touched.shopName && shopNameError && <p className="text-xs text-red-600">{shopNameError}</p>}
           </div>
           <div className="space-y-2">
             <Label>Select Region</Label>
-            <Select value={region || undefined} onValueChange={setRegion} required>
+            <Select
+              value={region || undefined}
+              onValueChange={(v) => {
+                setRegion(v);
+                markTouched("region");
+              }}
+              required
+            >
               <SelectTrigger className="w-full">
                 <SelectValue placeholder="Choose retailer territory" />
               </SelectTrigger>
@@ -158,6 +228,7 @@ export function AddRetailerModal({ open, onClose }: AddRetailerModalProps) {
                 ))}
               </SelectContent>
             </Select>
+            {touched.region && regionError && <p className="text-xs text-red-600">{regionError}</p>}
           </div>
           <div className="space-y-2">
             <Label htmlFor="address">Address (optional)</Label>
@@ -174,10 +245,13 @@ export function AddRetailerModal({ open, onClose }: AddRetailerModalProps) {
               <Label htmlFor="gstNumber">GST Number (optional)</Label>
               <Input
                 id="gstNumber"
-                value={gstNumber}
-                onChange={(e) => setGstNumber(e.target.value)}
+                value={gstTrim}
+                onChange={(e) => setGstNumber(e.target.value.toUpperCase())}
+                onBlur={() => markTouched("gstNumber")}
                 placeholder="GSTIN"
+                maxLength={15}
               />
+              {touched.gstNumber && gstError && <p className="text-xs text-red-600">{gstError}</p>}
             </div>
             <div className="space-y-2">
               <Label htmlFor="creditLimit">Credit Limit (₹)</Label>
@@ -206,7 +280,7 @@ export function AddRetailerModal({ open, onClose }: AddRetailerModalProps) {
             <Button type="button" variant="outline" onClick={onClose} disabled={saving}>
               Cancel
             </Button>
-            <Button type="submit" disabled={saving}>
+            <Button type="submit" disabled={saving || !formValid}>
               {saving ? (
                 <>
                   <Loader2 className="mr-2 h-4 w-4 animate-spin" />

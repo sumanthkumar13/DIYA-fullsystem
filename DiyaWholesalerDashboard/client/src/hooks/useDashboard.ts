@@ -1,7 +1,6 @@
 import { api } from "@/lib/api";
 import { useQuery } from "@tanstack/react-query";
 import { fetchTerritoryPerformance } from "@/services/analytics";
-import { fetchActiveRegions } from "@/services/regions";
 
 /** @param region "all" or a region name; only affects KPI cards */
 export function useDashboardKpi(region: string) {
@@ -14,13 +13,9 @@ export function useDashboardKpi(region: string) {
       });
       return res.data;
     },
-  });
-}
-
-export function useActiveRegions() {
-  return useQuery({
-    queryKey: ["active-regions"],
-    queryFn: fetchActiveRegions,
+    staleTime: 0,
+    refetchOnMount: "always",
+    refetchOnWindowFocus: true,
   });
 }
 
@@ -31,6 +26,9 @@ export function useDashboardTerritory() {
       const res = await api.get("/wholesaler/dashboard/territory");
       return res.data;
     },
+    staleTime: 0,
+    refetchOnMount: "always",
+    refetchOnWindowFocus: true,
   });
 }
 
@@ -41,6 +39,9 @@ export function useDashboardActivity() {
       const res = await api.get("/wholesaler/dashboard/activity");
       return res.data;
     },
+    staleTime: 0,
+    refetchOnMount: "always",
+    refetchOnWindowFocus: true,
   });
 }
 
@@ -48,5 +49,8 @@ export function useTerritoryPerformance(sort: "revenue" | "risk" = "revenue") {
   return useQuery({
     queryKey: ["territory-performance", sort],
     queryFn: () => fetchTerritoryPerformance(sort),
+    staleTime: 0,
+    refetchOnMount: "always",
+    refetchOnWindowFocus: true,
   });
 }

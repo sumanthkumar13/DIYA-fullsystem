@@ -36,6 +36,8 @@ public class Connection {
     private LocalDateTime respondedAt;
 
     public enum Status {
-        PENDING, APPROVED, REJECTED, BLOCKED
+        PENDING, APPROVED, REJECTED, BLOCKED,
+        /** Soft-remove: hidden from active lists; historical orders/payments kept. */
+        REMOVED
     }
 }

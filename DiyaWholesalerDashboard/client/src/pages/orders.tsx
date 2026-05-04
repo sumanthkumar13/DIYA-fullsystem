@@ -2,7 +2,6 @@ import { useState, useEffect } from "react";
 import { Link } from "wouter";
 import { 
   Search, 
-  Filter, 
   ChevronDown, 
   MoreHorizontal, 
   AlertTriangle,
@@ -26,6 +25,7 @@ import {
 import emptyStateImage from "@assets/generated_images/empty_state_illustration_for_orders.png";
 import { fetchOrders, OrderListItem } from "@/services/order";
 import { CreateOrderModal } from "@/components/orders/CreateOrderModal";
+import { formatINR } from "@/lib/money";
 
 // Map backend status to UI status
 function mapStatusToUI(status: string): string {
@@ -58,7 +58,7 @@ function mapStatusToFilter(uiStatus: string): string {
 
 // Format amount with ₹ and commas
 function formatAmount(amount: number): string {
-  return `₹${amount.toLocaleString("en-IN")}`;
+  return formatINR(amount);
 }
 
 // Format date to relative format
@@ -205,10 +205,6 @@ export default function Orders() {
           <p className="text-sm text-gray-500">Manage and track all your wholesale orders.</p>
         </div>
         <div className="flex items-center gap-2">
-          <Button variant="outline" className="gap-2 bg-white">
-            <Filter className="h-4 w-4" />
-            Filters
-          </Button>
           <Button
             className="gap-2 bg-primary hover:bg-primary/90 text-white shadow-sm"
             onClick={() => setCreateOrderOpen(true)}

@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 class DiyaInput extends StatelessWidget {
   final String? label;
@@ -6,8 +7,11 @@ class DiyaInput extends StatelessWidget {
   final TextEditingController controller;
   final TextInputType keyboardType;
   final bool obscureText;
+  final bool readOnly;
+  final VoidCallback? onTap;
   final String? error;
   final TextStyle? style;
+  final List<TextInputFormatter>? inputFormatters;
   final String? Function(String?)? validator;
 
   const DiyaInput({
@@ -17,8 +21,11 @@ class DiyaInput extends StatelessWidget {
     required this.controller,
     this.keyboardType = TextInputType.text,
     this.obscureText = false,
+    this.readOnly = false,
+    this.onTap,
     this.error,
     this.style,
+    this.inputFormatters,
     this.validator,
   });
 
@@ -46,6 +53,9 @@ class DiyaInput extends StatelessWidget {
           controller: controller,
           keyboardType: keyboardType,
           obscureText: obscureText,
+          inputFormatters: inputFormatters,
+          readOnly: readOnly,
+          onTap: onTap,
           style: style ??
               const TextStyle(
                 color: Color(0xFF171717),
@@ -70,6 +80,25 @@ class DiyaInput extends StatelessWidget {
                 color: hasError ? const Color(0xFFF04343) : const Color(0xFFFF7A00),
                 width: 2,
               ),
+            ),
+            errorBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(12),
+              borderSide: const BorderSide(
+                color: Color(0xFFF04343),
+                width: 2,
+              ),
+            ),
+            focusedErrorBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(12),
+              borderSide: const BorderSide(
+                color: Color(0xFFF04343),
+                width: 2,
+              ),
+            ),
+            errorStyle: const TextStyle(
+              fontSize: 12,
+              fontWeight: FontWeight.w600,
+              color: Color(0xFFF04343),
             ),
           ),
         ),

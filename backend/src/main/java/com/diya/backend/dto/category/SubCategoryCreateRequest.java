@@ -10,5 +10,6 @@ public class SubCategoryCreateRequest {
     private UUID categoryId;
     private String name;
     private UUID parentSubId; // nullable
+    private String imageUrl;
 
 }

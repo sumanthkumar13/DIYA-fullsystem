@@ -7,5 +7,6 @@ import lombok.Setter;
 @Setter
 public class SubCategoryUpdateRequest {
     private String name;
+    private String imageUrl;
 }
 

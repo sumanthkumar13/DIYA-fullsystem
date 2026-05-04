@@ -106,18 +106,14 @@ public class SecurityConfig {
       public CorsConfigurationSource corsConfigurationSource() {
             CorsConfiguration configuration = new CorsConfiguration();
 
-            // THIS is the magic line
-            configuration.setAllowedOriginPatterns(Arrays.asList(
-                        "http://localhost:*",
-                        "https://*.vercel.app",
-                        "https://diyadigital.in",
-                        "http://diyadigital.in"
-                        ));
+            // ALLOW ALL ORIGINS for the APK test
+            configuration.setAllowedOriginPatterns(Arrays.asList("*"));
 
-            configuration.setAllowedMethods(Arrays.asList(
-                        "GET", "POST", "PUT", "DELETE", "OPTIONS"));
-
+            configuration.setAllowedMethods(Arrays.asList("GET", "POST", "PUT", "DELETE", "OPTIONS"));
             configuration.setAllowedHeaders(Arrays.asList("*"));
+
+            // If you set allowedOrigins to "*", you usually must set this to false
+            // unless you use setAllowedOriginPatterns("*")
             configuration.setAllowCredentials(true);
 
             UrlBasedCorsConfigurationSource source = new UrlBasedCorsConfigurationSource();

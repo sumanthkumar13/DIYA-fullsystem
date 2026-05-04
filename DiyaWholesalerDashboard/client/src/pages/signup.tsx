@@ -3,9 +3,6 @@ import { useEffect, useState } from "react";
 import { Link, useLocation } from "wouter";
 import {
   ArrowLeft,
-  CheckCircle2,
-  QrCode,
-  Upload,
   Loader2,
   Eye,
   EyeOff,
@@ -21,8 +18,10 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { WHOLESALER_REGIONS } from "@/lib/regions";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
 import { WHOLESALER_BUSINESS_TYPES } from "@/lib/businessTypes";
+import { cn } from "@/lib/utils";
 
 export default function SignupFlow() {
   const [step, setStep] = useState(1);
@@ -44,17 +43,271 @@ export default function SignupFlow() {
   const [showPassword, setShowPassword] = useState(false);
   const [agreedLegal, setAgreedLegal] = useState(false);
 
+  type Step1Field = "fullName" | "email" | "mobile" | "otp" | "password" | "agreedLegal";
+  const [touchedStep1, setTouchedStep1] = useState<Record<Step1Field, boolean>>({
+    fullName: false,
+    email: false,
+    mobile: false,
+    otp: false,
+    password: false,
+    agreedLegal: false,
+  });
+
+  const nameError = (() => {
+    const v = fullName.trim();
+    if (!v) return "Please enter your full name.";
+    if (!/^[A-Za-z ]+$/.test(v)) return "Name can contain only alphabets and spaces.";
+    return "";
+  })();
+
+  const emailError = (() => {
+    const v = email.trim();
+    if (!v) return "Please enter your email address.";
+    // Practical email check (not overly strict)
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v)) return "Please enter a valid email (e.g., abc@domain.com).";
+    return "";
+  })();
+
+  const phoneDigits = mobile.replace(/\D/g, "");
+  const mobileError = (() => {
+    if (!phoneDigits) return "Please enter your mobile number.";
+    if (phoneDigits.length !== 10) return "Enter a valid 10-digit phone number.";
+    return "";
+  })();
+
+  const passwordError = (() => {
+    const v = password;
+    if (!v) return "Please set a password.";
+    if (v.length < 8) return "Password must be at least 8 characters long.";
+    if (!/[A-Z]/.test(v)) return "Password must include at least one uppercase letter (A–Z).";
+    if (!/[a-z]/.test(v)) return "Password must include at least one lowercase letter (a–z).";
+    if (!/[0-9]/.test(v)) return "Password must include at least one number (0–9).";
+    if (!/[^A-Za-z0-9]/.test(v)) return "Password must include at least one special character (e.g., !@#).";
+    return "";
+  })();
+
+  const otpError = (() => {
+    const v = otp.trim();
+    if (!otpSent) return "";
+    if (!v) return "Please enter the OTP sent to your mobile.";
+    if (!/^\d{6}$/.test(v)) return "OTP must be a 6-digit number.";
+    return "";
+  })();
+
+  const step1Valid =
+    !nameError && !emailError && !mobileError && !passwordError && (!otpSent || !otpError) && agreedLegal;
+
+  const markStep1Touched = (...fields: Step1Field[]) => {
+    setTouchedStep1((prev) => {
+      const next = { ...prev };
+      fields.forEach((f) => (next[f] = true));
+      return next;
+    });
+  };
+
   // Step 3: Business Details
   const [businessName, setBusinessName] = useState("");
   const [gstin, setGstin] = useState("");
   const [pincode, setPincode] = useState("");
-  const [region, setRegion] = useState("");
   const [state, setState] = useState("");
   const [fullAddress, setFullAddress] = useState("");
+  const [districtHint, setDistrictHint] = useState("");
+  const [pinLoading, setPinLoading] = useState(false);
+  const [pinApiError, setPinApiError] = useState<string | null>(null);
+  const [postOfficeSuggestions, setPostOfficeSuggestions] = useState<string[]>([]);
+  const [postOfficeOpen, setPostOfficeOpen] = useState(false);
+  const [selectedPostOffice, setSelectedPostOffice] = useState<string>("");
 
-  // Step 4: Payment Setup
-  const [upiId, setUpiId] = useState("");
-  const [qrCodeUrl, setQrCodeUrl] = useState(null); // future file upload
+  const pinCacheRef = (globalThis as any).__diyaPinCache || new Map<string, any>();
+  (globalThis as any).__diyaPinCache = pinCacheRef;
+
+  type Step3Field = "businessName" | "gstin" | "pincode" | "cityTown" | "state";
+  const [touchedStep3, setTouchedStep3] = useState<Record<Step3Field, boolean>>({
+    businessName: false,
+    gstin: false,
+    pincode: false,
+    cityTown: false,
+    state: false,
+  });
+
+  const businessNameTrim = businessName.trim();
+  const businessNameError = (() => {
+    if (!businessNameTrim) return "Business name is required.";
+    if (businessNameTrim.length < 3 || businessNameTrim.length > 100) return "Business name must be 3–100 characters.";
+    // Allow alphabets, numbers, spaces, and common symbols (& . , -)
+    if (!/^[A-Za-z0-9&.,\- ]+$/.test(businessNameTrim)) {
+      return "Use only letters, numbers, spaces, and symbols: & . , -";
+    }
+    // Prevent only numbers/symbols; require at least one alphabet
+    if (!/[A-Za-z]/.test(businessNameTrim)) return "Business name must include at least one letter.";
+    return "";
+  })();
+
+  const gstinTrim = gstin.trim().toUpperCase();
+  const gstinError = (() => {
+    if (!gstinTrim) return "";
+    // Indian GSTIN: 15 chars => 2 digits + 5 letters + 4 digits + 1 letter + 1 (1-9/A-Z) + Z + 1 (0-9/A-Z)
+    const GSTIN_RE = /^[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z][1-9A-Z]Z[0-9A-Z]$/;
+    if (!GSTIN_RE.test(gstinTrim)) return "Please enter a valid GSTIN (15 characters).";
+    return "";
+  })();
+
+  const pincodeDigits = pincode.replace(/\D/g, "");
+  const pincodeError = (() => {
+    if (!pincodeDigits) return "Pincode is required.";
+    if (!/^\d{6}$/.test(pincodeDigits)) return "Pincode must be exactly 6 digits.";
+    return "";
+  })();
+
+  const territoryTrim = selectedPostOffice.trim();
+  const cityTownError = (() => {
+    if (pincodeDigits.length !== 6 || pinApiError || pinLoading) return "";
+    if (!territoryTrim) return "Select City / Town from the list.";
+    return "";
+  })();
+
+  const stateTrim = state.trim();
+  const stateError = (() => {
+    if (!stateTrim) return "State is required.";
+    return "";
+  })();
+
+  const step3Valid =
+    !businessNameError &&
+    !gstinError &&
+    !pincodeError &&
+    pincodeDigits.length === 6 &&
+    !pinLoading &&
+    !pinApiError &&
+    !cityTownError &&
+    !stateError &&
+    !!territoryTrim;
+
+  const markStep3Touched = (...fields: Step3Field[]) => {
+    setTouchedStep3((prev) => {
+      const next = { ...prev };
+      fields.forEach((f) => (next[f] = true));
+      return next;
+    });
+  };
+
+  type IndiaPostResponseRow = {
+    Status?: string;
+    PostOffice?: Array<{
+      Name?: string;
+      District?: string;
+      State?: string;
+    }>;
+  };
+
+  useEffect(() => {
+    const pin = pincodeDigits;
+    if (pin.length !== 6) {
+      setPinApiError(null);
+      setPinLoading(false);
+      setPostOfficeSuggestions([]);
+      setSelectedPostOffice("");
+      setDistrictHint("");
+      setState("");
+      return;
+    }
+
+    let cancelled = false;
+
+    async function load() {
+      // Avoid redundant calls with simple cache
+      if (pinCacheRef.has(pin)) {
+        const cached = pinCacheRef.get(pin) as IndiaPostResponseRow[] | null;
+        if (cancelled) return;
+        if (!cached || !Array.isArray(cached) || cached.length === 0) {
+          setPinApiError("Invalid pincode or no location data found.");
+          setPostOfficeSuggestions([]);
+          setSelectedPostOffice("");
+          setDistrictHint("");
+          setState("");
+          return;
+        }
+        const row = cached[0];
+        const po0 = row?.PostOffice?.[0];
+        if (!po0?.District || !po0?.State) {
+          setPinApiError("No location data found for this pincode.");
+          setPostOfficeSuggestions([]);
+          setSelectedPostOffice("");
+          setDistrictHint("");
+          setState("");
+          return;
+        }
+        setPinApiError(null);
+        setDistrictHint(String(po0.District).trim());
+        setState(String(po0.State).trim());
+        setSelectedPostOffice("");
+        const names = (row?.PostOffice || [])
+          .map((p) => (typeof p?.Name === "string" ? p.Name.trim() : ""))
+          .filter(Boolean);
+        setPostOfficeSuggestions(Array.from(new Set(names)));
+        return;
+      }
+
+      try {
+        setPinLoading(true);
+        setPinApiError(null);
+        setSelectedPostOffice("");
+        const res = await fetch(`https://api.postalpincode.in/pincode/${pin}`, { method: "GET" });
+        const data = (await res.json()) as IndiaPostResponseRow[];
+        pinCacheRef.set(pin, data);
+        if (cancelled) return;
+
+        const row = Array.isArray(data) ? data[0] : null;
+        if (!row || row.Status !== "Success" || !row.PostOffice || row.PostOffice.length === 0) {
+          setPinApiError("Invalid pincode or no location data found.");
+          setPostOfficeSuggestions([]);
+          setSelectedPostOffice("");
+          setDistrictHint("");
+          setState("");
+          return;
+        }
+        const po0 = row.PostOffice[0];
+        const district = (po0?.District || "").trim();
+        const stateName = (po0?.State || "").trim();
+        if (!district || !stateName) {
+          setPinApiError("No location data found for this pincode.");
+          setPostOfficeSuggestions([]);
+          setSelectedPostOffice("");
+          setDistrictHint("");
+          setState("");
+          return;
+        }
+
+        setDistrictHint(district);
+        setState(stateName);
+        setPinApiError(null);
+
+        const names = row.PostOffice
+          .map((p) => (typeof p?.Name === "string" ? p.Name.trim() : ""))
+          .filter(Boolean);
+        setPostOfficeSuggestions(Array.from(new Set(names)));
+      } catch {
+        if (!cancelled) {
+          pinCacheRef.set(pin, null);
+          setPinApiError("Could not fetch location for this pincode.");
+          setPostOfficeSuggestions([]);
+          setSelectedPostOffice("");
+          setDistrictHint("");
+          setState("");
+        }
+      } finally {
+        if (!cancelled) setPinLoading(false);
+      }
+    }
+
+    load();
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pincodeDigits]);
+
+  // Payment setup removed from signup flow.
 
   const nextStep = () => {
     setIsLoading(true);
@@ -67,11 +320,12 @@ export default function SignupFlow() {
   const prevStep = () => setStep(step - 1);
 
   const sendOtp = async () => {
-    if (mobile.length !== 10) {
+    markStep1Touched("mobile");
+    if (mobileError) {
       toast({
         title: "Invalid Mobile Number",
-        description: "Enter a valid 10-digit phone number.",
-        variant: "destructive"
+        description: mobileError,
+        variant: "destructive",
       });
       return;
     }
@@ -87,9 +341,9 @@ export default function SignupFlow() {
 
       // const data = await res.json();
 
-              const res = await api.post("/auth/send-otp", {
-          phone: mobile
-        });
+      const res = await api.post("/auth/send-otp", {
+        phone: phoneDigits,
+      });
 
         const data = res.data;
         if (data?.otp) setOtp(data.otp);
@@ -122,9 +376,9 @@ export default function SignupFlow() {
       // const data = await res.json();
 
       const res = await api.post("/auth/verify-otp", {
-  phone: mobile,
-  otp
-});
+        phone: phoneDigits,
+        otp: otp.trim(),
+      });
 
 const data = res.data;
 
@@ -159,10 +413,11 @@ const data = res.data;
   }, [resendSeconds]);
 
   const submitRegistration = async () => {
-    if (!region) {
+    const territory = selectedPostOffice.trim();
+    if (!territory) {
       toast({
-        title: "Region required",
-        description: "Please go back to Business Details and select your region.",
+        title: "City / Town required",
+        description: "Choose a post office for your pincode.",
         variant: "destructive",
       });
       return;
@@ -178,17 +433,16 @@ const data = res.data;
     const payload = {
       fullName,
       email,
-      mobile,
+      mobile: phoneDigits,
       password,
       businessType,
-      businessName,
-      gstin,
-      pincode,
-      region,
-      state,
+      businessName: businessNameTrim,
+      gstin: gstinTrim,
+      pincode: pincodeDigits,
+      region: territory,
+      city: territory,
+      state: stateTrim,
       fullAddress,
-      upiId,
-      qrCodeUrl
     };
 
     try {
@@ -213,7 +467,7 @@ const data = res.data;
       }
 
       toast({ title: "Success", description: "Account created successfully!" });
-      setLocation("/onboarding");
+      setLocation("/login");
 
     } catch (err) {
       toast({
@@ -236,24 +490,60 @@ const data = res.data;
             <div className="space-y-4">
               <div className="space-y-2">
                 <label className="text-sm font-medium text-gray-700">Full Name</label>
-                <Input value={fullName} onChange={(e) => setFullName(e.target.value)} placeholder="Enter your name" className="h-11" />
+                <Input
+                  value={fullName}
+                  onChange={(e) => {
+                    const v = e.target.value;
+                    setFullName(v);
+                    if (touchedStep1.fullName) markStep1Touched("fullName");
+                  }}
+                  onBlur={() => markStep1Touched("fullName")}
+                  placeholder="Enter your name"
+                  className="h-11"
+                />
+                {touchedStep1.fullName && nameError && <p className="text-xs text-red-600">{nameError}</p>}
               </div>
               <div className="space-y-2">
                 <label className="text-sm font-medium text-gray-700">Email Address</label>
-                <Input value={email} onChange={(e) => setEmail(e.target.value)} type="email" placeholder="john@example.com" className="h-11" />
+                <Input
+                  value={email}
+                  onChange={(e) => {
+                    setEmail(e.target.value);
+                    if (touchedStep1.email) markStep1Touched("email");
+                  }}
+                  onBlur={() => markStep1Touched("email")}
+                  type="email"
+                  placeholder="abc@domain.com"
+                  className="h-11"
+                />
+                {touchedStep1.email && emailError && <p className="text-xs text-red-600">{emailError}</p>}
               </div>
               <div className="space-y-2">
                 <label className="text-sm font-medium text-gray-700">Mobile Number</label>
                 <div className="flex gap-2">
                   <div className="relative flex-1">
                     <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500 font-medium border-r border-gray-200 pr-2 text-sm">+91</span>
-                    <Input value={mobile} onChange={(e) => setMobile(e.target.value)} type="tel" placeholder="98765 43210" className="pl-14 h-11" />
+                    <Input
+                      value={phoneDigits}
+                      onChange={(e) => {
+                        const digits = e.target.value.replace(/\D/g, "").slice(0, 10);
+                        setMobile(digits);
+                        if (touchedStep1.mobile) markStep1Touched("mobile");
+                      }}
+                      onBlur={() => markStep1Touched("mobile")}
+                      inputMode="numeric"
+                      pattern="\d*"
+                      type="tel"
+                      placeholder="9876543210"
+                      className="pl-14 h-11"
+                      maxLength={10}
+                    />
                   </div>
                   <Button
                     variant="outline"
                     onClick={sendOtp}
                     className="h-11 whitespace-nowrap"
-                    disabled={sendOtpLoading || resendSeconds > 0}
+                    disabled={sendOtpLoading || resendSeconds > 0 || !!mobileError}
                   >
                     {sendOtpLoading ? (
                       <>
@@ -267,24 +557,35 @@ const data = res.data;
                     )}
                   </Button>
                 </div>
+                {touchedStep1.mobile && mobileError && <p className="text-xs text-red-600">{mobileError}</p>}
               </div>
               <div className="space-y-2">
                 <label className="text-sm font-medium text-gray-700">Enter OTP</label>
                 <Input
                   value={otp}
-                  onChange={(e) => setOtp(e.target.value)}
+                  onChange={(e) => {
+                    const digits = e.target.value.replace(/\D/g, "").slice(0, 6);
+                    setOtp(digits);
+                    if (touchedStep1.otp) markStep1Touched("otp");
+                  }}
+                  onBlur={() => markStep1Touched("otp")}
                   placeholder={otpSent ? "• • • • • •" : "Send OTP to continue"}
                   className={`h-11 text-center text-lg tracking-widest ${!otpSent ? "opacity-60" : ""}`}
                   maxLength={6}
                   disabled={!otpSent}
                 />
+                {otpSent && touchedStep1.otp && otpError && <p className="text-xs text-red-600">{otpError}</p>}
               </div>
               <div className="space-y-2">
                 <label className="text-sm font-medium text-gray-700">Set Password</label>
                 <div className="relative">
                   <Input
                     value={password}
-                    onChange={(e) => setPassword(e.target.value)}
+                    onChange={(e) => {
+                      setPassword(e.target.value);
+                      if (touchedStep1.password) markStep1Touched("password");
+                    }}
+                    onBlur={() => markStep1Touched("password")}
                     type={showPassword ? "text" : "password"}
                     placeholder={otpSent ? "Create a strong password" : "Send OTP to continue"}
                     className={`h-11 pr-10 ${!otpSent ? "opacity-60" : ""}`}
@@ -300,6 +601,14 @@ const data = res.data;
                     {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
                   </button>
                 </div>
+                {otpSent && touchedStep1.password && passwordError && (
+                  <p className="text-xs text-red-600">{passwordError}</p>
+                )}
+                {otpSent && !passwordError && password.trim().length > 0 && (
+                  <p className="text-xs text-gray-500">
+                    Use 8+ characters with uppercase, lowercase, number, and special character.
+                  </p>
+                )}
               </div>
             </div>
             <label className="flex items-start gap-2 text-sm text-gray-600">
@@ -307,7 +616,10 @@ const data = res.data;
                 type="checkbox"
                 className="mt-1 h-4 w-4 rounded border-gray-300"
                 checked={agreedLegal}
-                onChange={(e) => setAgreedLegal(e.target.checked)}
+                onChange={(e) => {
+                  setAgreedLegal(e.target.checked);
+                  markStep1Touched("agreedLegal");
+                }}
               />
               <span>
                 I agree to Diya&apos;s{" "}
@@ -323,10 +635,19 @@ const data = res.data;
             </label>
             <Button
               onClick={async () => {
+                markStep1Touched("fullName", "email", "mobile", "otp", "password", "agreedLegal");
                 if (!otpSent) {
                   toast({
                     title: "Send OTP first",
                     description: "Please request OTP to continue.",
+                    variant: "destructive",
+                  });
+                  return;
+                }
+                if (nameError || emailError || mobileError || passwordError || otpError || !agreedLegal) {
+                  toast({
+                    title: "Check your details",
+                    description: "Please fix the highlighted fields to continue.",
                     variant: "destructive",
                   });
                   return;
@@ -342,7 +663,7 @@ const data = res.data;
                 const ok = await verifyOtp();
                 if (ok) nextStep();
               }}
-              disabled={!otpSent || !agreedLegal || otp.trim().length !== 6 || password.trim().length < 6}
+              disabled={!otpSent || !step1Valid}
               className="w-full h-12 text-base bg-primary hover:bg-primary/90 shadow-lg shadow-orange-200"
             >
               {isLoading ? <Loader2 className="animate-spin" /> : "Verify & Continue"}
@@ -393,41 +714,137 @@ const data = res.data;
             <div className="space-y-4">
               <div className="space-y-2">
                 <label className="text-sm font-medium text-gray-700">Business Name</label>
-                <Input value={businessName} onChange={(e) => setBusinessName(e.target.value)} placeholder="e.g. Sri Lakshmi Traders" className="h-11" />
+                <Input
+                  value={businessName}
+                  onChange={(e) => {
+                    setBusinessName(e.target.value);
+                    if (touchedStep3.businessName) markStep3Touched("businessName");
+                  }}
+                  onBlur={() => markStep3Touched("businessName")}
+                  placeholder="e.g. Sri Lakshmi Traders"
+                  className="h-11"
+                />
+                {touchedStep3.businessName && businessNameError && (
+                  <p className="text-xs text-red-600">{businessNameError}</p>
+                )}
               </div>
               <div className="space-y-2">
                 <label className="text-sm font-medium text-gray-700">GSTIN (Optional)</label>
-                <Input value={gstin} onChange={(e) => setGstin(e.target.value)} placeholder="22AAAAA0000A1Z5" className="h-11 uppercase" />
-              </div>
-              <div className="grid grid-cols-2 gap-4">
-                <div className="space-y-2">
-                  <label className="text-sm font-medium text-gray-700">Pincode</label>
-                  <Input value={pincode} onChange={(e) => setPincode(e.target.value)} placeholder="500081" className="h-11" />
-                </div>
-                <div className="space-y-2">
-                  <label className="text-sm font-medium text-gray-700">Select Region</label>
-                  <Select value={region || undefined} onValueChange={setRegion}>
-                    <SelectTrigger className="h-11 w-full">
-                      <SelectValue placeholder="Choose your operating region" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {WHOLESALER_REGIONS.map((r) => (
-                        <SelectItem key={r} value={r}>
-                          {r}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
+                <Input
+                  value={gstinTrim}
+                  onChange={(e) => {
+                    setGstin(e.target.value.toUpperCase());
+                    if (touchedStep3.gstin) markStep3Touched("gstin");
+                  }}
+                  onBlur={() => markStep3Touched("gstin")}
+                  placeholder="22AAAAA0000A1Z5"
+                  className="h-11 uppercase"
+                  maxLength={15}
+                />
+                {touchedStep3.gstin && gstinError && <p className="text-xs text-red-600">{gstinError}</p>}
               </div>
               <div className="space-y-2">
-                <label className="text-sm font-medium text-gray-700">State</label>
-                <Input
-                  value={state}
-                  onChange={(e) => setState(e.target.value)}
-                  placeholder="e.g. Telangana"
-                  className="h-11"
-                />
+                <label className="text-sm font-medium text-gray-700">Pincode</label>
+                <div className="relative">
+                  <Input
+                    value={pincodeDigits}
+                    onChange={(e) => {
+                      const digits = e.target.value.replace(/\D/g, "").slice(0, 6);
+                      setPincode(digits);
+                      if (touchedStep3.pincode) markStep3Touched("pincode");
+                    }}
+                    onBlur={() => markStep3Touched("pincode")}
+                    inputMode="numeric"
+                    pattern="\d*"
+                    placeholder="500081"
+                    className="h-11 pr-10"
+                    maxLength={6}
+                  />
+                  {pinLoading && (
+                    <Loader2 className="absolute right-3 top-1/2 -translate-y-1/2 h-4 w-4 animate-spin text-gray-400" />
+                  )}
+                </div>
+                {touchedStep3.pincode && pincodeError && <p className="text-xs text-red-600">{pincodeError}</p>}
+                {!pincodeError && pinApiError && <p className="text-xs text-red-600">{pinApiError}</p>}
+                {pinLoading && pincodeDigits.length === 6 && !pinApiError && (
+                  <p className="text-xs text-gray-500">Fetching location…</p>
+                )}
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <label className="text-sm font-medium text-gray-700">City / Town</label>
+                  <Popover open={postOfficeOpen} onOpenChange={setPostOfficeOpen}>
+                    <PopoverTrigger asChild>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        role="combobox"
+                        aria-expanded={postOfficeOpen}
+                        className={cn(
+                          "w-full justify-between h-11 font-normal bg-gray-50 border-gray-200 hover:bg-gray-50",
+                          !selectedPostOffice && "text-muted-foreground"
+                        )}
+                        disabled={
+                          pinLoading ||
+                          pincodeDigits.length !== 6 ||
+                          !!pinApiError ||
+                          postOfficeSuggestions.length === 0
+                        }
+                        onClick={() => markStep3Touched("cityTown")}
+                      >
+                        <span className="truncate text-left">
+                          {selectedPostOffice || (districtHint ? `Tap to select (area: ${districtHint})` : "Enter pincode first")}
+                        </span>
+                        <span className="text-gray-400 shrink-0">⌄</span>
+                      </Button>
+                    </PopoverTrigger>
+                    <PopoverContent className="p-0 w-[var(--radix-popover-trigger-width)] min-w-[280px]" align="start">
+                      <Command>
+                        <CommandInput placeholder="Search post office…" />
+                        <CommandList>
+                          <CommandEmpty>No locations found.</CommandEmpty>
+                          <CommandGroup>
+                            {postOfficeSuggestions.map((name) => (
+                              <CommandItem
+                                key={name}
+                                value={name}
+                                onSelect={(v) => {
+                                  const chosen = (v || name).trim();
+                                  setSelectedPostOffice(chosen);
+                                  setPostOfficeOpen(false);
+                                  markStep3Touched("cityTown");
+                                }}
+                              >
+                                {name}
+                              </CommandItem>
+                            ))}
+                          </CommandGroup>
+                        </CommandList>
+                      </Command>
+                    </PopoverContent>
+                  </Popover>
+                  {touchedStep3.cityTown && cityTownError && (
+                    <p className="text-xs text-red-600">{cityTownError}</p>
+                  )}
+                  {districtHint && !pinApiError && pincodeDigits.length === 6 && (
+                    <p className="text-xs text-gray-500">
+                      District: {districtHint}. Select the post office that matches your location.
+                    </p>
+                  )}
+                </div>
+                <div className="space-y-2">
+                  <label className="text-sm font-medium text-gray-700">State</label>
+                  <Input
+                    value={state}
+                    readOnly
+                    tabIndex={-1}
+                    placeholder="Autofilled from pincode"
+                    className="h-11 bg-gray-50 text-gray-900 cursor-default"
+                    onBlur={() => markStep3Touched("state")}
+                  />
+                  {touchedStep3.state && stateError && <p className="text-xs text-red-600">{stateError}</p>}
+                </div>
               </div>
               <div className="space-y-2">
                 <label className="text-sm font-medium text-gray-700">Full Address</label>
@@ -435,81 +852,15 @@ const data = res.data;
               </div>
             </div>
             <Button
-              onClick={nextStep}
-              disabled={!region || !state.trim()}
+              onClick={() => {
+                markStep3Touched("businessName", "gstin", "pincode", "cityTown", "state");
+                if (step3Valid) submitRegistration();
+              }}
+              disabled={!step3Valid}
               className="w-full h-12 bg-primary hover:bg-primary/90"
             >
-              Continue
+              Create Account
             </Button>
-          </div>
-        );
-
-      case 4: // Payment Setup
-        return (
-          <div className="space-y-6 animate-in fade-in slide-in-from-right-8 duration-500">
-            <div className="text-center mb-8">
-              <h2 className="text-2xl font-display font-bold text-gray-900">Payment Setup</h2>
-              <p className="text-gray-500 mt-1">Enable instant retailer payments via UPI.</p>
-            </div>
-
-            <div className="bg-white border border-gray-200 rounded-xl p-6 text-center space-y-4">
-              <div className="h-24 w-24 bg-gray-50 rounded-xl mx-auto flex items-center justify-center border-2 border-dashed border-gray-300">
-                <QrCode className="h-8 w-8 text-gray-400" />
-              </div>
-              <div>
-                <h3 className="font-medium text-gray-900">Upload UPI QR Code</h3>
-                <p className="text-xs text-gray-500 mt-1">Take a photo or upload your PhonePe/GPay QR</p>
-              </div>
-              <Button variant="outline" className="w-full">
-                <Upload className="h-4 w-4 mr-2" /> Upload QR Image
-              </Button>
-            </div>
-
-            <div className="space-y-2">
-              <label className="text-sm font-medium text-gray-700">UPI ID (VPA)</label>
-              <Input value={upiId} onChange={(e) => setUpiId(e.target.value)} placeholder="business@okhdfcbank" className="h-11" />
-            </div>
-
-            <Button
-              onClick={submitRegistration}
-              className="w-full h-12 bg-primary hover:bg-primary/90"
-            >
-              Continue
-            </Button>
-            <Button variant="ghost" onClick={submitRegistration} className="w-full text-gray-500">
-              Skip for now
-            </Button>
-          </div>
-        );
-
-      case 5: // Success
-        return (
-          <div className="space-y-8 text-center animate-in fade-in zoom-in duration-500 py-8">
-            <div className="relative inline-block">
-              <div className="absolute inset-0 bg-green-100 rounded-full animate-ping opacity-20 duration-1000" />
-              <div className="h-24 w-24 bg-green-100 rounded-full flex items-center justify-center relative z-10 text-green-600 mx-auto">
-                <CheckCircle2 className="h-12 w-12" />
-              </div>
-            </div>
-
-            <div className="space-y-2">
-              <h2 className="text-3xl font-display font-bold text-gray-900">You're All Set! 🎉</h2>
-              <p className="text-gray-500 max-w-xs mx-auto">Your Diya Business account is ready. Start receiving orders today.</p>
-            </div>
-
-            <div className="bg-gray-50 rounded-xl p-4 max-w-xs mx-auto border border-gray-200">
-              <p className="text-sm font-medium text-gray-900 mb-2">Invite Retailers</p>
-              <div className="flex items-center justify-center h-32 bg-white rounded-lg border border-gray-200 mb-2">
-                <QrCode className="h-16 w-16 text-gray-800" />
-              </div>
-              <p className="text-xs text-gray-500">Scan to download Retailer App</p>
-            </div>
-
-            <Link href="/onboarding">
-              <Button className="w-full h-14 text-lg bg-primary hover:bg-primary/90 shadow-xl shadow-orange-200">
-                Go to Dashboard
-              </Button>
-            </Link>
           </div>
         );
     }
@@ -519,25 +870,25 @@ const data = res.data;
     <div className="min-h-screen bg-gray-50 flex flex-col items-center justify-center p-4">
       <div className="w-full max-w-md">
         <div className="mb-6 flex items-center justify-between">
-          {step > 1 && step < 5 ? (
+          {step > 1 && step < 4 ? (
             <Button variant="ghost" size="sm" onClick={prevStep} className="text-gray-500 hover:text-gray-900 -ml-2">
               <ArrowLeft className="h-4 w-4 mr-1" /> Back
             </Button>
           ) : <div />}
 
-          {step < 5 && (
+          {step < 4 && (
             <div className="text-sm font-medium text-gray-400">
-              Step {step} of 4
+              Step {step} of 3
             </div>
           )}
         </div>
 
         <Card className="border-gray-200 shadow-xl shadow-gray-200/50 overflow-hidden">
-          {step < 5 && (
+          {step < 4 && (
             <div className="h-1 bg-gray-100 w-full">
               <div
                 className="h-full bg-primary transition-all duration-500 ease-out"
-                style={{ width: `${(step / 4) * 100}%` }}
+                style={{ width: `${(step / 3) * 100}%` }}
               />
             </div>
           )}

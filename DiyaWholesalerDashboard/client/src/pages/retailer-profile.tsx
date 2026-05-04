@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { useRoute, Link } from "wouter";
+import { useRoute, Link, useLocation } from "wouter";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   ArrowLeft,
@@ -10,6 +10,8 @@ import {
   AlertTriangle,
   FileText,
   Package,
+  Ban,
+  UserMinus,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -17,7 +19,13 @@ import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Separator } from "@/components/ui/separator";
-import { fetchRetailerCreditSummary, patchRetailerCreditLimit } from "@/services/retailerCredit";
+import {
+  fetchRetailerCreditSummary,
+  patchRetailerCreditLimit,
+  blockRetailer,
+  unblockRetailer,
+  removeRetailerFromList,
+} from "@/services/retailerCredit";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { fetchOrders, OrderListItem } from "@/services/order";
@@ -27,9 +35,19 @@ import { RetailerTierBadge } from "@/components/retailers/RetailerTierBadge";
 import { cn } from "@/lib/utils";
 import { useToast } from "@/hooks/use-toast";
 import { invalidateAfterMutation } from "@/lib/invalidate";
+import { formatINR } from "@/lib/money";
+import {
+  AlertDialog,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 
 function formatAmount(n: number) {
-  return "₹" + Number(n).toLocaleString("en-IN");
+  return formatINR(n);
 }
 
 function formatDate(dateStr: string) {
@@ -38,6 +56,22 @@ function formatDate(dateStr: string) {
   } catch {
     return dateStr;
   }
+}
+
+function connectionStatusBadgeClass(status: string) {
+  if (status === "BLOCKED") {
+    return "bg-amber-50 text-amber-800 border-amber-200";
+  }
+  if (status === "REMOVED") {
+    return "bg-gray-100 text-gray-700 border-gray-200";
+  }
+  return "bg-green-50 text-green-800 border-green-200";
+}
+
+function connectionStatusLabel(status: string) {
+  if (status === "BLOCKED") return "Blocked";
+  if (status === "REMOVED") return "Removed";
+  return "Active";
 }
 
 function mapStatusToUI(status: string): string {
@@ -52,8 +86,11 @@ function mapStatusToUI(status: string): string {
 export default function RetailerProfile() {
   const [match, params] = useRoute("/retailers/:id");
   const retailerId = params?.id ?? "";
+  const [, setLocation] = useLocation();
   const [addPaymentOpen, setAddPaymentOpen] = useState(false);
   const [creditLimitInput, setCreditLimitInput] = useState("");
+  const [blockDialogOpen, setBlockDialogOpen] = useState(false);
+  const [removeDialogOpen, setRemoveDialogOpen] = useState(false);
   const queryClient = useQueryClient();
   const { toast } = useToast();
 
@@ -100,6 +137,68 @@ export default function RetailerProfile() {
     },
   });
 
+  const connectionStatus = data?.connectionStatus ?? "APPROVED";
+  const isActive = connectionStatus === "APPROVED";
+  const isBlocked = connectionStatus === "BLOCKED";
+  const isRemoved = connectionStatus === "REMOVED";
+
+  const blockMutation = useMutation({
+    mutationFn: () => blockRetailer(retailerId),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["retailer-credit", retailerId] });
+      queryClient.invalidateQueries({ queryKey: ["wholesaler-connections"] });
+      invalidateAfterMutation(queryClient, { retailerId });
+      setBlockDialogOpen(false);
+      toast({ title: "Retailer blocked", description: "They can no longer place new orders." });
+    },
+    onError: (err: any) => {
+      toast({
+        title: "Could not block retailer",
+        description: err?.response?.data?.message || err?.message,
+        variant: "destructive",
+      });
+    },
+  });
+
+  const unblockMutation = useMutation({
+    mutationFn: () => unblockRetailer(retailerId),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["retailer-credit", retailerId] });
+      queryClient.invalidateQueries({ queryKey: ["wholesaler-connections"] });
+      invalidateAfterMutation(queryClient, { retailerId });
+      toast({ title: "Retailer unblocked", description: "They can place orders again." });
+    },
+    onError: (err: any) => {
+      toast({
+        title: "Could not unblock retailer",
+        description: err?.response?.data?.message || err?.message,
+        variant: "destructive",
+      });
+    },
+  });
+
+  const removeMutation = useMutation({
+    mutationFn: () => removeRetailerFromList(retailerId),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["wholesaler-connections"] });
+      queryClient.invalidateQueries({ queryKey: ["retailer-credit", retailerId] });
+      invalidateAfterMutation(queryClient, { retailerId });
+      setRemoveDialogOpen(false);
+      toast({
+        title: "Retailer removed from list",
+        description: "Historical orders and payments are unchanged.",
+      });
+      setLocation("/retailers");
+    },
+    onError: (err: any) => {
+      toast({
+        title: "Could not remove retailer",
+        description: err?.response?.data?.message || err?.message,
+        variant: "destructive",
+      });
+    },
+  });
+
   const { data: ordersData } = useQuery({
     queryKey: ["orders"],
     queryFn: () => fetchOrders(),
@@ -119,7 +218,9 @@ export default function RetailerProfile() {
   const retailerName = data?.retailerName ?? "Retailer";
   const initials = retailerName.slice(0, 2).toUpperCase();
   const locationLine =
-    [data?.city, data?.state].filter(Boolean).join(", ") || "—";
+    (data?.region && String(data.region).trim()) ||
+    [data?.city, data?.state].map((v) => (typeof v === "string" ? v.trim() : String(v || "").trim())).filter(Boolean).join(", ") ||
+    "—";
   const phoneDisplay = data?.phoneContact ? `+91 ${data.phoneContact}` : "—";
   const addressDisplay = data?.address || "—";
 
@@ -134,6 +235,128 @@ export default function RetailerProfile() {
         <span className="text-gray-900 font-medium">{retailerName}</span>
       </div>
 
+      {!isLoading && data && !isRemoved && (isActive || isBlocked) && (
+        <Card className="border-gray-200 shadow-sm bg-white">
+          <CardHeader className="pb-2">
+            <CardTitle className="text-base">Retailer management</CardTitle>
+          </CardHeader>
+          <CardContent className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+            <p className="text-sm text-muted-foreground">
+              {isBlocked
+                ? "This retailer is blocked and cannot place new orders. Past data stays available."
+                : "Block to stop new orders, or remove from your active list without deleting history."}
+            </p>
+            <div className="flex flex-wrap gap-2 shrink-0">
+              {isActive && (
+                <>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    className="gap-1.5 border-amber-200 text-amber-800 hover:bg-amber-50"
+                    disabled={blockMutation.isPending}
+                    onClick={() => setBlockDialogOpen(true)}
+                  >
+                    <Ban className="h-4 w-4" />
+                    Block retailer
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    className="gap-1.5 text-destructive border-red-200 hover:bg-red-50"
+                    disabled={removeMutation.isPending}
+                    onClick={() => setRemoveDialogOpen(true)}
+                  >
+                    <UserMinus className="h-4 w-4" />
+                    Remove retailer
+                  </Button>
+                </>
+              )}
+              {isBlocked && (
+                <>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    className="gap-1.5 border-green-200 text-green-800 hover:bg-green-50"
+                    disabled={unblockMutation.isPending}
+                    onClick={() => unblockMutation.mutate()}
+                  >
+                    Unblock retailer
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    className="gap-1.5 text-destructive border-red-200 hover:bg-red-50"
+                    disabled={removeMutation.isPending}
+                    onClick={() => setRemoveDialogOpen(true)}
+                  >
+                    <UserMinus className="h-4 w-4" />
+                    Remove retailer
+                  </Button>
+                </>
+              )}
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {!isLoading && data && isRemoved && (
+        <Card className="border-gray-200 shadow-sm bg-gray-50/80">
+          <CardContent className="py-4 text-sm text-gray-600">
+            This retailer was removed from your active list. You can still review orders, ledger, and history. Recording
+            payments and editing credit limit is disabled.
+          </CardContent>
+        </Card>
+      )}
+
+      <AlertDialog open={blockDialogOpen} onOpenChange={setBlockDialogOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Block this retailer?</AlertDialogTitle>
+            <AlertDialogDescription>
+              They will not be able to place new orders. Existing orders, payments, and the ledger are unchanged.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={blockMutation.isPending}>Cancel</AlertDialogCancel>
+            <Button
+              type="button"
+              variant="destructive"
+              disabled={blockMutation.isPending}
+              onClick={() => blockMutation.mutate()}
+            >
+              {blockMutation.isPending ? "Blocking…" : "Block retailer"}
+            </Button>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      <AlertDialog open={removeDialogOpen} onOpenChange={setRemoveDialogOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Remove retailer from your list?</AlertDialogTitle>
+            <AlertDialogDescription>
+              They will disappear from your active retailer and connection lists. Historical data is kept for your
+              records.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={removeMutation.isPending}>Cancel</AlertDialogCancel>
+            <Button
+              type="button"
+              variant="destructive"
+              disabled={removeMutation.isPending}
+              onClick={() => removeMutation.mutate()}
+            >
+              {removeMutation.isPending ? "Removing…" : "Remove retailer"}
+            </Button>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
       {/* Profile Header */}
       <Card className="border-none shadow-sm bg-white overflow-hidden">
         <div className="h-32 bg-gradient-to-r from-orange-50 to-orange-100 border-b border-orange-100" />
@@ -146,6 +369,11 @@ export default function RetailerProfile() {
             <div className="flex-1 min-w-0 pb-2">
               <div className="flex items-center gap-2 flex-wrap">
                 <h1 className="text-2xl font-bold text-gray-900">{retailerName}</h1>
+                {!isLoading && data && (
+                  <Badge variant="outline" className={cn("font-medium", connectionStatusBadgeClass(connectionStatus))}>
+                    {connectionStatusLabel(connectionStatus)}
+                  </Badge>
+                )}
                 <RetailerTierBadge tier={data?.tier} />
               </div>
               <div className="flex flex-wrap items-center gap-4 text-sm text-gray-500 mt-1">
@@ -209,12 +437,13 @@ export default function RetailerProfile() {
                           value={creditLimitInput}
                           onChange={(e) => setCreditLimitInput(e.target.value)}
                           className="h-9"
+                          disabled={isRemoved}
                         />
                         <Button
                           type="button"
                           size="sm"
                           className="shrink-0"
-                          disabled={saveCreditMutation.isPending || !retailerId}
+                          disabled={saveCreditMutation.isPending || !retailerId || isRemoved}
                           onClick={() => saveCreditMutation.mutate()}
                         >
                           {saveCreditMutation.isPending ? "Saving…" : "Save"}
@@ -226,7 +455,13 @@ export default function RetailerProfile() {
                     </div>
                  </div>
                  
-                 <Button onClick={() => setAddPaymentOpen(true)} className="w-full bg-primary hover:bg-primary/90 text-white shadow-sm">Record Payment</Button>
+                 <Button
+                   onClick={() => setAddPaymentOpen(true)}
+                   disabled={isRemoved}
+                   className="w-full bg-primary hover:bg-primary/90 text-white shadow-sm disabled:opacity-60"
+                 >
+                   Record Payment
+                 </Button>
               </CardContent>
            </Card>
 

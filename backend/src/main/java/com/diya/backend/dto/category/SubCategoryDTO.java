@@ -5,6 +5,7 @@ import java.util.UUID;
 public record SubCategoryDTO(
         UUID id,
         String name,
+        String imageUrl,
         UUID categoryId,
         UUID parentSubId) {
 }

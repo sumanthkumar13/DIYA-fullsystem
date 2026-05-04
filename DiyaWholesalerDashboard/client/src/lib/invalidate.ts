@@ -32,7 +32,7 @@ export function invalidateAfterMutation(queryClient: QueryClient, ctx: Invalidat
   queryClient.invalidateQueries({ queryKey: ["payments-received-today"] });
 
   // Dashboard + territory
-  queryClient.invalidateQueries({ queryKey: ["active-regions"] });
+  queryClient.invalidateQueries({ queryKey: ["retailer-regions"] });
   queryClient.invalidateQueries({ queryKey: ["territory-performance"] });
   queryClient.invalidateQueries({ queryKey: ["dashboard-activity"] });
   queryClient.invalidateQueries({ queryKey: ["dashboard-territory"] });

@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useMemo, useState, useEffect } from "react";
 import { Link } from "wouter";
 import {
   Search,
@@ -23,18 +23,27 @@ import {
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { AddRetailerModal } from "@/components/retailers/AddRetailerModal";
 import { RetailerTierBadge } from "@/components/retailers/RetailerTierBadge";
+import { formatINR } from "@/lib/money";
 
 type RetailerRow = {
   id: string;
+  /** Display name (prefer shop name, fall back to retailer/user name). */
   name: string;
-  owner: string;
+  /** Shop name if known. */
+  shopName?: string;
+  /** Retailer/user name if separate. */
+  retailerName?: string;
+  /** Owner/proprietor name if separate. */
+  ownerName?: string;
   phone: string;
   location: string;
   initials: string;
+  /** Precomputed lowercase search index for fast filtering. */
+  searchText: string;
 };
 
 function formatAmount(n: number): string {
-  return "₹" + Number(n).toLocaleString("en-IN");
+  return formatINR(n);
 }
 
 function formatLastOrderDate(dateStr: string | null | undefined): string {
@@ -63,14 +72,26 @@ export default function Retailers() {
       .then((list: any[]) => {
         if (cancelled) return;
         const rows: RetailerRow[] = list.map((c: any) => {
-          const name = c.retailerBusinessName || c.name || "Retailer";
+          const shopName = (c.shopName || c.retailerBusinessName || "").toString().trim();
+          const retailerName = (c.name || "").toString().trim();
+          const ownerName = (c.ownerName || c.proprietorName || "").toString().trim();
+          const displayName = shopName || retailerName || ownerName || "Retailer";
+          const phone = (c.retailerPhone || c.phone || "").toString().trim() || "--";
+          const location = (c.retailerCity || c.location || "").toString().trim() || "--";
+          const searchText = [displayName, shopName, retailerName, ownerName, phone]
+            .filter(Boolean)
+            .join(" ")
+            .toLowerCase();
           return {
             id: String(c.retailerId ?? c.id ?? ""),
-            name,
-            owner: name,
-            phone: c.retailerPhone || c.phone || "--",
-            location: c.retailerCity || c.location || "--",
-            initials: name.slice(0, 2).toUpperCase(),
+            name: displayName,
+            shopName: shopName || undefined,
+            retailerName: retailerName || undefined,
+            ownerName: ownerName || undefined,
+            phone,
+            location,
+            initials: displayName.slice(0, 2).toUpperCase(),
+            searchText,
           };
         });
         setRetailers(rows);
@@ -110,11 +131,11 @@ export default function Retailers() {
     };
   }, []);
 
-  const filteredRetailers = retailers.filter(
-    (r) =>
-      r.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      (r.owner && r.owner.toLowerCase().includes(searchQuery.toLowerCase()))
-  );
+  const filteredRetailers = useMemo(() => {
+    const q = searchQuery.trim().toLowerCase();
+    if (!q) return retailers;
+    return retailers.filter((r) => r.searchText.includes(q));
+  }, [retailers, searchQuery]);
 
   return (
     <div className="space-y-6">
@@ -126,7 +147,6 @@ export default function Retailers() {
         <Button
           className="gap-2 bg-primary hover:bg-primary/90 text-white shadow-sm"
           onClick={() => {
-            console.log("Retailers Add Retailer clicked");
             setAddRetailerOpen(true);
           }}
         >
@@ -156,7 +176,7 @@ export default function Retailers() {
           <div className="relative flex-1 w-full">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
             <Input
-              placeholder="Search retailer name, owner, or phone..."
+              placeholder="Search shop, retailer, owner, or phone…"
               className="pl-10 bg-gray-50 border-gray-200 w-full"
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
@@ -215,7 +235,7 @@ export default function Retailers() {
                         <RetailerTierBadge tier={summary?.tier} />
                       </div>
                       <div className="flex items-center gap-2 text-sm text-gray-500 mt-1">
-                        <span>{retailer.owner}</span>
+                        <span>{retailer.ownerName || retailer.retailerName || retailer.name}</span>
                         <span className="h-1 w-1 rounded-full bg-gray-300" />
                         <span>{retailer.phone}</span>
                       </div>

@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useMemo, useRef, useState, useEffect } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useToast } from "@/hooks/use-toast";
 import {
@@ -35,10 +35,14 @@ import { WHOLESALER_BUSINESS_TYPES } from "@/lib/businessTypes";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import avatarImage from "@assets/generated_images/professional_business_avatar_for_a_wholesaler.png";
 import { tallyPing } from "@/services/tally";
+import { useAuth } from "@/context/AuthContext";
+import api from "@/lib/api";
+import { uploadImageUnsignedToCloudinary, validateImageFile } from "@/lib/cloudinary";
 
 export default function SettingsPage() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
+  const { user, setUser } = useAuth();
   const { data, isLoading } = useQuery({
     queryKey: ["wholesaler-settings"],
     queryFn: getWholesalerSettings,
@@ -47,6 +51,7 @@ export default function SettingsPage() {
   const [ownerName, setOwnerName] = useState("");
   const [phone, setPhone] = useState("");
   const [businessName, setBusinessName] = useState("");
+  const [email, setEmail] = useState("");
   const [gstin, setGstin] = useState("");
   const [address, setAddress] = useState("");
   const [businessType, setBusinessType] = useState("");
@@ -61,6 +66,7 @@ export default function SettingsPage() {
     setOwnerName(data.ownerName ?? "");
     setPhone(data.phone ?? "");
     setBusinessName(data.businessName ?? "");
+    setEmail(data.email ?? "");
     setGstin(data.gstin ?? "");
     setAddress(data.address ?? "");
     setBusinessType(data.businessType ?? "");
@@ -70,11 +76,32 @@ export default function SettingsPage() {
     mutationFn: updateWholesalerSettings,
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["wholesaler-settings"] });
+      // If email was updated, reflect it immediately in local auth payload (UI consistency).
+      const nextEmail = email.trim();
+      if (user && nextEmail) {
+        setUser({ ...(user as any), email: nextEmail } as any);
+      }
       toast({ title: "Settings saved" });
+    },
+    onError: (err: any) => {
+      const msg =
+        err?.response?.data?.message ||
+        err?.message ||
+        "Could not save settings. Please try again.";
+      toast({ title: "Save failed", description: msg, variant: "destructive" });
     },
   });
 
   const handleSave = () => {
+    const trimmedEmail = email.trim();
+    if (trimmedEmail && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(trimmedEmail)) {
+      toast({
+        title: "Invalid email",
+        description: "Please enter a valid email (e.g., abc@domain.com).",
+        variant: "destructive",
+      });
+      return;
+    }
     const payload: Parameters<typeof updateWholesalerSettings>[0] = {
       businessName: businessName || null,
       ownerName: ownerName || null,
@@ -82,6 +109,8 @@ export default function SettingsPage() {
       address: address || null,
       gstin: gstin || null,
     };
+    // Only send email when user explicitly set it (avoid wiping).
+    if (trimmedEmail) payload.email = trimmedEmail;
     const trimmedType = businessType.trim();
     if (trimmedType) {
       payload.businessType = trimmedType;
@@ -140,6 +169,80 @@ export default function SettingsPage() {
 
   const [tallyChecking, setTallyChecking] = useState(false);
   const [tallyResult, setTallyResult] = useState<{ connected: boolean; companyName?: string } | null>(null);
+
+  const currentAvatarUrl = (user as any)?.avatarUrl as string | undefined;
+  const [avatarPreviewUrl, setAvatarPreviewUrl] = useState<string | null>(null);
+  const [avatarFile, setAvatarFile] = useState<File | null>(null);
+  const [avatarUploading, setAvatarUploading] = useState(false);
+  const [avatarProgress, setAvatarProgress] = useState<number>(0);
+  const [avatarError, setAvatarError] = useState<string | null>(null);
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
+
+  const avatarDisplayUrl = avatarPreviewUrl || currentAvatarUrl || avatarImage;
+
+  const avatarInitials = useMemo(() => {
+    const base = ownerName || data?.ownerName || data?.businessName || "Account";
+    const parts = String(base).trim().split(/\s+/).filter(Boolean);
+    if (!parts.length) return "A";
+    if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
+    return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
+  }, [ownerName, data?.ownerName, data?.businessName]);
+
+  useEffect(() => {
+    return () => {
+      if (avatarPreviewUrl) URL.revokeObjectURL(avatarPreviewUrl);
+    };
+  }, [avatarPreviewUrl]);
+
+  const handleSelectAvatar = (file: File | null) => {
+    setAvatarError(null);
+    if (!file) {
+      setAvatarFile(null);
+      if (avatarPreviewUrl) URL.revokeObjectURL(avatarPreviewUrl);
+      setAvatarPreviewUrl(null);
+      return;
+    }
+
+    const err = validateImageFile(file);
+    if (err) {
+      setAvatarError(err);
+      setAvatarFile(null);
+      if (avatarPreviewUrl) URL.revokeObjectURL(avatarPreviewUrl);
+      setAvatarPreviewUrl(null);
+      return;
+    }
+
+    setAvatarFile(file);
+    if (avatarPreviewUrl) URL.revokeObjectURL(avatarPreviewUrl);
+    setAvatarPreviewUrl(URL.createObjectURL(file));
+  };
+
+  const uploadAvatarToCloudinary = async () => {
+    if (!avatarFile) return;
+    setAvatarError(null);
+    setAvatarUploading(true);
+    setAvatarProgress(0);
+
+    try {
+      const { secureUrl } = await uploadImageUnsignedToCloudinary({
+        file: avatarFile,
+        onProgress: (p) => setAvatarProgress(p),
+      });
+
+      await api.put("/users/me/avatar", { avatarUrl: secureUrl });
+      setUser(user ? ({ ...(user as any), avatarUrl: secureUrl } as any) : user);
+      toast({ title: "Profile photo updated" });
+      setAvatarFile(null);
+      if (avatarPreviewUrl) URL.revokeObjectURL(avatarPreviewUrl);
+      setAvatarPreviewUrl(null);
+      setAvatarProgress(0);
+    } catch (e: any) {
+      setAvatarError(e?.message || "Upload failed. Please try again.");
+      toast({ title: "Upload failed", description: e?.message || "Please try again.", variant: "destructive" });
+    } finally {
+      setAvatarUploading(false);
+    }
+  };
 
   const handleCheckTally = async () => {
     setTallyChecking(true);
@@ -212,12 +315,49 @@ export default function SettingsPage() {
                 <CardContent className="space-y-6">
                   <div className="flex items-center gap-6">
                     <Avatar className="h-24 w-24 border-4 border-gray-50">
-                      <AvatarImage src={avatarImage} />
-                      <AvatarFallback>VK</AvatarFallback>
+                      <AvatarImage src={avatarDisplayUrl} />
+                      <AvatarFallback>{avatarInitials}</AvatarFallback>
                     </Avatar>
-                    <Button variant="outline" className="gap-2">
-                      <Upload className="h-4 w-4" /> Change Photo
-                    </Button>
+                    <div className="space-y-2">
+                      <input
+                        ref={fileInputRef}
+                        type="file"
+                        accept="image/jpeg,image/png,image/webp"
+                        className="hidden"
+                        onChange={(e) => handleSelectAvatar(e.target.files?.[0] ?? null)}
+                      />
+                      <div className="flex flex-wrap gap-2">
+                        <Button
+                          type="button"
+                          variant="outline"
+                          className="gap-2"
+                          onClick={() => fileInputRef.current?.click()}
+                          disabled={avatarUploading}
+                        >
+                          <Upload className="h-4 w-4" /> {avatarFile ? "Change photo" : "Select photo"}
+                        </Button>
+                        <Button
+                          type="button"
+                          className="bg-primary hover:bg-primary/90 text-white gap-2"
+                          onClick={uploadAvatarToCloudinary}
+                          disabled={!avatarFile || avatarUploading}
+                        >
+                          {avatarUploading ? (
+                            <>
+                              <Loader2 className="h-4 w-4 animate-spin" /> Uploading{avatarProgress ? ` (${avatarProgress}%)` : "…"}
+                            </>
+                          ) : (
+                            "Upload"
+                          )}
+                        </Button>
+                      </div>
+                      {avatarPreviewUrl && (
+                        <p className="text-xs text-gray-500">
+                          Previewing selected image. Click <span className="font-medium">Upload</span> to save.
+                        </p>
+                      )}
+                      {avatarError && <p className="text-xs text-red-600">{avatarError}</p>}
+                    </div>
                   </div>
 
                   <div className="grid md:grid-cols-2 gap-4">
@@ -231,7 +371,15 @@ export default function SettingsPage() {
                     </div>
                     <div className="space-y-2">
                       <Label>Email Address</Label>
-                      <Input value={data?.email ?? ""} disabled className="bg-gray-50" />
+                      <Input
+                        value={email}
+                        onChange={(e) => setEmail(e.target.value)}
+                        disabled={disabled}
+                        placeholder="abc@domain.com"
+                      />
+                      {email.trim() && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim()) && (
+                        <p className="text-xs text-red-600">Please enter a valid email address.</p>
+                      )}
                     </div>
                     <div className="space-y-2">
                       <Label>Phone Number</Label>
@@ -317,11 +465,6 @@ export default function SettingsPage() {
                       onChange={(e) => setAddress(e.target.value)}
                       disabled={disabled}
                     />
-                  </div>
-
-                  <div className="space-y-2">
-                    <Label>UPI ID (for payments)</Label>
-                    <Input defaultValue="diya.business@okicici" />
                   </div>
 
                   <div className="flex justify-end">

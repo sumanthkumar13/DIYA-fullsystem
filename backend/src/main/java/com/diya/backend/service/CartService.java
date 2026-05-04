@@ -149,7 +149,11 @@ public class CartService {
     private CartDTO toDto(Cart cart) {
 
         BigDecimal totalAmount = cart.getItems().stream()
-                .map(item -> BigDecimal.valueOf(item.getPriceAtTime()).multiply(BigDecimal.valueOf(item.getQuantity())))
+                .map(item -> {
+                    BigDecimal price = item.getPriceAtTime() != null ? item.getPriceAtTime() : BigDecimal.ZERO;
+                    long qty = item.getQuantity() != null ? item.getQuantity() : 0L;
+                    return price.multiply(BigDecimal.valueOf(qty));
+                })
                 .reduce(BigDecimal.ZERO, BigDecimal::add);
 
         return CartDTO.builder()
@@ -163,6 +167,10 @@ public class CartService {
     }
 
     private CartItemDTO toItemDto(CartItem item) {
+        BigDecimal price = item.getPriceAtTime() != null ? item.getPriceAtTime() : BigDecimal.ZERO;
+        long qty = item.getQuantity() != null ? item.getQuantity() : 0L;
+        BigDecimal lineTotal = price.multiply(BigDecimal.valueOf(qty));
+
         return CartItemDTO.builder()
                 .id(item.getId())
                 .productId(item.getProduct().getId())
@@ -170,9 +178,9 @@ public class CartService {
                 .productSku(item.getProduct().getSku())
                 .productImageUrl(item.getProduct().getImageUrl())
                 .quantity(item.getQuantity())
-                .price(item.getPriceAtTime())
-                .mrp(item.getMrpAtTime())
-                .total(item.getPriceAtTime() * item.getQuantity())
+                .price(item.getPriceAtTime() != null ? item.getPriceAtTime().doubleValue() : null)
+                .mrp(item.getMrpAtTime() != null ? item.getMrpAtTime().doubleValue() : null)
+                .total(lineTotal.doubleValue())
                 .status(computeStatus(item.getProduct().getStock()))
                 .build();
     }

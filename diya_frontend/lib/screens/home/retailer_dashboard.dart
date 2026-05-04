@@ -3,7 +3,6 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../providers/retailer_session_provider.dart';
 import '../../widgets/ui/diya_card.dart';
 import '../../widgets/ui/stat_card.dart';
-import '../../widgets/wholesaler_picker_sheet.dart';
 
 class RetailerDashboard extends ConsumerWidget {
   const RetailerDashboard({super.key});
@@ -44,7 +43,7 @@ class RetailerDashboard extends ConsumerWidget {
         // HEADER (orange) - reduced size
         SliverToBoxAdapter(
           child: Container(
-            padding: const EdgeInsets.fromLTRB(20, 14, 20, 18),
+            padding: const EdgeInsets.fromLTRB(20, 10, 20, 12),
             decoration: const BoxDecoration(
               color: Color(0xFFFF7A00),
               borderRadius: BorderRadius.only(
@@ -75,16 +74,16 @@ class RetailerDashboard extends ConsumerWidget {
                           color: Colors.white.withOpacity(0.82),
                         ),
                       ),
-                      const SizedBox(height: 4),
+                      const SizedBox(height: 3),
                       Text(
                         userName,
                         style: TextStyle(
-                          fontSize: 18, // ✅ smaller than 22
+                          fontSize: 17,
                           fontWeight: FontWeight.w900,
                           color: Colors.white,
                         ),
                       ),
-                      const SizedBox(height: 8),
+                      const SizedBox(height: 6),
                       GestureDetector(
                         onTap: () => Navigator.pushNamed(context, '/account'),
                         child: Container(
@@ -118,20 +117,6 @@ class RetailerDashboard extends ConsumerWidget {
                         ),
                       ),
                     ],
-                  ),
-                ),
-
-                // Bell
-                Container(
-                  decoration: BoxDecoration(
-                    color: Colors.white.withOpacity(0.10),
-                    shape: BoxShape.circle,
-                  ),
-                  child: IconButton(
-                    icon: const Icon(Icons.notifications_none, color: Colors.white),
-                    onPressed: () {
-                      // TODO: Notifications screen later
-                    },
                   ),
                 ),
               ],
@@ -199,35 +184,24 @@ class RetailerDashboard extends ConsumerWidget {
                       SizedBox(
                         width: 160,
                         child: DiyaCard(
-                          onTap: () => openWholesalerPickerAndProceed(context, ref),
+                          onTap: () => Navigator.pushNamed(context, '/wholesalers'),
                           child: Column(
                             mainAxisAlignment: MainAxisAlignment.center,
-                            children: [
-                              Container(
-                                width: 44,
-                                height: 44,
-                                decoration: const BoxDecoration(
-                                  color: Color(0xFFFF7A00),
-                                  shape: BoxShape.circle,
-                                  boxShadow: [
-                                    BoxShadow(
-                                      color: Color(0x4DFF7A00),
-                                      blurRadius: 18,
-                                      offset: Offset(0, 10),
-                                    )
-                                  ],
-                                ),
-                                child: const Icon(Icons.add, color: Colors.white, size: 26),
+                            children: const [
+                              _RoundIcon(
+                                bg: Color(0xFFE0F2FE),
+                                fg: Color(0xFF0284C7),
+                                icon: Icons.store,
                               ),
-                              const SizedBox(height: 10),
-                              const Text(
-                                "New Order",
+                              SizedBox(height: 10),
+                              Text(
+                                "My Wholesalers",
                                 style: TextStyle(
                                   fontSize: 14,
-                                  fontWeight: FontWeight.w900,
-                                  color: Color(0xFFFF7A00),
+                                  fontWeight: FontWeight.w700,
+                                  color: Color(0xFF404040),
                                 ),
-                              )
+                              ),
                             ],
                           ),
                         ),
@@ -274,32 +248,6 @@ class RetailerDashboard extends ConsumerWidget {
                               SizedBox(height: 10),
                               Text(
                                 "Search Wholesalers",
-                                style: TextStyle(
-                                  fontSize: 14,
-                                  fontWeight: FontWeight.w700,
-                                  color: Color(0xFF404040),
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                      ),
-                      const SizedBox(width: 12),
-                      SizedBox(
-                        width: 160,
-                        child: DiyaCard(
-                          onTap: () => Navigator.pushNamed(context, '/wholesalers'),
-                          child: Column(
-                            mainAxisAlignment: MainAxisAlignment.center,
-                            children: const [
-                              _RoundIcon(
-                                bg: Color(0xFFE0F2FE),
-                                fg: Color(0xFF0284C7),
-                                icon: Icons.store,
-                              ),
-                              SizedBox(height: 10),
-                              Text(
-                                "My Wholesalers",
                                 style: TextStyle(
                                   fontSize: 14,
                                   fontWeight: FontWeight.w700,

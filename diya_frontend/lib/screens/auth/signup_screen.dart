@@ -1,5 +1,8 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:dio/dio.dart';
+import 'dart:convert';
 import '../../providers/auth_provider.dart';
 import '../../widgets/ui/diya_button.dart';
 import '../../widgets/ui/diya_input.dart';
@@ -18,15 +21,6 @@ class _SignupScreenState extends ConsumerState<SignupScreen> {
   final _formKey1 = GlobalKey<FormState>();
   final _formKey2 = GlobalKey<FormState>();
 
-  static const List<String> _regions = <String>[
-    "Banjara Hills",
-    "Jubilee Hills",
-    "Madhapur",
-    "Kukatpally",
-    "Old City",
-    "Gachibowli",
-  ];
-
   // Step 1
   final _name = TextEditingController();
   final _email = TextEditingController();
@@ -35,12 +29,223 @@ class _SignupScreenState extends ConsumerState<SignupScreen> {
 
   // Step 2
   final _businessName = TextEditingController();
-  final _city = TextEditingController();
+  final _pincode = TextEditingController();
+  final _cityTown = TextEditingController();
   final _address = TextEditingController();
   final _state = TextEditingController();
-  String? _selectedRegion;
+  String? _selectedCityTown;
+  List<String> _postOfficeOptions = <String>[];
+  bool _pinLoading = false;
+  String? _pinError;
+  String? _lastFetchedPincode;
 
   bool _loading = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _pincode.addListener(() {
+      final pin = _pincode.text.trim();
+      if (pin.length == 6 && RegExp(r'^\d{6}$').hasMatch(pin)) {
+        _fetchLocationFromPincode(pin);
+      } else {
+        if (_pinError != null ||
+            _postOfficeOptions.isNotEmpty ||
+            (_selectedCityTown ?? '').isNotEmpty ||
+            _cityTown.text.isNotEmpty ||
+            _state.text.isNotEmpty) {
+          setState(() {
+            _pinError = null;
+            _postOfficeOptions = <String>[];
+            _selectedCityTown = null;
+            _cityTown.text = '';
+            _state.text = '';
+          });
+        }
+      }
+    });
+  }
+
+  static final RegExp _nameLettersOnly = RegExp(r'^[a-zA-Z ]+$');
+  static final RegExp _emailFormat = RegExp(r'^[^\s@]+@[^\s@]+\.[^\s@]+$');
+
+  /// Letters and spaces only (no digits or symbols). Required.
+  String? _validateFullName(String? value) {
+    final s = (value ?? '').trim();
+    if (s.isEmpty) return 'Please enter your name';
+    if (!_nameLettersOnly.hasMatch(s)) {
+      return 'Use only letters and spaces (no numbers or special characters)';
+    }
+    return null;
+  }
+
+  /// Required, standard email shape (e.g. abc@domain.com).
+  String? _validateEmail(String? value) {
+    final s = (value ?? '').trim();
+    if (s.isEmpty) return 'Please enter your email address';
+    if (!_emailFormat.hasMatch(s)) {
+      return 'Enter a valid email (e.g. abc@domain.com)';
+    }
+    return null;
+  }
+
+  /// Min 8 chars; upper, lower, digit, special.
+  String? _validatePassword(String? value) {
+    final s = value ?? '';
+    if (s.isEmpty) return 'Please enter a password';
+    if (s.length < 8) return 'Password must be at least 8 characters';
+    if (!RegExp(r'[A-Z]').hasMatch(s)) {
+      return 'Include at least one uppercase letter';
+    }
+    if (!RegExp(r'[a-z]').hasMatch(s)) {
+      return 'Include at least one lowercase letter';
+    }
+    if (!RegExp(r'[0-9]').hasMatch(s)) {
+      return 'Include at least one number';
+    }
+    if (!RegExp(r'[^A-Za-z0-9]').hasMatch(s)) {
+      return 'Include at least one special character (e.g. ! @ #)';
+    }
+    return null;
+  }
+
+  Future<void> _fetchLocationFromPincode(String pincode) async {
+    final pin = pincode.trim();
+    if (!RegExp(r'^\d{6}$').hasMatch(pin)) {
+      setState(() {
+        _pinError = 'Enter a valid 6-digit pincode';
+        _postOfficeOptions = <String>[];
+        _selectedCityTown = null;
+        _cityTown.text = '';
+        _state.text = '';
+      });
+      return;
+    }
+
+    if (_lastFetchedPincode == pin && _postOfficeOptions.isNotEmpty) return;
+
+    setState(() {
+      _pinLoading = true;
+      _pinError = null;
+    });
+
+    try {
+      final dio = Dio();
+      final res = await dio.get('https://api.postalpincode.in/pincode/$pin');
+      final data = res.data;
+      final decoded = data is String ? jsonDecode(data) : data;
+      if (decoded is! List || decoded.isEmpty) {
+        throw Exception('Invalid response');
+      }
+
+      final first = decoded.first as Map<String, dynamic>;
+      final status = (first['Status'] as String?)?.trim();
+      final postOffices = first['PostOffice'];
+
+      if (status != 'Success' || postOffices is! List || postOffices.isEmpty) {
+        setState(() {
+          _pinError = 'Invalid pincode';
+          _postOfficeOptions = <String>[];
+          _selectedCityTown = null;
+          _cityTown.text = '';
+          _state.text = '';
+          _lastFetchedPincode = pin;
+        });
+        return;
+      }
+
+      final po0 = postOffices.first as Map<String, dynamic>;
+      final stateName = (po0['State'] as String?)?.trim() ?? '';
+
+      final names = postOffices
+          .map((e) => (e is Map ? (e['Name'] as String?) : null) ?? '')
+          .map((s) => s.trim())
+          .where((s) => s.isNotEmpty)
+          .toSet()
+          .toList()
+        ..sort();
+
+      setState(() {
+        _postOfficeOptions = names;
+        _state.text = stateName;
+        _pinError = null;
+        _selectedCityTown = null;
+        _cityTown.text = '';
+        _lastFetchedPincode = pin;
+      });
+    } catch (_) {
+      setState(() {
+        _pinError = 'Unable to fetch location for this pincode';
+        _postOfficeOptions = <String>[];
+        _selectedCityTown = null;
+        _cityTown.text = '';
+        _state.text = '';
+      });
+    } finally {
+      if (mounted) {
+        setState(() => _pinLoading = false);
+      }
+    }
+  }
+
+  Future<void> _openCityTownPicker() async {
+    if (_pinLoading) return;
+    if (_postOfficeOptions.isEmpty) return;
+
+    final selected = await showModalBottomSheet<String>(
+      context: context,
+      isScrollControlled: true,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (ctx) {
+        return SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(16, 10, 16, 16),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const SizedBox(height: 6),
+                const Text(
+                  'Select City / Town',
+                  style: TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.w800,
+                    color: Color(0xFF171717),
+                  ),
+                ),
+                const SizedBox(height: 12),
+                Flexible(
+                  child: ListView.separated(
+                    shrinkWrap: true,
+                    itemCount: _postOfficeOptions.length,
+                    separatorBuilder: (_, __) => const Divider(height: 1),
+                    itemBuilder: (c, i) {
+                      final name = _postOfficeOptions[i];
+                      return ListTile(
+                        title: Text(
+                          name,
+                          style: const TextStyle(fontWeight: FontWeight.w700),
+                        ),
+                        onTap: () => Navigator.pop(c, name),
+                      );
+                    },
+                  ),
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+
+    if (selected == null) return;
+    setState(() {
+      _selectedCityTown = selected;
+      _cityTown.text = selected;
+    });
+  }
 
   void _goToStep(int step) {
     setState(() => _step = step);
@@ -56,9 +261,11 @@ class _SignupScreenState extends ConsumerState<SignupScreen> {
 
     setState(() => _loading = true);
 
+    final regionValue = _selectedCityTown?.trim();
+
     final payload = {
       "name": _name.text.trim(),
-      "email": _email.text.trim().isEmpty ? null : _email.text.trim(),
+      "email": _email.text.trim(),
       "phone": _phone.text.trim(),
       "password": _password.text.trim(),
 
@@ -67,10 +274,11 @@ class _SignupScreenState extends ConsumerState<SignupScreen> {
 
       // ✅ business details used by backend
       "businessName": _businessName.text.trim(),
-      // ✅ required by backend (must match canonical list)
-      "region": _selectedRegion,
-      // optional (informational only; not used for territory analytics)
-      "city": _city.text.trim().isEmpty ? null : _city.text.trim(),
+      // ✅ critical: wholesaler dashboard uses retailer region for territory/filters
+      // We store the selected City/Town (PostOffice name) as retailer region.
+      "region": regionValue,
+      // Optional informational field (kept aligned with UI "City / Town")
+      "city": regionValue,
       "address": _address.text.trim(),
 
       // optional
@@ -84,15 +292,15 @@ class _SignupScreenState extends ConsumerState<SignupScreen> {
     if (!mounted) return;
 
     if (ok) {
-  ScaffoldMessenger.of(context).showSnackBar(
-    const SnackBar(content: Text("Registration successful! Please login.")),
-  );
-  Navigator.pushReplacementNamed(context, '/home'); // ✅ changed
-} else {
-  ScaffoldMessenger.of(context).showSnackBar(
-    const SnackBar(content: Text("Registration failed!")),
-  );
-}
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text("Registration successful! Please login.")),
+      );
+      Navigator.pushReplacementNamed(context, '/home');
+    } else {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text("Registration failed!")),
+      );
+    }
   }
   @override
   void dispose() {
@@ -104,7 +312,8 @@ class _SignupScreenState extends ConsumerState<SignupScreen> {
     _password.dispose();
 
     _businessName.dispose();
-    _city.dispose();
+    _pincode.dispose();
+    _cityTown.dispose();
     _address.dispose();
     _state.dispose();
     super.dispose();
@@ -215,15 +424,21 @@ class _SignupScreenState extends ConsumerState<SignupScreen> {
                                   label: "Your Name",
                                   hintText: "John Doe",
                                   controller: _name,
-                                  validator: (v) => (v == null || v.trim().isEmpty)
-                                      ? "Enter your name"
-                                      : null,
+                                  keyboardType: TextInputType.name,
+                                  inputFormatters: [
+                                    FilteringTextInputFormatter.allow(
+                                      RegExp(r'[a-zA-Z ]'),
+                                    ),
+                                  ],
+                                  validator: _validateFullName,
                                 ),
                                 const SizedBox(height: 14),
                                 DiyaInput(
-                                  label: "Email (optional)",
+                                  label: "Email",
                                   hintText: "john@email.com",
                                   controller: _email,
+                                  keyboardType: TextInputType.emailAddress,
+                                  validator: _validateEmail,
                                 ),
                                 const SizedBox(height: 14),
                                 DiyaInput(
@@ -244,9 +459,7 @@ class _SignupScreenState extends ConsumerState<SignupScreen> {
                                   hintText: "••••••••",
                                   controller: _password,
                                   obscureText: true,
-                                  validator: (v) => (v == null || v.trim().isEmpty)
-                                      ? "Enter password"
-                                      : null,
+                                  validator: _validatePassword,
                                 ),
                                 const SizedBox(height: 22),
 
@@ -277,28 +490,56 @@ class _SignupScreenState extends ConsumerState<SignupScreen> {
                                       : null,
                                 ),
                                 const SizedBox(height: 14),
-                                DropdownButtonFormField<String>(
-                                  value: _selectedRegion,
-                                  decoration: const InputDecoration(
-                                    labelText: "Select Region",
-                                    border: OutlineInputBorder(),
-                                  ),
-                                  items: _regions
-                                      .map((r) => DropdownMenuItem<String>(
-                                            value: r,
-                                            child: Text(r),
-                                          ))
-                                      .toList(),
-                                  onChanged: (v) => setState(() => _selectedRegion = v),
-                                  validator: (v) => (v == null || v.trim().isEmpty)
-                                      ? "Select region"
-                                      : null,
+                                DiyaInput(
+                                  label: "Pincode",
+                                  hintText: "e.g. 500034",
+                                  controller: _pincode,
+                                  keyboardType: TextInputType.number,
+                                  inputFormatters: [
+                                    FilteringTextInputFormatter.digitsOnly,
+                                    LengthLimitingTextInputFormatter(6),
+                                  ],
+                                  validator: (v) {
+                                    final s = (v ?? _pincode.text).trim();
+                                    if (s.isEmpty) return 'Enter pincode';
+                                    if (!RegExp(r'^\d{6}$').hasMatch(s)) {
+                                      return 'Pincode must be 6 digits';
+                                    }
+                                    if (_pinError != null && _pinError!.isNotEmpty) {
+                                      return _pinError;
+                                    }
+                                    return null;
+                                  },
                                 ),
+                                if (_pinLoading) ...[
+                                  const SizedBox(height: 8),
+                                  const Align(
+                                    alignment: Alignment.centerLeft,
+                                    child: Text(
+                                      'Fetching location…',
+                                      style: TextStyle(
+                                        fontSize: 12,
+                                        fontWeight: FontWeight.w700,
+                                        color: Color(0xFF737373),
+                                      ),
+                                    ),
+                                  ),
+                                ],
                                 const SizedBox(height: 14),
                                 DiyaInput(
-                                  label: "City (optional)",
-                                  hintText: "Mumbai",
-                                  controller: _city,
+                                  label: "City / Town",
+                                  hintText: _postOfficeOptions.isEmpty
+                                      ? "Enter pincode to see suggestions"
+                                      : "Tap to select",
+                                  controller: _cityTown,
+                                  readOnly: true,
+                                  onTap: _openCityTownPicker,
+                                  validator: (_) {
+                                    if ((_selectedCityTown ?? '').trim().isEmpty) {
+                                      return 'Select a City / Town';
+                                    }
+                                    return null;
+                                  },
                                 ),
                                 const SizedBox(height: 14),
                                 DiyaInput(
@@ -314,9 +555,11 @@ class _SignupScreenState extends ConsumerState<SignupScreen> {
                                   label: "State",
                                   hintText: "Maharashtra",
                                   controller: _state,
-                                  validator: (v) => (v == null || v.trim().isEmpty)
-                                      ? "Enter state"
-                                      : null,
+                                  readOnly: true,
+                                  validator: (_) {
+                                    if (_state.text.trim().isEmpty) return "State will auto-fill";
+                                    return null;
+                                  },
                                 ),
 
                                 const SizedBox(height: 22),
