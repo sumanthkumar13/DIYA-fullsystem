@@ -305,6 +305,8 @@ public class AuthService {
                     .name(user.getName())
                     .role(user.getRole().name())
                     .authType("EMAIL")
+                    .email(user.getEmail())
+                    .phone(user.getPhone())
                     .build();
         }
 
@@ -359,6 +361,8 @@ public class AuthService {
                 .name(user.getName())
                 .role(user.getRole().name())
                 .authType("PHONE")
+                .email(user.getEmail())
+                .phone(user.getPhone())
                 .build();
     }
 

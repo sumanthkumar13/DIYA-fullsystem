@@ -1,22 +1,21 @@
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { ScrollArea } from "@/components/ui/scroll-area";
 import { useDashboardActivity } from "@/hooks/useDashboard";
 import { cn } from "@/lib/utils";
-import { AlertCircle, CheckCircle2, Clock, Package, TrendingUp, Users } from "lucide-react";
+import { AlertCircle, CheckCircle2, Clock, Package, Users } from "lucide-react";
 
 export default function ActivityPage() {
   const { data: activity, isLoading, isError } = useDashboardActivity();
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-6 pb-2">
       <div className="space-y-1">
         <h1 className="text-2xl font-display font-bold text-gray-900">Activity</h1>
         <p className="text-sm text-gray-500">All recent activity across orders, payments, and retailers.</p>
       </div>
 
-      <Card className="border-none shadow-sm bg-white flex flex-col max-h-[min(70vh,44rem)]">
-        <CardHeader className="border-b border-gray-100 pb-3 sticky top-0 bg-white z-10">
+      <Card className="border-none shadow-sm bg-white">
+        <CardHeader className="border-b border-gray-100 pb-3">
           <CardTitle className="text-base font-semibold flex items-center justify-between">
             Recent Activity
             <Badge variant="secondary" className="text-xs font-normal">
@@ -25,34 +24,32 @@ export default function ActivityPage() {
           </CardTitle>
         </CardHeader>
 
-        <CardContent className="p-0 flex flex-col flex-1 min-h-0">
-          <ScrollArea className="flex-1 min-h-0">
-            <div className="divide-y divide-gray-50">
-              {isLoading && (
-                <div className="p-6 text-center text-sm text-gray-500">Loading activity…</div>
-              )}
-              {isError && !isLoading && (
-                <div className="p-6 text-center text-sm text-red-600">
-                  Could not load activity. Please refresh and try again.
-                </div>
-              )}
-              {!isLoading && !isError && !activity?.length && (
-                <div className="p-6 text-center text-sm text-gray-500">No activity yet.</div>
-              )}
-              {!isLoading &&
-                !isError &&
-                activity?.map((item: any, index: number) => (
-                  <ActivityRow
-                    key={index}
-                    title={item.title}
-                    subtitle={item.subtitle}
-                    time={item.timeAgo}
-                    icon={resolveIcon(item.type)}
-                    iconBg={resolveColor(item.type)}
-                  />
-                ))}
-            </div>
-          </ScrollArea>
+        <CardContent className="p-0">
+          <div className="divide-y divide-gray-50">
+            {isLoading && (
+              <div className="p-6 text-center text-sm text-gray-500">Loading activity…</div>
+            )}
+            {isError && !isLoading && (
+              <div className="p-6 text-center text-sm text-red-600">
+                Could not load activity. Please refresh and try again.
+              </div>
+            )}
+            {!isLoading && !isError && !activity?.length && (
+              <div className="p-6 text-center text-sm text-gray-500">No activity yet.</div>
+            )}
+            {!isLoading &&
+              !isError &&
+              activity?.map((item: any, index: number) => (
+                <ActivityRow
+                  key={index}
+                  title={item.title}
+                  subtitle={item.subtitle}
+                  time={item.timeAgo}
+                  icon={resolveIcon(item.type)}
+                  iconBg={resolveColor(item.type)}
+                />
+              ))}
+          </div>
         </CardContent>
       </Card>
     </div>
@@ -67,9 +64,9 @@ function ActivityRow({ title, subtitle, time, icon: Icon, iconBg }: any) {
       </div>
       <div className="flex-1 min-w-0">
         <p className="text-sm font-medium text-gray-900">{title}</p>
-        <p className="text-xs text-gray-500 mt-0.5 truncate">{subtitle}</p>
+        <p className="text-xs text-gray-500 mt-0.5 break-words">{subtitle}</p>
       </div>
-      <span className="text-xs text-gray-400 whitespace-nowrap">{time}</span>
+      <span className="text-xs text-gray-400 whitespace-nowrap shrink-0">{time}</span>
     </div>
   );
 }
@@ -105,4 +102,3 @@ function resolveColor(type: string) {
       return "bg-gray-100 text-gray-600";
   }
 }
-

@@ -1,7 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import '../../providers/cart_provider.dart';
 import '../../widgets/catalogue/product_card.dart';
+import '../../widgets/catalogue/catalogue_go_to_cart_bar.dart';
+import '../../providers/cart_provider.dart';
 import 'catalogue_models.dart';
 
 class SubcategoryCatalogueScreen extends ConsumerWidget {
@@ -21,6 +22,8 @@ class SubcategoryCatalogueScreen extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final products = subcategory.products;
+    final cartCount = ref.watch(cartBadgeCountProvider);
+    final bottomInset = catalogueScrollBottomInset(cartCount);
 
     return Scaffold(
       backgroundColor: const Color(0xFFF5F5F5),
@@ -33,46 +36,37 @@ class SubcategoryCatalogueScreen extends ConsumerWidget {
         foregroundColor: const Color(0xFF171717),
         elevation: 0,
       ),
-      body: SafeArea(
-        child: products.isEmpty
-            ? const Center(
-                child: Padding(
-                  padding: EdgeInsets.all(24),
-                  child: Text(
-                    'No products found in this subcategory.',
-                    style: TextStyle(fontWeight: FontWeight.w700, color: Color(0xFF737373)),
-                    textAlign: TextAlign.center,
+      body: CatalogueGoToCartOverlay(
+        child: SafeArea(
+          child: products.isEmpty
+              ? const Center(
+                  child: Padding(
+                    padding: EdgeInsets.all(24),
+                    child: Text(
+                      'No products found in this subcategory.',
+                      style: TextStyle(fontWeight: FontWeight.w700, color: Color(0xFF737373)),
+                      textAlign: TextAlign.center,
+                    ),
+                  ),
+                )
+              : Padding(
+                  padding: EdgeInsets.fromLTRB(16, 16, 16, bottomInset),
+                  child: GridView.builder(
+                    itemCount: products.length,
+                    physics: const AlwaysScrollableScrollPhysics(),
+                    gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+                      crossAxisCount: 2,
+                      crossAxisSpacing: 12,
+                      mainAxisSpacing: 12,
+                      childAspectRatio: 0.62,
+                    ),
+                    itemBuilder: (context, i) {
+                      final p = products[i];
+                      return ProductCard(product: p);
+                    },
                   ),
                 ),
-              )
-            : Padding(
-                padding: const EdgeInsets.fromLTRB(16, 16, 16, 20),
-                child: GridView.builder(
-                  itemCount: products.length,
-                  physics: const AlwaysScrollableScrollPhysics(),
-                  shrinkWrap: false,
-                  gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-                    crossAxisCount: 2,
-                    crossAxisSpacing: 12,
-                    mainAxisSpacing: 12,
-                    // More height so ProductCard (image+texts+button) never overflows.
-                    childAspectRatio: 0.62,
-                  ),
-                  itemBuilder: (context, i) {
-                    final p = products[i];
-                    return ProductCard(
-                      product: p,
-                      onAdd: () async {
-                        await ref.read(cartProvider.notifier).addItem(p.id);
-                        if (!context.mounted) return;
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          SnackBar(content: Text('${p.name} added to cart')),
-                        );
-                      },
-                    );
-                  },
-                ),
-              ),
+        ),
       ),
     );
   }

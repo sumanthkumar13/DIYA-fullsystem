@@ -15,6 +15,8 @@ public class OrderListItemDTO {
     private String retailerId; // UUID string
     private String retailer;   // retailer.user.name
     private String location;   // "City, State" or address
+    /** Retailer territory label (region) used across dashboard filters. */
+    private String region;
     private BigDecimal amount; // totalAmount
     private String date;       // ISO datetime string
     private String createdAt;  // ISO datetime string (alias of placedAt for sorting)
@@ -23,4 +25,8 @@ public class OrderListItemDTO {
     private String exposure;   // placeholder: NORMAL / WARNING / CRITICAL
     private String dueDate;    // ISO datetime string (nullable)
     private BigDecimal unpaidAmount; // based on CONFIRMED payments
+    /** Sum of CONFIRMED payments (retailer list). */
+    private BigDecimal paidAmount;
+    /** UNPAID | PARTIAL | PAID — derived from totals vs confirmed payments. */
+    private String paymentStatus;
 }

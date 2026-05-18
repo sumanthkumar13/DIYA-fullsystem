@@ -1,9 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../providers/approved_wholesalers_provider.dart';
+import '../../providers/selected_wholesaler_provider.dart';
 import '../catalogue/wholesaler_catalogue_screen.dart';
-import '../../widgets/ui/diya_card.dart';
 import '../../widgets/ui/diya_button.dart';
+import '../../widgets/wholesalers/wholesaler_summary_card.dart';
+import '../../utils/wholesaler_display.dart';
 import 'package:flutter/foundation.dart';
 
 class ConnectedWholesalersScreen extends ConsumerStatefulWidget {
@@ -15,12 +17,25 @@ class ConnectedWholesalersScreen extends ConsumerStatefulWidget {
 }
 
 class _ConnectedWholesalersScreenState
-    extends ConsumerState<ConnectedWholesalersScreen> {
+    extends ConsumerState<ConnectedWholesalersScreen> with WidgetsBindingObserver {
   @override
   void initState() {
     super.initState();
-    // Always refetch when this screen opens (prevents stale cross-login state).
+    WidgetsBinding.instance.addObserver(this);
     Future.microtask(() => ref.read(approvedWholesalersProvider.notifier).load());
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      ref.read(approvedWholesalersProvider.notifier).load(silent: true);
+    }
   }
 
   @override
@@ -37,12 +52,12 @@ class _ConnectedWholesalersScreenState
           child: Container(
             padding: const EdgeInsets.fromLTRB(20, 20, 20, 18),
             child: const Text(
-              "Wholesalers",
+              "My Wholesalers",
               style: TextStyle(
-                fontSize: 28,
+                fontSize: 26,
                 fontWeight: FontWeight.w900,
                 color: Color(0xFF171717),
-                letterSpacing: -0.5,
+                letterSpacing: -0.4,
               ),
             ),
           ),
@@ -106,97 +121,39 @@ class _ConnectedWholesalersScreenState
             }
 
             return SliverPadding(
-              padding: const EdgeInsets.fromLTRB(20, 0, 20, 20),
+              padding: const EdgeInsets.fromLTRB(20, 4, 20, 24),
               sliver: SliverList(
                 delegate: SliverChildBuilderDelegate(
                   (context, index) {
                     final wholesaler = wholesalers[index];
                     return Padding(
-                      padding: EdgeInsets.only(bottom: index == wholesalers.length - 1 ? 0 : 12),
-                      child: DiyaCard(
-                        padding: const EdgeInsets.all(16),
-                        onTap: () {
+                      padding: EdgeInsets.only(bottom: index == wholesalers.length - 1 ? 0 : 14),
+                      child: WholesalerSummaryCard(
+                        wholesaler: wholesaler,
+                        onTap: () async {
                           if (!kReleaseMode) {
                             debugPrint(
-                              '🧭 [ConnectedWholesalersScreen] open catalogue wholesalerId=${wholesaler.wholesalerId} name=${wholesaler.wholesalerBusinessName}',
+                              '🧭 [ConnectedWholesalersScreen] open catalogue wholesalerId=${wholesaler.wholesalerId} name=${wholesaler.displayName}',
                             );
                           }
-                          Navigator.push(
+                          ref.read(selectedWholesalerIdProvider.notifier).state =
+                              wholesaler.wholesalerId;
+                          await Navigator.push(
                             context,
                             MaterialPageRoute(
                               builder: (_) => WholesalerCatalogueScreen(
                                 wholesalerId: wholesaler.wholesalerId,
-                                wholesalerName: wholesaler.wholesalerBusinessName,
+                                wholesalerName: wholesaler.displayName,
+                                profileImageUrl: wholesaler.profileImageUrl,
+                                profileImageCacheKey: wholesaler.profileImageCacheToken,
                               ),
                             ),
                           );
+                          if (!mounted) return;
+                          await ref
+                              .read(approvedWholesalersProvider.notifier)
+                              .load(silent: true);
                         },
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Row(
-                              children: [
-                                Container(
-                                  width: 48,
-                                  height: 48,
-                                  decoration: BoxDecoration(
-                                    color: const Color(0xFFFFE7D1),
-                                    borderRadius: BorderRadius.circular(12),
-                                  ),
-                                  child: const Icon(
-                                    Icons.store,
-                                    color: Color(0xFFFF7A00),
-                                    size: 24,
-                                  ),
-                                ),
-                                const SizedBox(width: 12),
-                                Expanded(
-                                  child: Column(
-                                    crossAxisAlignment: CrossAxisAlignment.start,
-                                    children: [
-                                      Text(
-                                        wholesaler.wholesalerBusinessName,
-                                        style: const TextStyle(
-                                          fontSize: 16,
-                                          fontWeight: FontWeight.w800,
-                                          color: Color(0xFF171717),
-                                        ),
-                                      ),
-                                      if (wholesaler.wholesalerCity.isNotEmpty) ...[
-                                        const SizedBox(height: 4),
-                                        Text(
-                                          wholesaler.wholesalerCity,
-                                          style: const TextStyle(
-                                            fontSize: 13,
-                                            color: Color(0xFF737373),
-                                          ),
-                                        ),
-                                      ],
-                                    ],
-                                  ),
-                                ),
-                              ],
-                            ),
-                            if (wholesaler.wholesalerHandle.isNotEmpty) ...[
-                              const SizedBox(height: 12),
-                              Container(
-                                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-                                decoration: BoxDecoration(
-                                  color: const Color(0xFFF5F5F5),
-                                  borderRadius: BorderRadius.circular(8),
-                                ),
-                                child: Text(
-                                  '@${wholesaler.wholesalerHandle}',
-                                  style: const TextStyle(
-                                    fontSize: 12,
-                                    fontWeight: FontWeight.w600,
-                                    color: Color(0xFF525252),
-                                  ),
-                                ),
-                              ),
-                            ],
-                          ],
-                        ),
                       ),
                     );
                   },

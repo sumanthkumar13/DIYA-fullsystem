@@ -1,21 +1,23 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../models/products/product_dto.dart';
+import '../../providers/cart_provider.dart';
 import '../ui/diya_button.dart';
 import '../ui/diya_card.dart';
+import 'cart_qty_control.dart';
 
-class ProductCard extends StatelessWidget {
+class ProductCard extends ConsumerWidget {
   final ProductResponseDTO product;
-  final VoidCallback onAdd;
 
   const ProductCard({
     super.key,
     required this.product,
-    required this.onAdd,
   });
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
     final imageUrl = (product.imageUrl ?? '').trim();
+    final qty = ref.watch(cartQuantityProvider(product.id));
 
     return DiyaCard(
       padding: const EdgeInsets.all(10),
@@ -23,7 +25,7 @@ class ProductCard extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           AspectRatio(
-            aspectRatio: 1, // square image area, responsive
+            aspectRatio: 1,
             child: Container(
               width: double.infinity,
               decoration: BoxDecoration(
@@ -81,16 +83,23 @@ class ProductCard extends StatelessWidget {
             ),
           ),
           const Spacer(),
-          DiyaButton(
-            text: 'Add',
-            onPressed: onAdd,
-            variant: DiyaButtonVariant.secondary,
-            size: DiyaButtonSize.sm,
-            fullWidth: true,
-          ),
+          if (qty > 0)
+            CartQtyControl(
+              quantity: qty,
+              compact: true,
+              onDecrement: () => ref.read(cartProvider.notifier).setQuantity(product.id, qty - 1),
+              onIncrement: () => ref.read(cartProvider.notifier).setQuantity(product.id, qty + 1),
+            )
+          else
+            DiyaButton(
+              text: 'Add',
+              onPressed: () => ref.read(cartProvider.notifier).addItem(product.id),
+              variant: DiyaButtonVariant.secondary,
+              size: DiyaButtonSize.sm,
+              fullWidth: true,
+            ),
         ],
       ),
     );
   }
 }
-

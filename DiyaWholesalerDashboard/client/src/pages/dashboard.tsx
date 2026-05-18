@@ -1,8 +1,6 @@
+import { useQueryClient } from "@tanstack/react-query";
 import { useEffect, useMemo, useState, type ReactNode } from "react";
-import { Link } from "wouter";
-import { Switch } from "@/components/ui/switch";
-import { useToast } from "@/hooks/use-toast";
-import { useWholesalerVisibility } from "@/hooks/useWholesalerVisibility";
+import { Link, useLocation } from "wouter";
 import { AddPaymentModal } from "@/components/payments/AddPaymentModal";
 import { AddRetailerModal } from "@/components/retailers/AddRetailerModal";
 import { CreateOrderModal } from "@/components/orders/CreateOrderModal";
@@ -16,7 +14,9 @@ import {
   MapPin,
   TrendingUp,
   Users,
-  Loader2
+  Loader2,
+  ReceiptIndianRupee,
+  Info,
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -28,11 +28,17 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 import { formatINR } from "@/lib/money";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import {
-  useDashboardKpi,
+  useKpiWidget,
   useDashboardActivity,
   useTerritoryPerformance,
 } from "@/hooks/useDashboard";
@@ -40,17 +46,26 @@ import { useRetailerRegions } from "@/hooks/useRetailerRegions";
 import type { TerritoryPerformanceRow } from "@/services/analytics";
 import { useAuth } from "@/context/AuthContext";
 import { getGreeting, getUserDisplayName } from "@/lib/greeting";
+import { KPI_PERIOD_OPTIONS, buildSalesHref, type KpiTimePeriod } from "@/lib/kpiPeriod";
 
 export default function Dashboard() {
+  const queryClient = useQueryClient();
   const [addPaymentOpen, setAddPaymentOpen] = useState(false);
   const [addRetailerOpen, setAddRetailerOpen] = useState(false);
   const [createOrderOpen, setCreateOrderOpen] = useState(false);
   const [kpiRegion, setKpiRegion] = useState<string>("all");
-  const { data: kpi } = useDashboardKpi(kpiRegion);
+  const [pNewOrders, setPNewOrders] = useState<KpiTimePeriod>("TODAY");
+  const [pPayments, setPPayments] = useState<KpiTimePeriod>("TODAY");
+  const [pPending, setPPending] = useState<KpiTimePeriod>("TODAY");
+  const [pSales, setPSales] = useState<KpiTimePeriod>("TODAY");
+
+  const newOrdersQ = useKpiWidget("NEW_ORDERS", pNewOrders, kpiRegion);
+  const paymentsQ = useKpiWidget("PAYMENTS", pPayments, kpiRegion);
+  const pendingQ = useKpiWidget("PENDING_ORDERS", pPending, kpiRegion);
+  const salesQ = useKpiWidget("SALES", pSales, kpiRegion);
   const { data: regions = [], isLoading: regionsLoading } = useRetailerRegions();
-  const [territorySort, setTerritorySort] = useState<"revenue" | "risk">("revenue");
   const { data: territoryRows, isLoading: territoryLoading, isError: territoryError } =
-    useTerritoryPerformance(territorySort);
+    useTerritoryPerformance();
   const { data: activity } = useDashboardActivity();
 
   const visibleTerritoryRows = useMemo(() => {
@@ -70,40 +85,10 @@ export default function Dashboard() {
       setKpiRegion("all");
     }
   }, [kpiRegion, regions, regionsLoading]);
-  const { toast } = useToast();
-  const { mode, loading: visibilityLoading, saving, setVisibility } = useWholesalerVisibility();
   const { user } = useAuth();
 
   const greeting = getGreeting();
   const userName = getUserDisplayName(user);
-
-  const newOrdersTrend = useMemo(
-    () => computeTrend(kpi?.newOrdersToday ?? 0, kpi?.newOrdersYesterday ?? 0),
-    [kpi?.newOrdersToday, kpi?.newOrdersYesterday],
-  );
-
-  const paymentsTrend = useMemo(
-    () =>
-      computeTrend(
-        Number(kpi?.paymentsReceivedToday ?? 0),
-        Number(kpi?.paymentsReceivedYesterday ?? 0),
-      ),
-    [kpi?.paymentsReceivedToday, kpi?.paymentsReceivedYesterday],
-  );
-
-  const pendingTrend = useMemo(
-    () => computeTrend(kpi?.pendingOrders ?? 0, kpi?.pendingOrdersYesterday ?? 0),
-    [kpi?.pendingOrders, kpi?.pendingOrdersYesterday],
-  );
-
-  const outstandingTrend = useMemo(
-    () =>
-      computeTrend(
-        Number(kpi?.totalOutstanding ?? 0),
-        Number(kpi?.totalOutstandingYesterday ?? 0),
-      ),
-    [kpi?.totalOutstanding, kpi?.totalOutstandingYesterday],
-  );
 
   return (
     <div className="space-y-6">
@@ -137,37 +122,49 @@ export default function Dashboard() {
       {/* KPI Grid */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
         <KpiCard
-          title="New Orders Today"
-          value={kpi?.newOrdersToday ?? 0}
-          trend={newOrdersTrend}
+          title="New orders"
+          value={
+            newOrdersQ.isLoading ? "—" : Math.round(Number(newOrdersQ.data?.value ?? 0)).toLocaleString("en-IN")
+          }
           icon={Package}
           color="text-blue-600"
           bg="bg-blue-50"
+          period={pNewOrders}
+          onPeriodChange={setPNewOrders}
+          isWidgetLoading={newOrdersQ.isFetching}
         />
         <KpiCard
-          title="Payments Received"
-          value={formatINR(kpi?.paymentsReceivedToday ?? 0)}
-          trend={paymentsTrend}
+          title="Payments"
+          value={paymentsQ.isLoading ? "—" : formatINR(paymentsQ.data?.value ?? 0)}
           icon={CheckCircle2}
           color="text-green-600"
           bg="bg-green-50"
+          period={pPayments}
+          onPeriodChange={setPPayments}
+          isWidgetLoading={paymentsQ.isFetching}
         />
         <KpiCard
-          title="Pending Orders"
-          value={kpi?.pendingOrders ?? 0}
-          trend={pendingTrend}
+          title="Pending"
+          value={
+            pendingQ.isLoading ? "—" : Math.round(Number(pendingQ.data?.value ?? 0)).toLocaleString("en-IN")
+          }
           icon={Clock}
           color="text-orange-600"
           bg="bg-orange-50"
+          period={pPending}
+          onPeriodChange={setPPending}
+          isWidgetLoading={pendingQ.isFetching}
         />
         <KpiCard
-          title="Total Outstanding"
-          value={formatINR(kpi?.totalOutstanding ?? 0)}
-          trend={outstandingTrend}
-          icon={AlertCircle}
-          color="text-red-600"
-          bg="bg-red-50"
-          isNegative={true}
+          title="Sales"
+          value={salesQ.isLoading ? "—" : formatINR(salesQ.data?.value ?? 0)}
+          icon={ReceiptIndianRupee}
+          color="text-emerald-600"
+          bg="bg-emerald-50"
+          href={buildSalesHref(kpiRegion, pSales)}
+          period={pSales}
+          onPeriodChange={setPSales}
+          isWidgetLoading={salesQ.isFetching}
         />
       </div>
 
@@ -194,32 +191,10 @@ export default function Dashboard() {
               </div>
             </CardHeader>
             <CardContent className="p-0 flex flex-col min-h-0 flex-1">
-              <div className="px-6 pt-4 pb-3 shrink-0 border-b border-gray-50 space-y-3">
-                <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
-                  <p className="text-sm text-gray-500">
-                    Regions where you have retailers (not affected by the KPI filter above).
-                  </p>
-                  <div className="flex rounded-lg border border-gray-200 bg-gray-50 p-0.5 w-full sm:w-auto shrink-0">
-                    <Button
-                      type="button"
-                      variant={territorySort === "revenue" ? "secondary" : "ghost"}
-                      size="sm"
-                      className="flex-1 sm:flex-none h-8 text-xs"
-                      onClick={() => setTerritorySort("revenue")}
-                    >
-                      By revenue
-                    </Button>
-                    <Button
-                      type="button"
-                      variant={territorySort === "risk" ? "secondary" : "ghost"}
-                      size="sm"
-                      className="flex-1 sm:flex-none h-8 text-xs"
-                      onClick={() => setTerritorySort("risk")}
-                    >
-                      By risk
-                    </Button>
-                  </div>
-                </div>
+              <div className="px-6 pt-4 pb-3 shrink-0 border-b border-gray-50">
+                <p className="text-sm text-gray-500">
+                  Regions where you have retailers (not affected by the KPI filter above). Sorted by revenue.
+                </p>
               </div>
               <div className="px-6 py-4 overflow-y-auto min-h-0 flex-1 overscroll-contain">
                 {territoryLoading && (
@@ -265,58 +240,6 @@ export default function Dashboard() {
               </div>
             </CardContent>
           </Card>
-          <Card className="border-none shadow-sm bg-white">
-  <CardHeader className="pb-2">
-    <CardTitle className="text-base font-semibold flex items-center justify-between">
-      Retailer Access
-      <Badge variant={mode === "PUBLIC" ? "secondary" : "destructive"}>
-        {mode}
-      </Badge>
-    </CardTitle>
-  </CardHeader>
-
-  <CardContent className="space-y-3">
-    <p className="text-sm text-gray-500">
-      Control who can connect to your business.
-    </p>
-
-    <div className="flex items-center justify-between p-3 rounded-xl border border-gray-100 bg-gray-50">
-      <div>
-        <p className="font-medium text-gray-900">Private Mode</p>
-        <p className="text-xs text-gray-500">
-          Retailers must request approval before ordering.
-        </p>
-      </div>
-
-      <Switch
-        checked={mode === "PRIVATE"}
-        disabled={visibilityLoading || saving}
-        onCheckedChange={async (checked) => {
-          const newMode = checked ? "PRIVATE" : "PUBLIC";
-          try {
-            await setVisibility(newMode);
-            toast({
-              title: "Updated",
-              description: `Visibility changed to ${newMode}`,
-            });
-          } catch (e: any) {
-            toast({
-              title: "Failed",
-              description: e?.response?.data?.message || "Could not update visibility mode",
-              variant: "destructive",
-            });
-          }
-        }}
-      />
-    </div>
-
-    <div className="text-xs text-gray-400">
-      {mode === "PUBLIC"
-        ? "Public: connection requests auto-approved."
-        : "Private: you must approve connection requests."}
-    </div>
-  </CardContent>
-</Card>
 
 
           {/* Quick Actions */}
@@ -395,7 +318,15 @@ export default function Dashboard() {
 
       <AddPaymentModal open={addPaymentOpen} onClose={() => setAddPaymentOpen(false)} />
       <CreateOrderModal open={createOrderOpen} onClose={() => setCreateOrderOpen(false)} />
-      <AddRetailerModal open={addRetailerOpen} onClose={() => setAddRetailerOpen(false)} />
+      <AddRetailerModal
+        open={addRetailerOpen}
+        onClose={() => setAddRetailerOpen(false)}
+        onCreated={() => {
+          queryClient.invalidateQueries({ queryKey: ["dashboard-kpi"] });
+          queryClient.invalidateQueries({ queryKey: ["dashboard-kpi-widget"] });
+          queryClient.invalidateQueries({ queryKey: ["dashboard-territory"] });
+        }}
+      />
     </div>
   );
 }
@@ -441,7 +372,28 @@ function TerritoryRegionCard({ row }: { row: TerritoryPerformanceRow }) {
             <span className="font-semibold text-red-600">{formatTerritoryRupee(row.overdue)}</span>
           </div>
           <div className="flex justify-between gap-2 pt-1 border-t border-gray-100">
-            <span className="text-gray-500">Active retailers</span>
+            <span className="text-gray-500 inline-flex items-center gap-1">
+              Active retailers
+              <TooltipProvider delayDuration={200}>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <button
+                      type="button"
+                      className="inline-flex rounded-full p-0.5 text-gray-400 hover:text-gray-600 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary/40"
+                      aria-label="How active retailers are counted"
+                    >
+                      <Info className="h-3.5 w-3.5" aria-hidden />
+                    </button>
+                  </TooltipTrigger>
+                  <TooltipContent
+                    side="top"
+                    className="max-w-[240px] bg-gray-900 text-white border-0 text-xs leading-snug"
+                  >
+                    Retailers who placed at least one order in the last 7 days are considered active.
+                  </TooltipContent>
+                </Tooltip>
+              </TooltipProvider>
+            </span>
             <span className="font-medium text-gray-900">
               {row.activeRetailers} / {row.totalRetailers}
             </span>
@@ -452,90 +404,95 @@ function TerritoryRegionCard({ row }: { row: TerritoryPerformanceRow }) {
   );
 }
 
-type TrendStatus = "up" | "down" | "neutral";
-type Trend = { status: TrendStatus; label: string };
-
 function KpiCard({
   title,
   value,
-  trend,
   icon: Icon,
   color,
   bg,
-  isNegative,
+  href,
+  period,
+  onPeriodChange,
+  isWidgetLoading,
 }: {
   title: string;
   value: ReactNode;
-  trend: Trend;
   icon: any;
   color: string;
   bg: string;
-  isNegative?: boolean;
+  href?: string;
+  period?: KpiTimePeriod;
+  onPeriodChange?: (p: KpiTimePeriod) => void;
+  isWidgetLoading?: boolean;
 }) {
-  const isGood =
-    trend.status === "neutral"
-      ? null
-      : isNegative
-        ? trend.status === "down"
-        : trend.status === "up";
+  const [, setLocation] = useLocation();
 
-  const pillClass =
-    trend.status === "neutral"
-      ? "bg-gray-100 text-gray-700"
-      : isGood
-        ? "bg-green-100 text-green-700"
-        : "bg-red-100 text-red-700";
+  const handleCardNavigate = () => {
+    if (href) setLocation(href);
+  };
 
-  const TrendIcon =
-    trend.status === "neutral" ? null : (
-      <TrendingUp className={cn("h-3 w-3", trend.status === "down" && "rotate-180")} />
-    );
-
-  return (
-    <Card className="border-none shadow-sm hover:shadow-md transition-all duration-200 hover:-translate-y-1 cursor-pointer group bg-white">
+  const card = (
+    <Card
+      className={cn(
+        "border-none shadow-sm hover:shadow-md transition-all duration-200 group bg-white",
+        href && "cursor-pointer hover:-translate-y-1",
+        isWidgetLoading && "opacity-80",
+      )}
+      onClick={href ? handleCardNavigate : undefined}
+      tabIndex={href ? 0 : undefined}
+      role={href ? "link" : undefined}
+      aria-label={href ? `Open sales details` : undefined}
+      onKeyDown={
+        href
+          ? (e) => {
+              if (e.key === "Enter" || e.key === " ") {
+                e.preventDefault();
+                handleCardNavigate();
+              }
+            }
+          : undefined
+      }
+    >
       <CardContent className="p-5">
-        <div className="flex items-start justify-between">
-          <div>
-            <p className="text-sm font-medium text-gray-500 mb-1">{title}</p>
-            <h3 className="text-2xl font-bold text-gray-900 font-display">{value}</h3>
+        <div className="flex items-start justify-between gap-2 mb-3">
+          <p className="text-sm font-medium text-gray-500 leading-snug min-w-0 flex-1">{title}</p>
+          {period != null && onPeriodChange != null ? (
+            <div
+              className="shrink-0"
+              onClick={(e) => e.stopPropagation()}
+              onPointerDown={(e) => e.stopPropagation()}
+            >
+              <Select value={period} onValueChange={(v) => onPeriodChange(v as KpiTimePeriod)}>
+                <SelectTrigger
+                  aria-label={`${title} time range`}
+                  className="h-7 w-[118px] text-xs border-gray-200/90 bg-white shadow-sm px-2 py-0 gap-1"
+                >
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent align="end" className="min-w-[9rem]">
+                  {KPI_PERIOD_OPTIONS.map((o) => (
+                    <SelectItem key={o.value} value={o.value} className="text-xs">
+                      {o.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          ) : null}
+        </div>
+        <div className="flex items-start justify-between gap-2">
+          <div className="min-w-0">
+            <h3 className="text-2xl font-bold text-gray-900 font-display tabular-nums tracking-tight">{value}</h3>
           </div>
-          <div className={cn("p-2 rounded-lg transition-colors", bg)}>
+          <div className={cn("p-2 rounded-lg transition-colors shrink-0", bg)}>
             <Icon className={cn("h-5 w-5", color)} />
           </div>
-        </div>
-        <div className="mt-3 flex items-center gap-2">
-          <span
-            className={cn(
-              "text-xs font-medium px-1.5 py-0.5 rounded flex items-center gap-0.5",
-              pillClass,
-            )}
-          >
-            {TrendIcon}
-            {trend.label}
-          </span>
-          <span className="text-xs text-gray-400">vs yesterday</span>
         </div>
       </CardContent>
     </Card>
   );
-}
 
-function computeTrend(today: number, yesterday: number): Trend {
-  const t = Number.isFinite(today) ? today : 0;
-  const y = Number.isFinite(yesterday) ? yesterday : 0;
-
-  if (y === 0) {
-    if (t === 0) return { status: "neutral", label: "0%" };
-    return { status: "neutral", label: "No previous data" };
-  }
-
-  const pct = ((t - y) / y) * 100;
-  if (!Number.isFinite(pct)) return { status: "neutral", label: "—" };
-
-  const rounded = Math.round(pct);
-  if (rounded === 0) return { status: "neutral", label: "0%" };
-  if (rounded > 0) return { status: "up", label: `+${rounded}%` };
-  return { status: "down", label: `${rounded}%` };
+  return card;
 }
 
 function ActivityItem({ title, subtitle, time, icon: Icon, iconBg }: any) {

@@ -443,7 +443,7 @@ class _SignupScreenState extends ConsumerState<SignupScreen> {
                                 const SizedBox(height: 14),
                                 DiyaInput(
                                   label: "Mobile Number",
-                                  hintText: "9876543210",
+                                  hintText: "eg : 9876543210",
                                   controller: _phone,
                                   keyboardType: TextInputType.phone,
                                   style: const TextStyle(fontSize: 18, letterSpacing: 2),
@@ -458,7 +458,7 @@ class _SignupScreenState extends ConsumerState<SignupScreen> {
                                   label: "Password",
                                   hintText: "••••••••",
                                   controller: _password,
-                                  obscureText: true,
+                                  obscurable: true,
                                   validator: _validatePassword,
                                 ),
                                 const SizedBox(height: 22),

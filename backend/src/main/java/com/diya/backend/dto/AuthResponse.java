@@ -13,6 +13,8 @@ public class AuthResponse {
     private String name;
     private String role;
     private String authType; // EMAIL or PHONE
+    private String email;
+    private String phone;
     private UUID wholesalerId;
     private UUID retailerId;
 

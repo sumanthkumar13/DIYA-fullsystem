@@ -1,23 +1,28 @@
-import { AlertCircle, CalendarDays, Package, ReceiptIndianRupee, Truck, Users } from "lucide-react";
+import { useCallback, useEffect, useState, type ReactNode } from "react";
+import { AlertCircle, ClipboardList, LineChart, Package, TrendingUp, Users } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { Skeleton } from "@/components/ui/skeleton";
-import { Empty, EmptyContent, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from "@/components/ui/empty";
 import {
-  useAnalyticsMonthlySales,
-  useAnalyticsOrderStatus,
-  useAnalyticsPendingPayments,
   useAnalyticsSlowProducts,
-  useAnalyticsSummary,
   useAnalyticsTopProducts,
   useAnalyticsTopRetailers,
+  useMonthlyRetailerBreakdown,
+  useOrdersByRegion,
+  useSalesTrend,
 } from "@/hooks/useAnalytics";
+import { useRetailerRegions } from "@/hooks/useRetailerRegions";
+import { useCardRegionGuard } from "@/hooks/useCardRegionGuard";
+import { SalesTrendChart } from "@/components/analytics/SalesTrendChart";
+import { MonthRetailerBreakdown } from "@/components/analytics/MonthRetailerBreakdown";
+import { RankedBarChart } from "@/components/analytics/RankedBarChart";
+import { RegionOrdersBarChart } from "@/components/analytics/RegionOrdersBarChart";
+import { AnalyticsCardFilters } from "@/components/analytics/AnalyticsCardFilters";
+import { CHART_COLORS } from "@/lib/analyticsChart";
+import { periodLabel } from "@/lib/analyticsPeriodLabel";
 import { formatINR } from "@/lib/money";
-
-function formatMonthLabel(year: number, month: number) {
-  const d = new Date(year, month - 1, 1);
-  return d.toLocaleString("en-IN", { month: "short", year: "numeric" });
-}
+import type { KpiTimePeriod } from "@/lib/kpiPeriod";
+import type { SalesTrendGranularity, SalesTrendPoint } from "@/services/analytics";
 
 function formatDateTime(value: string | null | undefined) {
   if (!value) return "—";
@@ -26,346 +31,373 @@ function formatDateTime(value: string | null | undefined) {
   return d.toLocaleString("en-IN", { day: "2-digit", month: "short", year: "numeric" });
 }
 
-export default function Analytics() {
-  const summaryQ = useAnalyticsSummary();
-  const topProductsQ = useAnalyticsTopProducts(10);
-  const slowProductsQ = useAnalyticsSlowProducts(30, 10);
-  const topRetailersQ = useAnalyticsTopRetailers(10);
-  const pendingPaymentsQ = useAnalyticsPendingPayments(10);
-  const monthlySalesQ = useAnalyticsMonthlySales();
-  const orderStatusQ = useAnalyticsOrderStatus();
+const DEFAULT_PERIOD: KpiTimePeriod = "THIS_MONTH";
 
-  const anyError =
-    summaryQ.isError ||
-    topProductsQ.isError ||
-    slowProductsQ.isError ||
-    topRetailersQ.isError ||
-    pendingPaymentsQ.isError ||
-    monthlySalesQ.isError ||
-    orderStatusQ.isError;
+export default function Analytics() {
+  const { data: regions = [], isLoading: regionsLoading } = useRetailerRegions();
+
+  const [trendRegion, setTrendRegion] = useState("all");
+  const [granularity, setGranularity] = useState<SalesTrendGranularity>("MONTHLY");
+  const [selectedMonth, setSelectedMonth] = useState<{ year: number; month: number; key: string } | null>(null);
+  const [drilldownPage, setDrilldownPage] = useState(0);
+  const [drilldownRegion, setDrilldownRegion] = useState("all");
+
+  const [productsRegion, setProductsRegion] = useState("all");
+  const [productsPeriod, setProductsPeriod] = useState<KpiTimePeriod>(DEFAULT_PERIOD);
+
+  const [slowRegion, setSlowRegion] = useState("all");
+  const [slowPeriod, setSlowPeriod] = useState<KpiTimePeriod>(DEFAULT_PERIOD);
+
+  const [retailersRegion, setRetailersRegion] = useState("all");
+  const [retailersPeriod, setRetailersPeriod] = useState<KpiTimePeriod>(DEFAULT_PERIOD);
+
+  const [ordersPeriod, setOrdersPeriod] = useState<KpiTimePeriod>(DEFAULT_PERIOD);
+
+  useCardRegionGuard(trendRegion, regions, regionsLoading, setTrendRegion);
+  useCardRegionGuard(productsRegion, regions, regionsLoading, setProductsRegion);
+  useCardRegionGuard(slowRegion, regions, regionsLoading, setSlowRegion);
+  useCardRegionGuard(retailersRegion, regions, regionsLoading, setRetailersRegion);
+  useCardRegionGuard(drilldownRegion, regions, regionsLoading, setDrilldownRegion);
+
+  const trendQ = useSalesTrend(granularity, trendRegion, DEFAULT_PERIOD);
+  const topProductsQ = useAnalyticsTopProducts(8, productsRegion, productsPeriod);
+  const slowProductsQ = useAnalyticsSlowProducts(30, 8, slowRegion, slowPeriod);
+  const topRetailersQ = useAnalyticsTopRetailers(8, retailersRegion, retailersPeriod);
+  const ordersByRegionQ = useOrdersByRegion(ordersPeriod);
+
+  const drilldownQ = useMonthlyRetailerBreakdown(
+    selectedMonth?.year ?? null,
+    selectedMonth?.month ?? null,
+    drilldownRegion,
+    drilldownPage,
+  );
+
+  useEffect(() => {
+    setSelectedMonth(null);
+  }, [trendRegion]);
+
+  useEffect(() => {
+    setDrilldownPage(0);
+  }, [drilldownRegion]);
+
+  const handleSelectMonth = useCallback((point: SalesTrendPoint) => {
+    setSelectedMonth({ year: point.year, month: point.month, key: point.key });
+    setDrilldownPage(0);
+  }, []);
+
+  const handleGranularityChange = (g: SalesTrendGranularity) => {
+    setGranularity(g);
+    if (g !== "MONTHLY") setSelectedMonth(null);
+  };
+
+  const productRows = (topProductsQ.data ?? []).map((r) => ({
+    id: r.productId,
+    label: r.productName,
+    value: r.totalRevenue ?? 0,
+    sublabel: `${(r.totalQuantitySold ?? 0).toLocaleString("en-IN")} units`,
+  }));
+
+  const retailerRows = (topRetailersQ.data ?? []).map((r) => {
+    const orders = r.totalOrders ?? 0;
+    const revenue = r.totalRevenue ?? 0;
+    return {
+      id: r.retailerId,
+      label: r.retailerName,
+      value: revenue,
+      sublabel: `${orders.toLocaleString("en-IN")} orders`,
+      detailLines: [
+        `Total orders: ${orders.toLocaleString("en-IN")} (accepted in period)`,
+        `Total revenue: ${formatINR(revenue)}`,
+        `Outstanding due: ${formatINR(r.outstandingDue ?? 0)}`,
+        `Avg order value: ${formatINR(r.averageOrderValue ?? 0)}`,
+      ],
+    };
+  });
 
   return (
-    <div className="space-y-6">
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-        <div>
-          <h1 className="text-2xl font-display font-bold text-gray-900">Analytics</h1>
-          <p className="text-sm text-gray-500">Sales, retailers, dues, and inventory at a glance.</p>
-        </div>
+    <div className="space-y-6 pb-6">
+      <div>
+        <h1 className="text-2xl font-display font-bold text-gray-900 flex items-center gap-2">
+          <TrendingUp className="h-7 w-7 text-primary" />
+          Business Insights
+        </h1>
+        <p className="text-sm text-gray-500 mt-1 max-w-xl">
+          Each chart has its own region and date filters so you can compare different views side by side.
+        </p>
       </div>
 
-      {anyError ? (
-        <div className="text-sm text-red-600">Some analytics data failed to load. You can still view what is available.</div>
+      <InsightCard
+        title="Sales trend"
+        icon={<LineChart className="h-4 w-4 text-primary" />}
+        filters={
+          <div className="flex flex-row flex-wrap items-center gap-2 justify-end w-full">
+            <AnalyticsCardFilters
+              region={trendRegion}
+              period={DEFAULT_PERIOD}
+              regions={regions}
+              regionsLoading={regionsLoading}
+              onRegionChange={setTrendRegion}
+              onPeriodChange={() => {}}
+              showPeriod={false}
+              className="w-auto"
+            />
+            <Tabs
+              value={granularity}
+              onValueChange={(v) => handleGranularityChange(v as SalesTrendGranularity)}
+            >
+              <TabsList className="grid w-full grid-cols-3 h-9 sm:w-auto">
+                <TabsTrigger value="DAILY" className="text-xs sm:text-sm">
+                  Daily
+                </TabsTrigger>
+                <TabsTrigger value="WEEKLY" className="text-xs sm:text-sm">
+                  Weekly
+                </TabsTrigger>
+                <TabsTrigger value="MONTHLY" className="text-xs sm:text-sm">
+                  Monthly
+                </TabsTrigger>
+              </TabsList>
+            </Tabs>
+          </div>
+        }
+      >
+        <SalesTrendChart
+          data={trendQ.data}
+          granularity={granularity}
+          isLoading={trendQ.isLoading}
+          isError={trendQ.isError}
+          onRetry={() => trendQ.refetch()}
+          selectedMonthKey={selectedMonth?.key ?? null}
+          onSelectMonth={granularity === "MONTHLY" ? handleSelectMonth : undefined}
+        />
+      </InsightCard>
+
+      {selectedMonth && granularity === "MONTHLY" ? (
+        <Card className="border-none shadow-sm bg-white">
+          <CardHeader className="pb-3 border-b border-gray-100">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+              <CardTitle className="text-base font-semibold text-gray-900">Retailer split</CardTitle>
+              <AnalyticsCardFilters
+                region={drilldownRegion}
+                period={DEFAULT_PERIOD}
+                regions={regions}
+                regionsLoading={regionsLoading}
+                onRegionChange={setDrilldownRegion}
+                onPeriodChange={() => {}}
+                showPeriod={false}
+              />
+            </div>
+          </CardHeader>
+          <CardContent className="p-4 pt-3">
+            <MonthRetailerBreakdown
+              year={selectedMonth.year}
+              month={selectedMonth.month}
+              monthLabel={drilldownQ.data?.monthLabel ?? ""}
+              data={drilldownQ.data}
+              isLoading={drilldownQ.isLoading}
+              isError={drilldownQ.isError}
+              page={drilldownPage}
+              onPageChange={setDrilldownPage}
+              onClose={() => setSelectedMonth(null)}
+              onRetry={() => drilldownQ.refetch()}
+            />
+          </CardContent>
+        </Card>
       ) : null}
 
-      {/* Section 1 — Summary Cards */}
-      <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
-        <Card className="border-none shadow-sm bg-white">
-          <CardContent className="p-5">
-            <p className="text-sm font-medium text-gray-500">Today Sales</p>
-            {summaryQ.isLoading ? (
-              <Skeleton className="mt-2 h-8 w-32" />
-            ) : (
-              <div className="mt-2 text-2xl font-bold text-gray-900 font-display">
-                {formatINR(summaryQ.data?.todaySales)}
-              </div>
-            )}
-          </CardContent>
-        </Card>
-        <Card className="border-none shadow-sm bg-white">
-          <CardContent className="p-5">
-            <p className="text-sm font-medium text-gray-500">Month Sales</p>
-            {summaryQ.isLoading ? (
-              <Skeleton className="mt-2 h-8 w-32" />
-            ) : (
-              <div className="mt-2 text-2xl font-bold text-gray-900 font-display">
-                {formatINR(summaryQ.data?.monthSales)}
-              </div>
-            )}
-          </CardContent>
-        </Card>
-        <Card className="border-none shadow-sm bg-white">
-          <CardContent className="p-5">
-            <p className="text-sm font-medium text-gray-500">Outstanding Payments</p>
-            {summaryQ.isLoading ? (
-              <Skeleton className="mt-2 h-8 w-32" />
-            ) : (
-              <div className="mt-2 text-2xl font-bold text-red-700 font-display">
-                {formatINR(summaryQ.data?.outstandingPayments)}
-              </div>
-            )}
-          </CardContent>
-        </Card>
-        <Card className="border-none shadow-sm bg-white">
-          <CardContent className="p-5">
-            <p className="text-sm font-medium text-gray-500">Orders This Month</p>
-            {summaryQ.isLoading ? (
-              <Skeleton className="mt-2 h-8 w-24" />
-            ) : (
-              <div className="mt-2 text-2xl font-bold text-gray-900 font-display">
-                {(summaryQ.data?.ordersThisMonth ?? 0).toLocaleString("en-IN")} Orders
-              </div>
-            )}
-          </CardContent>
-        </Card>
-        <Card className="border-none shadow-sm bg-white">
-          <CardContent className="p-5">
-            <p className="text-sm font-medium text-gray-500">Average Order Value</p>
-            {summaryQ.isLoading ? (
-              <Skeleton className="mt-2 h-8 w-32" />
-            ) : (
-              <div className="mt-2 text-2xl font-bold text-gray-900 font-display">
-                {formatINR(summaryQ.data?.averageOrderValue)}
-              </div>
-            )}
-          </CardContent>
-        </Card>
-      </div>
-
-      {/* Section 2 — Sales Intelligence */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        <Card className="border-none shadow-sm bg-white">
-          <CardHeader className="pb-3 border-b border-gray-100">
-            <CardTitle className="text-base font-semibold flex items-center gap-2">
-              <ReceiptIndianRupee className="h-4 w-4 text-primary" />
-              Top Selling Products (This Month)
-            </CardTitle>
-          </CardHeader>
-          <CardContent className="p-0">
-            {topProductsQ.isLoading ? (
-              <div className="p-6 space-y-3">
-                <Skeleton className="h-6 w-full" />
-                <Skeleton className="h-6 w-full" />
-                <Skeleton className="h-6 w-full" />
-              </div>
-            ) : (topProductsQ.data?.length ?? 0) === 0 ? (
-              <Empty className="m-6">
-                <EmptyHeader>
-                  <EmptyMedia variant="icon">
-                    <Package />
-                  </EmptyMedia>
-                  <EmptyTitle>No product sales yet</EmptyTitle>
-                  <EmptyDescription>Once orders start coming in, your top products will appear here.</EmptyDescription>
-                </EmptyHeader>
-              </Empty>
-            ) : (
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>Product</TableHead>
-                    <TableHead className="text-right">Qty Sold</TableHead>
-                    <TableHead className="text-right">Revenue</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {topProductsQ.data!.map((row) => (
-                    <TableRow key={row.productId}>
-                      <TableCell className="font-medium">{row.productName}</TableCell>
-                      <TableCell className="text-right">{(row.totalQuantitySold ?? 0).toLocaleString("en-IN")}</TableCell>
-                      <TableCell className="text-right">{formatINR(row.totalRevenue)}</TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
-            )}
-          </CardContent>
-        </Card>
+        <InsightCard
+          title="Top selling products"
+          subtitle={periodLabel(productsPeriod)}
+          icon={<Package className="h-4 w-4 text-primary" />}
+          filters={
+            <AnalyticsCardFilters
+              region={productsRegion}
+              period={productsPeriod}
+              regions={regions}
+              regionsLoading={regionsLoading}
+              onRegionChange={setProductsRegion}
+              onPeriodChange={setProductsPeriod}
+            />
+          }
+        >
+          <RankedBarChart
+            rows={productRows}
+            valueLabel="Revenue"
+            barColor={CHART_COLORS.salesUp}
+            isLoading={topProductsQ.isLoading}
+            isError={topProductsQ.isError}
+            onRetry={() => topProductsQ.refetch()}
+            emptyTitle="No product sales yet"
+            emptyDescription="Your best sellers will show here for the selected filters."
+          />
+        </InsightCard>
 
-        <Card className="border-none shadow-sm bg-white">
-          <CardHeader className="pb-3 border-b border-gray-100">
-            <CardTitle className="text-base font-semibold flex items-center gap-2">
-              <AlertCircle className="h-4 w-4 text-orange-600" />
-              Slow Moving Products (30+ days)
-            </CardTitle>
-          </CardHeader>
-          <CardContent className="p-0">
-            {slowProductsQ.isLoading ? (
-              <div className="p-6 space-y-3">
-                <Skeleton className="h-6 w-full" />
-                <Skeleton className="h-6 w-full" />
-                <Skeleton className="h-6 w-full" />
-              </div>
-            ) : (slowProductsQ.data?.length ?? 0) === 0 ? (
-              <Empty className="m-6">
-                <EmptyHeader>
-                  <EmptyMedia variant="icon">
-                    <Package />
-                  </EmptyMedia>
-                  <EmptyTitle>No slow products</EmptyTitle>
-                  <EmptyDescription>Looks good—your products are moving in the last 30 days.</EmptyDescription>
-                </EmptyHeader>
-              </Empty>
-            ) : (
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>Product</TableHead>
-                    <TableHead className="text-right">Current Stock</TableHead>
-                    <TableHead className="text-right">Last Sold</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {slowProductsQ.data!.map((row) => (
-                    <TableRow key={row.productId}>
-                      <TableCell className="font-medium">{row.productName}</TableCell>
-                      <TableCell className="text-right">{(row.currentStock ?? 0).toLocaleString("en-IN")}</TableCell>
-                      <TableCell className="text-right">{formatDateTime(row.lastSoldAt)}</TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
-            )}
-          </CardContent>
-        </Card>
-      </div>
-
-      {/* Section 3 — Retailer Intelligence */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        <Card className="border-none shadow-sm bg-white">
-          <CardHeader className="pb-3 border-b border-gray-100">
-            <CardTitle className="text-base font-semibold flex items-center gap-2">
-              <Users className="h-4 w-4 text-primary" />
-              Top Retailers (This Month)
-            </CardTitle>
-          </CardHeader>
-          <CardContent className="p-0">
-            {topRetailersQ.isLoading ? (
-              <div className="p-6 space-y-3">
-                <Skeleton className="h-6 w-full" />
-                <Skeleton className="h-6 w-full" />
-                <Skeleton className="h-6 w-full" />
-              </div>
-            ) : (topRetailersQ.data?.length ?? 0) === 0 ? (
-              <Empty className="m-6">
-                <EmptyHeader>
-                  <EmptyMedia variant="icon">
-                    <Users />
-                  </EmptyMedia>
-                  <EmptyTitle>No retailer sales yet</EmptyTitle>
-                  <EmptyDescription>Your best customers will show up once orders are placed.</EmptyDescription>
-                </EmptyHeader>
-              </Empty>
-            ) : (
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>Retailer</TableHead>
-                    <TableHead className="text-right">Orders</TableHead>
-                    <TableHead className="text-right">Revenue</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {topRetailersQ.data!.map((row) => (
-                    <TableRow key={row.retailerId}>
-                      <TableCell className="font-medium">{row.retailerName}</TableCell>
-                      <TableCell className="text-right">{(row.totalOrders ?? 0).toLocaleString("en-IN")}</TableCell>
-                      <TableCell className="text-right">{formatINR(row.totalRevenue)}</TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
-            )}
-          </CardContent>
-        </Card>
-
-        <Card className="border-none shadow-sm bg-white">
-          <CardHeader className="pb-3 border-b border-gray-100">
-            <CardTitle className="text-base font-semibold flex items-center gap-2">
-              <ReceiptIndianRupee className="h-4 w-4 text-red-700" />
-              Retailers With Pending Payments
-            </CardTitle>
-          </CardHeader>
-          <CardContent className="p-0">
-            {pendingPaymentsQ.isLoading ? (
-              <div className="p-6 space-y-3">
-                <Skeleton className="h-6 w-full" />
-                <Skeleton className="h-6 w-full" />
-                <Skeleton className="h-6 w-full" />
-              </div>
-            ) : (pendingPaymentsQ.data?.length ?? 0) === 0 ? (
-              <Empty className="m-6">
-                <EmptyHeader>
-                  <EmptyMedia variant="icon">
-                    <ReceiptIndianRupee />
-                  </EmptyMedia>
-                  <EmptyTitle>No pending payments</EmptyTitle>
-                  <EmptyDescription>Great—no retailers currently owe you money.</EmptyDescription>
-                </EmptyHeader>
-              </Empty>
-            ) : (
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>Retailer</TableHead>
-                    <TableHead className="text-right">Outstanding</TableHead>
-                    <TableHead className="text-right">Last Payment</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {pendingPaymentsQ.data!.map((row) => (
-                    <TableRow key={row.retailerId}>
-                      <TableCell className="font-medium">{row.retailerName}</TableCell>
-                      <TableCell className="text-right font-semibold text-red-700">
-                        {formatINR(row.outstandingAmount)}
-                      </TableCell>
-                      <TableCell className="text-right">{formatDateTime(row.lastPaymentAt)}</TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
-            )}
-          </CardContent>
-        </Card>
-      </div>
-
-      {/* Section 4 — Business Trends */}
-      <Card className="border-none shadow-sm bg-white">
-        <CardHeader className="pb-3 border-b border-gray-100">
-          <CardTitle className="text-base font-semibold flex items-center gap-2">
-            <CalendarDays className="h-4 w-4 text-primary" />
-            Monthly Sales (Last 12 months)
-          </CardTitle>
-        </CardHeader>
-        <CardContent className="p-0">
-          {monthlySalesQ.isLoading ? (
-            <div className="p-6 space-y-3">
-              <Skeleton className="h-6 w-full" />
-              <Skeleton className="h-6 w-full" />
-              <Skeleton className="h-6 w-full" />
-            </div>
-          ) : (monthlySalesQ.data?.length ?? 0) === 0 ? (
-            <Empty className="m-6">
-              <EmptyHeader>
-                <EmptyMedia variant="icon">
-                  <CalendarDays />
-                </EmptyMedia>
-                <EmptyTitle>No monthly sales data</EmptyTitle>
-                <EmptyDescription>Once you have orders, this table will populate month-by-month.</EmptyDescription>
-              </EmptyHeader>
-            </Empty>
+        <InsightCard
+          title="Slow moving stock"
+          subtitle={`Not sold in 30+ days · ${periodLabel(slowPeriod)}`}
+          icon={<AlertCircle className="h-4 w-4 text-orange-600" />}
+          filters={
+            <AnalyticsCardFilters
+              region={slowRegion}
+              period={slowPeriod}
+              regions={regions}
+              regionsLoading={regionsLoading}
+              onRegionChange={setSlowRegion}
+              onPeriodChange={setSlowPeriod}
+            />
+          }
+        >
+          {slowProductsQ.isLoading ? (
+            <p className="text-sm text-gray-500 py-8 text-center">Loading…</p>
+          ) : slowProductsQ.isError ? (
+            <p className="text-sm text-red-600 py-8 text-center">Could not load slow products.</p>
+          ) : (slowProductsQ.data?.length ?? 0) === 0 ? (
+            <p className="text-sm text-gray-500 py-8 text-center">All products are moving well.</p>
           ) : (
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead>Month</TableHead>
-                  <TableHead className="text-right">Revenue</TableHead>
-                  <TableHead className="text-right">Orders</TableHead>
+                  <TableHead>Product</TableHead>
+                  <TableHead className="text-right">Stock</TableHead>
+                  <TableHead className="text-right">Last sold</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {monthlySalesQ.data!.map((row) => (
-                  <TableRow key={`${row.year}-${row.month}`}>
-                    <TableCell className="font-medium">{formatMonthLabel(row.year, row.month)}</TableCell>
-                    <TableCell className="text-right">{formatINR(row.totalRevenue)}</TableCell>
-                    <TableCell className="text-right">{(row.totalOrders ?? 0).toLocaleString("en-IN")}</TableCell>
+                {slowProductsQ.data!.map((row) => (
+                  <TableRow key={row.productId}>
+                    <TableCell className="font-medium">{row.productName}</TableCell>
+                    <TableCell className="text-right">
+                      {(row.currentStock ?? 0).toLocaleString("en-IN")}
+                    </TableCell>
+                    <TableCell className="text-right text-orange-700">
+                      {formatDateTime(row.lastSoldAt)}
+                    </TableCell>
                   </TableRow>
                 ))}
               </TableBody>
             </Table>
           )}
-        </CardContent>
-      </Card>
+        </InsightCard>
+      </div>
 
-      {/* Section 5 — Order Status Summary removed (per updated dashboard spec) */}
+      <InsightCard
+        title="Top retailers"
+        subtitle={periodLabel(retailersPeriod)}
+        icon={<Users className="h-4 w-4 text-primary" />}
+        filters={
+          <AnalyticsCardFilters
+            region={retailersRegion}
+            period={retailersPeriod}
+            regions={regions}
+            regionsLoading={regionsLoading}
+            onRegionChange={setRetailersRegion}
+            onPeriodChange={setRetailersPeriod}
+          />
+        }
+      >
+        <AnalyticsMetricsLegend
+          items={[
+            { label: "Bar length", description: "Total revenue from accepted orders in the selected period" },
+            { label: "Total orders", description: "Accepted orders counted toward that revenue" },
+            { label: "Outstanding due", description: "Current ledger balance owed by the retailer (all time)" },
+            { label: "Avg order value", description: "Total revenue ÷ total orders for the period" },
+          ]}
+        />
+        <RankedBarChart
+          rows={retailerRows}
+          valueLabel="Total revenue"
+          barColor={CHART_COLORS.sales}
+          isLoading={topRetailersQ.isLoading}
+          isError={topRetailersQ.isError}
+          onRetry={() => topRetailersQ.refetch()}
+          emptyTitle="No retailer sales yet"
+          emptyDescription="Top customers appear for the selected region and period."
+        />
+      </InsightCard>
+
+      <InsightCard
+        title="Number of orders"
+        subtitle={periodLabel(ordersPeriod)}
+        icon={<ClipboardList className="h-4 w-4 text-primary" />}
+        filters={
+          <AnalyticsCardFilters
+            region="all"
+            period={ordersPeriod}
+            regions={regions}
+            regionsLoading={regionsLoading}
+            onRegionChange={() => {}}
+            onPeriodChange={setOrdersPeriod}
+            showRegion={false}
+          />
+        }
+      >
+        <p className="text-xs text-gray-500 mb-3">
+          Counts every order placed in the selected period (pending, accepted, and in progress). Rejected and
+          cancelled orders are excluded. Hover a region bar for its share.
+        </p>
+        <RegionOrdersBarChart
+          data={ordersByRegionQ.data}
+          isLoading={ordersByRegionQ.isLoading}
+          isError={ordersByRegionQ.isError}
+          onRetry={() => ordersByRegionQ.refetch()}
+        />
+      </InsightCard>
     </div>
   );
 }
+
+function AnalyticsMetricsLegend({
+  items,
+}: {
+  items: { label: string; description: string }[];
+}) {
+  return (
+    <div className="mb-3 rounded-lg border border-gray-100 bg-gray-50/80 px-3 py-2.5">
+      <p className="text-xs font-medium text-gray-700 mb-1.5">What the numbers mean</p>
+      <ul className="grid gap-1 sm:grid-cols-2 text-xs text-gray-600">
+        {items.map((item) => (
+          <li key={item.label}>
+            <span className="font-medium text-gray-800">{item.label}:</span> {item.description}
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
+function InsightCard({
+  title,
+  subtitle,
+  icon,
+  filters,
+  children,
+}: {
+  title: string;
+  subtitle?: string;
+  icon: ReactNode;
+  filters?: ReactNode;
+  children: ReactNode;
+}) {
+  return (
+    <Card className="border-none shadow-sm bg-white">
+      <CardHeader className="pb-3 border-b border-gray-100 space-y-3">
+        <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+          <CardTitle className="text-base font-semibold flex items-center gap-2 shrink-0">
+            {icon}
+            <span>
+              {title}
+              {subtitle ? (
+                <span className="block text-xs font-normal text-gray-500 mt-0.5">{subtitle}</span>
+              ) : null}
+            </span>
+          </CardTitle>
+          {filters ? (
+            <div className="w-full lg:w-auto lg:flex lg:justify-end min-w-0">{filters}</div>
+          ) : null}
+        </div>
+      </CardHeader>
+      <CardContent className="p-4 pt-3">{children}</CardContent>
+    </Card>
+  );
+}
+

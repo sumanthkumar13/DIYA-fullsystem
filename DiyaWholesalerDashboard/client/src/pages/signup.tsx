@@ -22,6 +22,8 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
 import { WHOLESALER_BUSINESS_TYPES } from "@/lib/businessTypes";
 import { cn } from "@/lib/utils";
+import { useIndiaPostTerritory } from "@/hooks/useIndiaPostTerritory";
+import { getGstinValidationError, normalizeGstin } from "@/lib/gstin";
 
 export default function SignupFlow() {
   const [step, setStep] = useState(1);
@@ -108,18 +110,20 @@ export default function SignupFlow() {
   // Step 3: Business Details
   const [businessName, setBusinessName] = useState("");
   const [gstin, setGstin] = useState("");
-  const [pincode, setPincode] = useState("");
-  const [state, setState] = useState("");
+  const {
+    pincodeDigits,
+    setPincodeDigits,
+    pinLoading,
+    pinApiError,
+    postOfficeSuggestions,
+    postOfficeOpen,
+    setPostOfficeOpen,
+    selectedPostOffice,
+    setSelectedPostOffice,
+    districtHint,
+    inferredState,
+  } = useIndiaPostTerritory();
   const [fullAddress, setFullAddress] = useState("");
-  const [districtHint, setDistrictHint] = useState("");
-  const [pinLoading, setPinLoading] = useState(false);
-  const [pinApiError, setPinApiError] = useState<string | null>(null);
-  const [postOfficeSuggestions, setPostOfficeSuggestions] = useState<string[]>([]);
-  const [postOfficeOpen, setPostOfficeOpen] = useState(false);
-  const [selectedPostOffice, setSelectedPostOffice] = useState<string>("");
-
-  const pinCacheRef = (globalThis as any).__diyaPinCache || new Map<string, any>();
-  (globalThis as any).__diyaPinCache = pinCacheRef;
 
   type Step3Field = "businessName" | "gstin" | "pincode" | "cityTown" | "state";
   const [touchedStep3, setTouchedStep3] = useState<Record<Step3Field, boolean>>({
@@ -143,16 +147,9 @@ export default function SignupFlow() {
     return "";
   })();
 
-  const gstinTrim = gstin.trim().toUpperCase();
-  const gstinError = (() => {
-    if (!gstinTrim) return "";
-    // Indian GSTIN: 15 chars => 2 digits + 5 letters + 4 digits + 1 letter + 1 (1-9/A-Z) + Z + 1 (0-9/A-Z)
-    const GSTIN_RE = /^[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z][1-9A-Z]Z[0-9A-Z]$/;
-    if (!GSTIN_RE.test(gstinTrim)) return "Please enter a valid GSTIN (15 characters).";
-    return "";
-  })();
+  const gstinTrim = normalizeGstin(gstin);
+  const gstinError = getGstinValidationError(gstin);
 
-  const pincodeDigits = pincode.replace(/\D/g, "");
   const pincodeError = (() => {
     if (!pincodeDigits) return "Pincode is required.";
     if (!/^\d{6}$/.test(pincodeDigits)) return "Pincode must be exactly 6 digits.";
@@ -166,7 +163,7 @@ export default function SignupFlow() {
     return "";
   })();
 
-  const stateTrim = state.trim();
+  const stateTrim = inferredState.trim();
   const stateError = (() => {
     if (!stateTrim) return "State is required.";
     return "";
@@ -190,122 +187,6 @@ export default function SignupFlow() {
       return next;
     });
   };
-
-  type IndiaPostResponseRow = {
-    Status?: string;
-    PostOffice?: Array<{
-      Name?: string;
-      District?: string;
-      State?: string;
-    }>;
-  };
-
-  useEffect(() => {
-    const pin = pincodeDigits;
-    if (pin.length !== 6) {
-      setPinApiError(null);
-      setPinLoading(false);
-      setPostOfficeSuggestions([]);
-      setSelectedPostOffice("");
-      setDistrictHint("");
-      setState("");
-      return;
-    }
-
-    let cancelled = false;
-
-    async function load() {
-      // Avoid redundant calls with simple cache
-      if (pinCacheRef.has(pin)) {
-        const cached = pinCacheRef.get(pin) as IndiaPostResponseRow[] | null;
-        if (cancelled) return;
-        if (!cached || !Array.isArray(cached) || cached.length === 0) {
-          setPinApiError("Invalid pincode or no location data found.");
-          setPostOfficeSuggestions([]);
-          setSelectedPostOffice("");
-          setDistrictHint("");
-          setState("");
-          return;
-        }
-        const row = cached[0];
-        const po0 = row?.PostOffice?.[0];
-        if (!po0?.District || !po0?.State) {
-          setPinApiError("No location data found for this pincode.");
-          setPostOfficeSuggestions([]);
-          setSelectedPostOffice("");
-          setDistrictHint("");
-          setState("");
-          return;
-        }
-        setPinApiError(null);
-        setDistrictHint(String(po0.District).trim());
-        setState(String(po0.State).trim());
-        setSelectedPostOffice("");
-        const names = (row?.PostOffice || [])
-          .map((p) => (typeof p?.Name === "string" ? p.Name.trim() : ""))
-          .filter(Boolean);
-        setPostOfficeSuggestions(Array.from(new Set(names)));
-        return;
-      }
-
-      try {
-        setPinLoading(true);
-        setPinApiError(null);
-        setSelectedPostOffice("");
-        const res = await fetch(`https://api.postalpincode.in/pincode/${pin}`, { method: "GET" });
-        const data = (await res.json()) as IndiaPostResponseRow[];
-        pinCacheRef.set(pin, data);
-        if (cancelled) return;
-
-        const row = Array.isArray(data) ? data[0] : null;
-        if (!row || row.Status !== "Success" || !row.PostOffice || row.PostOffice.length === 0) {
-          setPinApiError("Invalid pincode or no location data found.");
-          setPostOfficeSuggestions([]);
-          setSelectedPostOffice("");
-          setDistrictHint("");
-          setState("");
-          return;
-        }
-        const po0 = row.PostOffice[0];
-        const district = (po0?.District || "").trim();
-        const stateName = (po0?.State || "").trim();
-        if (!district || !stateName) {
-          setPinApiError("No location data found for this pincode.");
-          setPostOfficeSuggestions([]);
-          setSelectedPostOffice("");
-          setDistrictHint("");
-          setState("");
-          return;
-        }
-
-        setDistrictHint(district);
-        setState(stateName);
-        setPinApiError(null);
-
-        const names = row.PostOffice
-          .map((p) => (typeof p?.Name === "string" ? p.Name.trim() : ""))
-          .filter(Boolean);
-        setPostOfficeSuggestions(Array.from(new Set(names)));
-      } catch {
-        if (!cancelled) {
-          pinCacheRef.set(pin, null);
-          setPinApiError("Could not fetch location for this pincode.");
-          setPostOfficeSuggestions([]);
-          setSelectedPostOffice("");
-          setDistrictHint("");
-          setState("");
-        }
-      } finally {
-        if (!cancelled) setPinLoading(false);
-      }
-    }
-
-    load();
-    return () => {
-      cancelled = true;
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [pincodeDigits]);
 
   // Payment setup removed from signup flow.
 
@@ -534,7 +415,7 @@ const data = res.data;
                       inputMode="numeric"
                       pattern="\d*"
                       type="tel"
-                      placeholder="9876543210"
+                      placeholder=" eg : 9876543210"
                       className="pl-14 h-11"
                       maxLength={10}
                     />
@@ -749,8 +630,7 @@ const data = res.data;
                   <Input
                     value={pincodeDigits}
                     onChange={(e) => {
-                      const digits = e.target.value.replace(/\D/g, "").slice(0, 6);
-                      setPincode(digits);
+                      setPincodeDigits(e.target.value);
                       if (touchedStep3.pincode) markStep3Touched("pincode");
                     }}
                     onBlur={() => markStep3Touched("pincode")}
@@ -836,7 +716,7 @@ const data = res.data;
                 <div className="space-y-2">
                   <label className="text-sm font-medium text-gray-700">State</label>
                   <Input
-                    value={state}
+                    value={inferredState}
                     readOnly
                     tabIndex={-1}
                     placeholder="Autofilled from pincode"

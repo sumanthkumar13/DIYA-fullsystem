@@ -19,6 +19,8 @@ import { useToast } from "@/hooks/use-toast";
 import { Loader2, Trash2, Plus } from "lucide-react";
 import { ProductPicker } from "@/components/orders/ProductPicker";
 
+const MAX_QTY_PER_LINE = 100000;
+
 type CreateOrderModalProps = {
   open: boolean;
   onClose: () => void;
@@ -46,6 +48,14 @@ export function CreateOrderModal({ open, onClose, onCreated }: CreateOrderModalP
   const { toast } = useToast();
   const queryClient = useQueryClient();
 
+  // If UI shows a selected retailer, keep retailerId hydrated for submit validation.
+  useEffect(() => {
+    if (!open) return;
+    if (!retailerId && selectedRetailer?.id) {
+      setRetailerId(selectedRetailer.id);
+    }
+  }, [open, retailerId, selectedRetailer]);
+
   const { data: productsData } = useQuery({
     queryKey: ["wholesaler-products-for-order"],
     queryFn: () => fetchProducts(0, 100),
@@ -53,6 +63,16 @@ export function CreateOrderModal({ open, onClose, onCreated }: CreateOrderModalP
   });
 
   const products: any[] = Array.isArray(productsData?.content) ? productsData.content : (Array.isArray(productsData) ? productsData : []);
+
+  const getAvailableForProduct = (productId: string): number | null => {
+    if (!productId) return null;
+    const p = products.find((x: any) => String(x?.id) === String(productId));
+    if (!p) return null;
+    const stock = Number(p?.stock ?? 0);
+    const reserved = Number(p?.reservedStock ?? p?.reserved_stock ?? 0);
+    if (Number.isNaN(stock) || Number.isNaN(reserved)) return null;
+    return Math.max(0, stock - reserved);
+  };
 
   // Debounced retailer search
   useEffect(() => {
@@ -118,6 +138,8 @@ export function CreateOrderModal({ open, onClose, onCreated }: CreateOrderModalP
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
+    const effectiveRetailerId = retailerId || selectedRetailer?.id || "";
+
     const validItems = items
       .map((row) => ({
         productId: row.productId,
@@ -125,7 +147,7 @@ export function CreateOrderModal({ open, onClose, onCreated }: CreateOrderModalP
       }))
       .filter((row) => row.productId && row.quantity > 0);
 
-    if (!retailerId || validItems.length === 0) {
+    if (!effectiveRetailerId || validItems.length === 0) {
       toast({
         title: "Invalid input",
         description: "Please select a retailer and add at least one product with quantity.",
@@ -134,10 +156,34 @@ export function CreateOrderModal({ open, onClose, onCreated }: CreateOrderModalP
       return;
     }
 
+    const tooLarge = validItems.find((it) => !Number.isFinite(it.quantity) || it.quantity > MAX_QTY_PER_LINE);
+    if (tooLarge) {
+      toast({
+        title: "Invalid quantity",
+        description: `Quantity must be between 1 and ${MAX_QTY_PER_LINE}.`,
+        variant: "destructive",
+      });
+      return;
+    }
+
+    const shortages = validItems
+      .map((it) => {
+        const avail = getAvailableForProduct(it.productId);
+        if (avail == null) return null;
+        return it.quantity > avail ? { productId: it.productId, requested: it.quantity, available: avail } : null;
+      })
+      .filter(Boolean) as Array<{ productId: string; requested: number; available: number }>;
+    if (shortages.length > 0) {
+      toast({
+        title: "Stock shortage",
+        description: "Some items exceed current stock. You can still create the order; partial stock will be reserved.",
+      });
+    }
+
     setSaving(true);
     try {
       await createOrder({
-        retailerId,
+        retailerId: effectiveRetailerId,
         items: validItems,
         notes: notes.trim() || undefined,
       });
@@ -173,11 +219,11 @@ export function CreateOrderModal({ open, onClose, onCreated }: CreateOrderModalP
 
   return (
     <Dialog open={open} onOpenChange={handleOpenChange}>
-      <DialogContent className="sm:max-w-xl">
-        <DialogHeader>
+      <DialogContent className="flex w-[calc(100vw-1.5rem)] max-w-3xl flex-col gap-0 overflow-hidden p-0 sm:w-full max-h-[min(90dvh,780px)]">
+        <DialogHeader className="shrink-0 border-b border-border px-6 py-4 text-left">
           <DialogTitle>Create Order</DialogTitle>
         </DialogHeader>
-        <form onSubmit={handleSubmit} className="space-y-4">
+        <form onSubmit={handleSubmit} className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-6 py-4 space-y-4">
           <div className="space-y-2">
             <Label>Retailer</Label>
             <div className="relative" ref={retailerDropdownRef}>
@@ -229,10 +275,11 @@ export function CreateOrderModal({ open, onClose, onCreated }: CreateOrderModalP
 
           <div className="space-y-2">
             <Label>Products</Label>
-            <div className="space-y-3">
+            <div className="rounded-lg border border-gray-200 bg-gray-50/50 p-3">
+              <div className="max-h-[40dvh] overflow-y-auto pr-1 space-y-3">
               {items.map((row, index) => (
-                <div key={index} className="grid grid-cols-12 gap-3 items-center">
-                  <div className="col-span-7 space-y-1">
+                <div key={index} className="grid grid-cols-1 sm:grid-cols-12 gap-3 items-start">
+                  <div className="sm:col-span-7 space-y-1 min-w-0">
                     <Label className="text-xs text-gray-500">Product</Label>
                     <ProductPicker
                       value={
@@ -258,25 +305,55 @@ export function CreateOrderModal({ open, onClose, onCreated }: CreateOrderModalP
                       }
                     />
                   </div>
-                  <div className="col-span-4 space-y-1">
+                  <div className="sm:col-span-4 space-y-1">
                     <Label htmlFor={`qty-${index}`} className="text-xs text-gray-500">
                       Qty
                     </Label>
                     <Input
                       id={`qty-${index}`}
-                      type="number"
-                      min="1"
+                      type="text"
+                      inputMode="numeric"
+                      autoComplete="off"
+                      spellCheck={false}
+                      placeholder="Qty"
+                      maxLength={6}
+                      className="tabular-nums"
                       value={row.quantity}
-                      onChange={(e) =>
+                      onKeyDown={(e) => {
+                        if (e.key === "e" || e.key === "E" || e.key === "+" || e.key === "-" || e.key === ".") {
+                          e.preventDefault();
+                        }
+                      }}
+                      onPaste={(e) => {
+                        e.preventDefault();
+                        const text = e.clipboardData.getData("text") || "";
+                        const digits = text.replace(/\D/g, "").slice(0, 6);
+                        const n = digits ? Math.min(MAX_QTY_PER_LINE, Number(digits)) : 0;
                         setItems((prev) =>
-                          prev.map((r, i) =>
-                            i === index ? { ...r, quantity: e.target.value } : r
-                          )
-                        )
-                      }
+                          prev.map((r, i) => (i === index ? { ...r, quantity: digits ? String(n) : "" } : r))
+                        );
+                      }}
+                      onChange={(e) => {
+                        const raw = e.target.value;
+                        const digits = raw.replace(/\D/g, "").slice(0, 6);
+                        const n = digits ? Math.min(MAX_QTY_PER_LINE, Number(digits)) : 0;
+                        setItems((prev) =>
+                          prev.map((r, i) => (i === index ? { ...r, quantity: digits ? String(n) : "" } : r))
+                        );
+                      }}
                     />
+                    {row.productId && row.quantity ? (() => {
+                      const requested = Number(row.quantity);
+                      const avail = getAvailableForProduct(row.productId);
+                      if (!Number.isFinite(requested) || requested <= 0 || avail == null) return null;
+                      return requested > avail ? (
+                        <p className="text-xs text-amber-700">
+                          Requested {requested} exceeds available stock ({avail}). You can still create the order.
+                        </p>
+                      ) : null;
+                    })() : null}
                   </div>
-                  <div className="col-span-1 flex items-end">
+                  <div className="sm:col-span-1 flex items-start sm:items-end justify-end">
                     {items.length > 1 && (
                       <Button
                         type="button"
@@ -291,6 +368,7 @@ export function CreateOrderModal({ open, onClose, onCreated }: CreateOrderModalP
                   </div>
                 </div>
               ))}
+              </div>
             </div>
             <Button
               type="button"
@@ -314,7 +392,7 @@ export function CreateOrderModal({ open, onClose, onCreated }: CreateOrderModalP
             />
           </div>
 
-          <DialogFooter>
+          <DialogFooter className="sticky bottom-0 border-t border-border bg-background pt-4">
             <Button type="button" variant="outline" onClick={onClose} disabled={saving}>
               Cancel
             </Button>

@@ -35,7 +35,7 @@ const checklist = [
     title: "Setup Delivery Areas",
     desc: "Define where you deliver goods.",
     icon: MapPin,
-    link: "/business?tab=info"
+    link: "/settings"
   },
   {
     id: 4,

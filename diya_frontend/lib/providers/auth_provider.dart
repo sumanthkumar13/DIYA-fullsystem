@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../services/auth_service.dart';
 import 'approved_wholesalers_provider.dart';
@@ -10,14 +11,22 @@ class AuthNotifier extends StateNotifier<AuthStatus> {
   final AuthService _authService = AuthService();
   final Ref _ref;
 
-  AuthNotifier(this._ref) : super(AuthStatus.loading) {
-    _checkAuth();
-  }
+  /// Single startup auth check — awaited by splash (no duplicate /api/auth/me).
+  late final Future<void> _ready = _checkAuth();
+
+  /// Set during [_checkAuth] from /api/auth/me response.
+  bool retailerProfileExists = false;
+
+  AuthNotifier(this._ref) : super(AuthStatus.loading);
+
+  /// Await once before routing past splash.
+  Future<void> waitUntilReady() => _ready;
 
   Future<void> _checkAuth() async {
     final token = await _authService.getToken();
     final hasToken = token != null && token.isNotEmpty;
     if (!hasToken) {
+      retailerProfileExists = false;
       state = AuthStatus.unauthenticated;
       return;
     }
@@ -31,20 +40,22 @@ class AuthNotifier extends StateNotifier<AuthStatus> {
       }
 
       final data = (res['data'] as Map?)?.cast<String, dynamic>();
-      final retailerProfileExists = data?['retailerProfileExists'] == true;
+      retailerProfileExists = data?['retailerProfileExists'] == true;
 
-      // Ensure connection-related providers are rebuilt for current identity.
-      _ref.invalidate(approvedWholesalersProvider);
       _ref.read(selectedWholesalerIdProvider.notifier).state = null;
 
-      // Hydrate app state only when retailer profile exists (avoids crashes for incomplete onboarding).
       if (retailerProfileExists) {
-        await _ref.read(retailerSessionProvider.notifier).sync();
+        final hydrated = await _ref.read(retailerSessionProvider.notifier).sync();
+        if (!hydrated) {
+          throw StateError('Retailer session failed to hydrate');
+        }
       }
 
       state = AuthStatus.authenticated;
     } catch (e) {
-      // token invalid/expired/network issues → treat as unauthenticated on startup
+      if (!kReleaseMode) {
+        debugPrint('❌ [AUTH] startup failed: $e');
+      }
       await logout();
     }
   }
@@ -60,13 +71,17 @@ class AuthNotifier extends StateNotifier<AuthStatus> {
         return false;
       }
 
-      // ✅ If register succeeded, token should be saved
       final token = await _authService.getToken();
       if (token != null && token.isNotEmpty) {
         _ref.invalidate(approvedWholesalersProvider);
         _ref.read(selectedWholesalerIdProvider.notifier).state = null;
-        await _ref.read(retailerSessionProvider.notifier).sync();
-        state = AuthStatus.authenticated; // ✅ IMPORTANT FIX
+        retailerProfileExists = true;
+        final hydrated = await _ref.read(retailerSessionProvider.notifier).sync();
+        if (!hydrated) {
+          state = AuthStatus.unauthenticated;
+          return false;
+        }
+        state = AuthStatus.authenticated;
       } else {
         state = AuthStatus.unauthenticated;
       }
@@ -84,7 +99,19 @@ class AuthNotifier extends StateNotifier<AuthStatus> {
       await _authService.loginWithPassword(phone, password);
       _ref.invalidate(approvedWholesalersProvider);
       _ref.read(selectedWholesalerIdProvider.notifier).state = null;
-      await _ref.read(retailerSessionProvider.notifier).sync();
+
+      final res = await _authService.me();
+      final data = (res['data'] as Map?)?.cast<String, dynamic>();
+      retailerProfileExists = data?['retailerProfileExists'] == true;
+
+      if (retailerProfileExists) {
+        final hydrated = await _ref.read(retailerSessionProvider.notifier).sync();
+        if (!hydrated) {
+          state = AuthStatus.unauthenticated;
+          return false;
+        }
+      }
+
       state = AuthStatus.authenticated;
       return true;
     } catch (e) {
@@ -95,7 +122,6 @@ class AuthNotifier extends StateNotifier<AuthStatus> {
 
   Future<Map<String, dynamic>> loginPhone(String phone) async {
     try {
-      // phone-first flow does not change auth state yet
       final res = await _authService.loginPhone(phone);
       return res;
     } catch (e) {
@@ -103,8 +129,23 @@ class AuthNotifier extends StateNotifier<AuthStatus> {
     }
   }
 
+  /// Reuses POST /api/retailer/request-otp (works for claimed retailers).
+  Future<Map<String, dynamic>> requestPasswordResetOtp(String phone) async {
+    return _authService.requestRetailerOtp(phone);
+  }
+
+  /// Reuses POST /api/retailer/verify-otp to set a new password.
+  Future<Map<String, dynamic>> resetPasswordWithOtp(
+    String phone,
+    String otp,
+    String password,
+  ) async {
+    return _authService.verifyRetailerOtp(phone, otp, password);
+  }
+
   Future<void> logout() async {
     await _authService.logout();
+    retailerProfileExists = false;
     _ref.read(retailerSessionProvider.notifier).clear();
     _ref.invalidate(approvedWholesalersProvider);
     _ref.read(selectedWholesalerIdProvider.notifier).state = null;

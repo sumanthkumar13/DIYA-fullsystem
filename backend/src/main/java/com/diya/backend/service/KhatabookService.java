@@ -211,6 +211,7 @@ public class KhatabookService {
             if (retailerName == null) retailerName = "";
             String shopName = retailer != null ? retailer.getShopName() : null;
             if (shopName == null) shopName = "";
+            String city = retailer != null && retailer.getCity() != null ? retailer.getCity() : "";
             String phone = retailer != null ? retailer.getPhoneContact() : null;
             if (phone == null) phone = "";
 
@@ -218,6 +219,7 @@ public class KhatabookService {
                     retailerId,
                     retailerName,
                     shopName,
+                    city,
                     phone,
                     totalDue,
                     overdueAmount,
@@ -248,12 +250,14 @@ public class KhatabookService {
                     ? retailer.getUser().getName()
                     : "";
             String shopName = retailer.getShopName() != null ? retailer.getShopName() : "";
+            String city = retailer.getCity() != null ? retailer.getCity() : "";
             String phone = retailer.getPhoneContact() != null ? retailer.getPhoneContact() : "";
 
             result.add(new RetailerDueDTO(
                     retailerId,
                     retailerName,
                     shopName,
+                    city,
                     phone,
                     BigDecimal.ZERO,
                     BigDecimal.ZERO,
@@ -448,7 +452,7 @@ public class KhatabookService {
     }
 
     /**
-     * Credit summary for Retailer Profile: credit given / outstanding / limit from orders + payments;
+     * Credit summary for Retailer Profile: outstanding, current unpaid-on-credit, limit from orders + payments;
      * profile fields from retailer row.
      */
     @Transactional(readOnly = true)
@@ -501,8 +505,13 @@ public class KhatabookService {
             BigDecimal paid = paidByOrderId.getOrDefault(o.getId(), BigDecimal.ZERO);
             BigDecimal out = total.subtract(paid).max(BigDecimal.ZERO);
 
-            if (o.getPaymentMode() == Order.PaymentMode.CREDIT && st != Order.Status.PLACED) {
-                creditGiven = creditGiven.add(total);
+            // "Credit given" (profile): current unpaid on orders that carry credit exposure only — not historical approved totals.
+            boolean hasCreditExposure =
+                    (o.getApprovedCreditAmount() != null
+                                    && o.getApprovedCreditAmount().compareTo(BigDecimal.ZERO) > 0)
+                            || o.getPaymentMode() == Order.PaymentMode.CREDIT;
+            if (hasCreditExposure && out.compareTo(BigDecimal.ZERO) > 0) {
+                creditGiven = creditGiven.add(out);
             }
 
             if (o.getPlacedAt() != null) {
@@ -543,12 +552,15 @@ public class KhatabookService {
             availableCredit = BigDecimal.ZERO;
         }
 
-        String retailerName = retailer.getUser() != null && retailer.getUser().getName() != null
-                ? retailer.getUser().getName()
+        String ownerName = retailer.getUser() != null && retailer.getUser().getName() != null
+                ? retailer.getUser().getName().trim()
+                : (retailer.getContactName() != null && !retailer.getContactName().isBlank()
+                        ? retailer.getContactName().trim()
+                        : null);
+        String retailerName = ownerName != null
+                ? ownerName
                 : (retailer.getShopName() != null ? retailer.getShopName() : "Retailer");
-        String proprietorName = retailer.getUser() != null && retailer.getUser().getName() != null
-                ? retailer.getUser().getName()
-                : retailerName;
+        String proprietorName = ownerName != null ? ownerName : retailerName;
 
         BigDecimal completedPurchase = orderRepository.sumCompletedOrderValueForRetailer(
                 wholesalerId,

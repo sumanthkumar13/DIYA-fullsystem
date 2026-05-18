@@ -11,7 +11,7 @@ import java.util.UUID;
 
 /**
  * Credit summary for a retailer (wholesaler scope).
- * Outstanding and credit-given are derived from orders + confirmed payments.
+ * Outstanding amounts and credit-given are derived from orders and confirmed payments mapped to those orders.
  */
 @Data
 @NoArgsConstructor
@@ -31,7 +31,11 @@ public class RetailerCreditSummaryDTO {
     private BigDecimal outstandingAmount;
     /** Portion of unpaid that IS overdue (accepted orders only). */
     private BigDecimal overdueAmount;
-    /** Sum of order totals for CREDIT orders that are accepted (not PLACED/CANCELLED/REJECTED). */
+    /**
+     * Current unpaid amount summed only over accepted orders that were extended on credit (approved credit portion
+     * or legacy CREDIT mode). Confirmed payments reduce this via the same per-order unpaid balance as
+     * {@link #totalOutstanding}. Does not include purely cash/UPI orders with no approved credit.
+     */
     private BigDecimal creditGiven;
     private BigDecimal creditLimit;
     private BigDecimal availableCredit;

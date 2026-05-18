@@ -89,7 +89,7 @@ export default function LoginPage() {
                 </span>
                 <Input
                   type="tel"
-                  placeholder="9876543210"
+                  placeholder="eg : 9876543210"
                   className="pl-14 h-11"
                   value={phone}
                   onChange={(e) => setPhone(e.target.value)}

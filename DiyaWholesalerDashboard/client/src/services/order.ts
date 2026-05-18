@@ -6,6 +6,7 @@ export interface OrderListItem {
   retailerId?: string;
   retailer: string;
   location: string;
+  region?: string;
   amount: number;
   date: string;
   createdAt?: string;
@@ -35,6 +36,8 @@ export async function fetchOrders(
   status?: string,
   search?: string,
   dateRange?: string,
+  region?: string,
+  retailerId?: string,
   page?: number,
   size?: number
 ): Promise<OrderListItem[]> {
@@ -48,6 +51,12 @@ export async function fetchOrders(
   }
   if (dateRange && dateRange !== "all") {
     params.dateRange = dateRange;
+  }
+  if (region && region.trim().length > 0 && region !== "all") {
+    params.region = region.trim();
+  }
+  if (retailerId && retailerId.trim().length > 0) {
+    params.retailerId = retailerId.trim();
   }
   if (page !== undefined) {
     params.page = page;
@@ -75,9 +84,16 @@ export async function createOrder(payload: CreateOrderPayload) {
  */
 export async function acceptOrder(
   orderId: string,
-  opts: { force?: boolean; paymentMode: "CASH" | "UPI" | "CREDIT"; creditDays?: number; paidNow?: number }
+  opts: {
+    force?: boolean;
+    /** Bypass wholesaler credit-limit check when true (after explicit confirmation). */
+    forceCredit?: boolean;
+    paymentMode: "CASH" | "UPI" | "CREDIT";
+    creditDays?: number;
+    paidNow?: number;
+  }
 ) {
-  const { force = false, paymentMode, creditDays, paidNow } = opts;
+  const { force = false, forceCredit = false, paymentMode, creditDays, paidNow } = opts;
   const body: Record<string, unknown> = { paymentMode, creditDays };
   if (paymentMode !== "CREDIT" && paidNow != null) {
     body.paidNow = paidNow;
@@ -85,7 +101,7 @@ export async function acceptOrder(
   const res = await api.post(
     `/wholesaler/orders/${orderId}/accept`,
     body,
-    { params: { force } }
+    { params: { force, forceCredit } }
   );
   return res.data;
 }

@@ -32,6 +32,8 @@ public class WholesalerOrderController {
             @RequestParam(required = false) String status,
             @RequestParam(required = false) String search,
             @RequestParam(required = false) String dateRange,
+            @RequestParam(required = false) String region,
+            @RequestParam(required = false) UUID retailerId,
             @RequestParam(required = false) Integer page,
             @RequestParam(required = false) Integer size) {
         Authentication auth = SecurityContextHolder.getContext().getAuthentication();
@@ -39,7 +41,7 @@ public class WholesalerOrderController {
         String authType = identifier.contains("@") ? "EMAIL" : "PHONE";
 
         List<OrderListItemDTO> list = orderService.getOrdersForWholesaler(identifier, authType, status, search,
-                dateRange, page, size);
+                dateRange, region, retailerId, page, size);
 
         return ResponseEntity.ok(list);
     }
@@ -99,10 +101,11 @@ public class WholesalerOrderController {
     public ResponseEntity<?> acceptOrder(
             @PathVariable UUID orderId,
             @RequestParam(required = false, defaultValue = "false") boolean force,
+            @RequestParam(required = false, defaultValue = "false") boolean forceCredit,
             @RequestBody(required = false) WholesalerOrderAcceptRequest req) {
         try {
             String identifier = SecurityContextHolder.getContext().getAuthentication().getName();
-            return ResponseEntity.ok(orderService.wholesalerAcceptOrder(identifier, orderId, force, req));
+            return ResponseEntity.ok(orderService.wholesalerAcceptOrder(identifier, orderId, force, forceCredit, req));
         } catch (RuntimeException e) {
             java.util.Map<String, Object> errorResponse = new java.util.HashMap<>();
             errorResponse.put("success", false);

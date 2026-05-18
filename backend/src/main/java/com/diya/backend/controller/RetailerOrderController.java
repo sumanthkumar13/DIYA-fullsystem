@@ -55,7 +55,7 @@ public class RetailerOrderController {
         Authentication auth = SecurityContextHolder.getContext().getAuthentication();
         String identifier = auth.getName();
 
-        return ResponseEntity.ok(orderService.getRetailerOrderDetails(identifier, orderId));
+        return ResponseEntity.ok(orderService.getRetailerOrderDetailDto(identifier, orderId));
     }
 
     // ✅ Retailer Cancel Order (only allowed when status=PLACED)

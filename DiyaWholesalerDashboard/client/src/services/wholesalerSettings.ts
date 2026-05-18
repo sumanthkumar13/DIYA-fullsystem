@@ -42,15 +42,3 @@ export async function changeWholesalerPassword(
   const res = await api.put<ChangePasswordResponse>("/wholesaler/settings/password", payload);
   return res.data;
 }
-
-export async function getVisibilityMode(): Promise<VisibilityMode> {
-  const res = await api.get("/wholesaler/settings/visibility");
-  return res.data.visibilityMode as VisibilityMode;
-}
-
-export async function updateVisibilityMode(mode: VisibilityMode): Promise<VisibilityMode> {
-  const res = await api.put("/wholesaler/settings/visibility", {
-    visibilityMode: mode,
-  });
-  return res.data.visibilityMode as VisibilityMode;
-}

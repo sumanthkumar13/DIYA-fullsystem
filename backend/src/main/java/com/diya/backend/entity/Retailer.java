@@ -60,8 +60,14 @@ public class Retailer {
     private String shopName;
     private String address;
     private String city;
+    /** India Post pincode when collected during signup / add-retailer flows. */
+    @Column(length = 6)
+    private String pincode;
+    /** Owner or contact person name (especially when {@link #user} is not linked yet). */
+    @Column(name = "contact_name")
+    private String contactName;
     /** Canonical territory for analytics (wholesaler-defined regions). */
-    @Column(nullable = false, length = 80)
+    @Column(nullable = false, length = 120)
     private String region;
     private String state;
     private String phoneContact;

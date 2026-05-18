@@ -9,3 +9,12 @@ export const WHOLESALER_REGIONS = [
 ] as const;
 
 export type WholesalerRegion = (typeof WHOLESALER_REGIONS)[number];
+
+/** Client-side region filter — same semantics as Orders (`all` or exact region name). */
+export function matchesRegionFilter(
+  retailerRegion: string | undefined | null,
+  filterRegion: string,
+): boolean {
+  if (!filterRegion || filterRegion === "all") return true;
+  return (retailerRegion ?? "").trim() === filterRegion;
+}

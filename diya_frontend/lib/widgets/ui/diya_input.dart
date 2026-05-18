@@ -1,12 +1,14 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
-class DiyaInput extends StatelessWidget {
+class DiyaInput extends StatefulWidget {
   final String? label;
   final String hintText;
   final TextEditingController controller;
   final TextInputType keyboardType;
   final bool obscureText;
+  /// When true, shows an eye toggle to show/hide password (auth screens).
+  final bool obscurable;
   final bool readOnly;
   final VoidCallback? onTap;
   final String? error;
@@ -21,6 +23,7 @@ class DiyaInput extends StatelessWidget {
     required this.controller,
     this.keyboardType = TextInputType.text,
     this.obscureText = false,
+    this.obscurable = false,
     this.readOnly = false,
     this.onTap,
     this.error,
@@ -30,45 +33,82 @@ class DiyaInput extends StatelessWidget {
   });
 
   @override
+  State<DiyaInput> createState() => _DiyaInputState();
+}
+
+class _DiyaInputState extends State<DiyaInput> {
+  late bool _obscured;
+
+  @override
+  void initState() {
+    super.initState();
+    _obscured = widget.obscurable || widget.obscureText;
+  }
+
+  @override
+  void didUpdateWidget(DiyaInput oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (!widget.obscurable && oldWidget.obscurable) {
+      _obscured = widget.obscureText;
+    }
+  }
+
+  bool get _effectiveObscure =>
+      widget.obscurable ? _obscured : widget.obscureText;
+
+  @override
   Widget build(BuildContext context) {
-    final hasError = (error != null && error!.isNotEmpty);
+    final hasError = (widget.error != null && widget.error!.isNotEmpty);
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        if (label != null) ...[
+        if (widget.label != null) ...[
           Padding(
             padding: const EdgeInsets.only(left: 4, bottom: 6),
             child: Text(
-              label!,
+              widget.label!,
               style: const TextStyle(
-                fontSize: 14, // text-sm
+                fontSize: 14,
                 fontWeight: FontWeight.w600,
-                color: Color(0xFF404040), // neutral-700
+                color: Color(0xFF404040),
               ),
             ),
           ),
         ],
         TextFormField(
-          controller: controller,
-          keyboardType: keyboardType,
-          obscureText: obscureText,
-          inputFormatters: inputFormatters,
-          readOnly: readOnly,
-          onTap: onTap,
-          style: style ??
+          controller: widget.controller,
+          keyboardType: widget.keyboardType,
+          obscureText: _effectiveObscure,
+          inputFormatters: widget.inputFormatters,
+          readOnly: widget.readOnly,
+          onTap: widget.onTap,
+          style: widget.style ??
               const TextStyle(
                 color: Color(0xFF171717),
                 fontWeight: FontWeight.w600,
               ),
-          validator: validator,
+          validator: widget.validator,
           decoration: InputDecoration(
-            hintText: hintText,
+            hintText: widget.hintText,
             filled: true,
-            fillColor: const Color(0xFFFAFAFA), // neutral-50
+            fillColor: const Color(0xFFFAFAFA),
             contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+            suffixIcon: widget.obscurable
+                ? IconButton(
+                    tooltip: _obscured ? 'Show password' : 'Hide password',
+                    onPressed: () => setState(() => _obscured = !_obscured),
+                    icon: Icon(
+                      _obscured
+                          ? Icons.visibility_off_outlined
+                          : Icons.visibility_outlined,
+                      size: 22,
+                      color: const Color(0xFF737373),
+                    ),
+                  )
+                : null,
             enabledBorder: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(12), // rounded-xl
+              borderRadius: BorderRadius.circular(12),
               borderSide: BorderSide(
                 color: hasError ? const Color(0xFFF04343) : Colors.transparent,
                 width: 2,
@@ -107,7 +147,7 @@ class DiyaInput extends StatelessWidget {
           Padding(
             padding: const EdgeInsets.only(left: 4),
             child: Text(
-              error!,
+              widget.error!,
               style: const TextStyle(
                 fontSize: 12,
                 fontWeight: FontWeight.w600,

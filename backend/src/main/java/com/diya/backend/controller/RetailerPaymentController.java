@@ -1,8 +1,8 @@
 package com.diya.backend.controller;
 
+import com.diya.backend.dto.payment.RetailerPaymentHistoryItemDTO;
 import com.diya.backend.entity.Payment;
 import com.diya.backend.entity.Retailer;
-import com.diya.backend.repository.PaymentRepository;
 import com.diya.backend.repository.RetailerRepository;
 import com.diya.backend.service.PaymentService;
 import lombok.RequiredArgsConstructor;
@@ -23,11 +23,10 @@ public class RetailerPaymentController {
 
     private final PaymentService paymentService;
     private final RetailerRepository retailerRepository;
-    private final PaymentRepository paymentRepository;
 
     // ✅ Retailer marks a payment for an order (CASH / UPI / NEFT / NET_BANKING)
     @PostMapping
-    public ResponseEntity<Payment> recordPayment(@RequestBody Map<String, Object> body) {
+    public ResponseEntity<RetailerPaymentHistoryItemDTO> recordPayment(@RequestBody Map<String, Object> body) {
 
         Authentication auth = SecurityContextHolder.getContext().getAuthentication();
         String identifier = auth.getName(); // email OR phone
@@ -44,12 +43,12 @@ public class RetailerPaymentController {
 
         Payment payment = paymentService.recordPayment(identifier, orderId, amount, mode, reference, note);
 
-        return ResponseEntity.ok(payment);
+        return ResponseEntity.ok(paymentService.toRetailerPaymentHistoryItem(payment));
     }
 
-    // ✅ Retailer payment history
+    // ✅ Retailer payment history (flat DTO list — all payments, newest first)
     @GetMapping
-    public ResponseEntity<List<Payment>> getRetailerPayments() {
+    public ResponseEntity<List<RetailerPaymentHistoryItemDTO>> getRetailerPayments() {
         Authentication auth = SecurityContextHolder.getContext().getAuthentication();
         String identifier = auth.getName(); // email OR phone
 
@@ -59,6 +58,6 @@ public class RetailerPaymentController {
                 : retailerRepository.findByUserPhone(identifier)
                         .orElseThrow(() -> new RuntimeException("Retailer not found"));
 
-        return ResponseEntity.ok(paymentRepository.findByRetailerOrderByCreatedAtDesc(retailer));
+        return ResponseEntity.ok(paymentService.getRetailerPaymentHistory(retailer));
     }
 }

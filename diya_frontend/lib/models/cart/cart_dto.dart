@@ -27,6 +27,28 @@ class CartDTO {
       totalItems: (json['totalItems'] as num? ?? 0).toInt(),
     );
   }
+
+  CartDTO copyWith({
+    List<CartItemDTO>? items,
+    double? totalAmount,
+    int? totalItems,
+  }) {
+    return CartDTO(
+      id: id,
+      wholesalerId: wholesalerId,
+      wholesalerName: wholesalerName,
+      items: items ?? this.items,
+      totalAmount: totalAmount ?? this.totalAmount,
+      totalItems: totalItems ?? this.totalItems,
+    );
+  }
+
+  int quantityFor(String productId) {
+    for (final item in items) {
+      if (item.productId == productId) return item.quantity;
+    }
+    return 0;
+  }
 }
 
 class CartItemDTO {
@@ -66,6 +88,21 @@ class CartItemDTO {
       mrp: (json['mrp'] as num? ?? 0).toDouble(),
       total: (json['total'] as num? ?? 0).toDouble(),
       status: (json['status'] ?? 'In Stock').toString(),
+    );
+  }
+
+  CartItemDTO copyWith({int? quantity, double? total}) {
+    return CartItemDTO(
+      id: id,
+      productId: productId,
+      productName: productName,
+      productSku: productSku,
+      productImageUrl: productImageUrl,
+      quantity: quantity ?? this.quantity,
+      price: price,
+      mrp: mrp,
+      total: total ?? this.total,
+      status: status,
     );
   }
 }

@@ -24,7 +24,11 @@ public class WholesalerCreateOrderRequest {
     @Builder
     public static class Item {
         private UUID productId;
-        private Integer quantity;
+        /**
+         * Use Long to avoid JSON int parsing failures for large inputs.
+         * Validated and bounded in service before use.
+         */
+        private Long quantity;
     }
 }
 

@@ -392,7 +392,6 @@ export default function MyBusiness() {
         <TabsList className="w-full justify-start bg-white border border-gray-200 rounded-xl p-1 mb-6 h-auto">
           <TabsTrigger value="products">Products</TabsTrigger>
           <TabsTrigger value="categories">Categories</TabsTrigger>
-          <TabsTrigger value="info">Business Info</TabsTrigger>
         </TabsList>
 
         {/* PRODUCTS TAB */}
@@ -913,11 +912,6 @@ export default function MyBusiness() {
 
 
 
-        <TabsContent value="info">
-          <div className="p-12 text-center border-2 border-dashed">
-            Business details management coming soon.
-          </div>
-        </TabsContent>
       </Tabs>
 
       <Dialog

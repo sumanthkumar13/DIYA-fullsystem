@@ -69,12 +69,16 @@ public class WholesalerRetailerController {
                     Retailer r = conn.getRetailer();
                     String name = r.getUser() != null && r.getUser().getName() != null
                             ? r.getUser().getName()
-                            : (r.getShopName() != null ? r.getShopName() : "Retailer");
+                            : (r.getContactName() != null && !r.getContactName().isBlank()
+                                    ? r.getContactName().trim()
+                                    : (r.getShopName() != null ? r.getShopName() : "Retailer"));
                     Map<String, Object> m = new HashMap<>();
                     m.put("id", r.getId());
                     m.put("retailerId", r.getId());
                     m.put("name", name);
                     m.put("retailerBusinessName", name);
+                    m.put("shopName", r.getShopName());
+                    m.put("contactName", r.getContactName());
                     m.put("phone", r.getPhoneContact());
                     m.put("retailerPhone", r.getPhoneContact());
                     m.put("location", r.getRegion() != null && !r.getRegion().isBlank()
@@ -116,10 +120,15 @@ public class WholesalerRetailerController {
         String retailerName = (String) body.getOrDefault("retailerName", "");
         String phone = (String) body.getOrDefault("phone", "");
         String shopName = (String) body.getOrDefault("shopName", "");
+        retailerName = retailerName == null ? "" : retailerName.trim();
+        shopName = shopName == null ? "" : shopName.trim();
         String address = (String) body.getOrDefault("address", "");
         String gstNumber = (String) body.getOrDefault("gstNumber", "");
         Object creditLimitRaw = body.get("creditLimit");
         String notes = (String) body.getOrDefault("notes", "");
+        String cityRaw = (String) body.getOrDefault("city", "");
+        String stateRaw = (String) body.getOrDefault("state", "");
+        String pincodeRaw = (String) body.getOrDefault("pincode", "");
         String region;
         try {
             region = RegionCatalog.requireValidRetailerRegion((String) body.getOrDefault("region", ""));
@@ -136,6 +145,12 @@ public class WholesalerRetailerController {
             resp.put("message", "Retailer name, phone and shop name are required");
             return ResponseEntity.badRequest().body(resp);
         }
+
+        String contactName = retailerName.trim();
+        String city = cityRaw != null && !cityRaw.isBlank() ? cityRaw.trim() : region;
+        String state = stateRaw != null && !stateRaw.isBlank() ? stateRaw.trim() : "Not Provided";
+        String pincodeDigits = pincodeRaw != null ? pincodeRaw.replaceAll("\\D", "") : "";
+        String pincode = pincodeDigits.length() == 6 ? pincodeDigits : null;
 
         phone = phone.trim();
         // Enforce global phone uniqueness across User and Retailer
@@ -164,17 +179,19 @@ public class WholesalerRetailerController {
 
         final Retailer retailerToSave = Retailer.builder()
                 .user(null)
+                .contactName(contactName)
                 .shopName(shopName)
-                .address(address)
-                .city(null)
+                .address(address != null ? address.trim() : "")
+                .city(city)
+                .pincode(pincode)
                 .region(region)
-                .state("Not Provided")
+                .state(state)
                 .phoneContact(phone)
                 .isActive(true)
                 .accountStatus(Retailer.AccountStatus.CREATED_BY_WHOLESALER)
                 .gstNumber(gst)
                 .creditLimit(creditLimit)
-                .notes(notes)
+                .notes(notes != null ? notes.trim() : "")
                 .build();
 
         Retailer retailer = retailerRepository.save(retailerToSave);
@@ -230,7 +247,9 @@ public class WholesalerRetailerController {
                     Retailer r = conn.getRetailer();
                     String retailerName = r.getUser() != null && r.getUser().getName() != null
                             ? r.getUser().getName()
-                            : (r.getShopName() != null ? r.getShopName() : "Retailer");
+                            : (r.getContactName() != null && !r.getContactName().isBlank()
+                                    ? r.getContactName().trim()
+                                    : (r.getShopName() != null ? r.getShopName() : "Retailer"));
                     String shopName = r.getShopName() != null ? r.getShopName() : retailerName;
                     String city = r.getCity() != null ? r.getCity() : "";
                     String state = r.getState() != null ? r.getState() : "";

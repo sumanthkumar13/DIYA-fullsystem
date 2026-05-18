@@ -1,8 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import '../../providers/cart_provider.dart';
 import '../../widgets/catalogue/product_card.dart';
-import '../../widgets/ui/diya_button.dart';
+import '../../widgets/catalogue/catalogue_go_to_cart_bar.dart';
+import '../../providers/cart_provider.dart';
 import 'catalogue_models.dart';
 import 'subcategory_catalogue_screen.dart';
 
@@ -22,6 +22,8 @@ class CategoryCatalogueScreen extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final subs = category.subcategories;
     final products = category.products;
+    final cartCount = ref.watch(cartBadgeCountProvider);
+    final bottomInset = catalogueScrollBottomInset(cartCount);
 
     // Layout safety: avoid "Bottom overflowed" on small screens by using
     // compact subcategory tiles (no fixed-height buttons with long labels).
@@ -36,8 +38,9 @@ class CategoryCatalogueScreen extends ConsumerWidget {
         foregroundColor: const Color(0xFF171717),
         elevation: 0,
       ),
-      body: SafeArea(
-        child: CustomScrollView(
+      body: CatalogueGoToCartOverlay(
+        child: SafeArea(
+          child: CustomScrollView(
           slivers: [
             if (subs.isNotEmpty) ...[
               SliverToBoxAdapter(
@@ -122,34 +125,25 @@ class CategoryCatalogueScreen extends ConsumerWidget {
               )
             else
               SliverPadding(
-                padding: const EdgeInsets.fromLTRB(16, 0, 16, 20),
+                padding: EdgeInsets.fromLTRB(16, 0, 16, bottomInset),
                 sliver: SliverGrid(
                   gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
                     crossAxisCount: 2,
                     crossAxisSpacing: 12,
                     mainAxisSpacing: 12,
-                    // More height so ProductCard (image+texts+button) never overflows.
                     childAspectRatio: 0.62,
                   ),
                   delegate: SliverChildBuilderDelegate(
                     (context, i) {
                       final p = products[i];
-                      return ProductCard(
-                        product: p,
-                        onAdd: () async {
-                          await ref.read(cartProvider.notifier).addItem(p.id);
-                          if (!context.mounted) return;
-                          ScaffoldMessenger.of(context).showSnackBar(
-                            SnackBar(content: Text('${p.name} added to cart')),
-                          );
-                        },
-                      );
+                      return ProductCard(product: p);
                     },
                     childCount: products.length,
                   ),
                 ),
               ),
           ],
+        ),
         ),
       ),
     );

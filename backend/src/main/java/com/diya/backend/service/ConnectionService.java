@@ -11,6 +11,7 @@ import com.diya.backend.repository.UserRepository;
 import com.diya.backend.repository.WholesalerRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
 import java.util.*;
@@ -89,23 +90,36 @@ public class ConnectionService {
         return toDto(conn);
     }
 
+    @Transactional(readOnly = true)
     public List<ConnectionResponseDTO> getMyConnections(String identifier) {
         Retailer retailer = resolveRetailer(identifier);
 
-        return connectionRepository.findByRetailerOrderByRequestedAtDesc(retailer)
+        return connectionRepository.findByRetailerWithWholesalerProfile(retailer)
                 .stream()
                 .map(this::toDto)
                 .toList();
     }
 
+    @Transactional(readOnly = true)
     public List<ConnectionResponseDTO> getApprovedWholesalers(String identifier) {
         Retailer retailer = resolveRetailer(identifier);
 
-        return connectionRepository.findByRetailerAndStatusOrderByRequestedAtDesc(
+        return connectionRepository.findByRetailerAndStatusWithWholesalerProfile(
                 retailer, Connection.Status.APPROVED)
                 .stream()
                 .map(this::toDto)
                 .toList();
+    }
+
+    /** Wholesaler IDs that have blocked this retailer (hidden from search). */
+    public Set<UUID> getBlockedWholesalerIdsForRetailer(String identifier) {
+        Retailer retailer = resolveRetailer(identifier);
+        return connectionRepository
+                .findByRetailerAndStatusOrderByRequestedAtDesc(retailer, Connection.Status.BLOCKED)
+                .stream()
+                .filter(c -> c.getWholesaler() != null && c.getWholesaler().getId() != null)
+                .map(c -> c.getWholesaler().getId())
+                .collect(java.util.stream.Collectors.toSet());
     }
 
     /* ------------------------ Wholesaler APIs ------------------------ */
@@ -271,15 +285,35 @@ public class ConnectionService {
                 // wholesaler preview (for retailer)
                 .wholesalerBusinessName(w != null ? w.getBusinessName() : null)
                 .wholesalerHandle(w != null ? w.getHandle() : null)
-                .wholesalerCity(w != null ? w.getCity() : null)
+                .wholesalerCity(w != null ? emptyToNull(w.getCity()) : null)
+                .wholesalerState(w != null ? emptyToNull(w.getState()) : null)
+                .wholesalerPincode(w != null ? emptyToNull(w.getPincode()) : null)
+                .wholesalerPhone(w != null && w.getUser() != null ? emptyToNull(w.getUser().getPhone()) : null)
+                .wholesalerLogoUrl(w != null ? emptyToNull(w.getLogoUrl()) : null)
+                .wholesalerAvatarUrl(resolveWholesalerAvatarUrl(w))
 
                 // retailer preview (for wholesaler)
-                .retailerBusinessName(r != null ? r.getShopName() : null)
+                .retailerBusinessName(r != null ? emptyToNull(r.getShopName()) : null)
+                .retailerProprietorName(r != null ? proprietorPreview(r) : null)
                 .retailerCity(r != null ? emptyToNull(r.getCity()) : null)
                 .retailerRegion(r != null ? emptyToNull(r.getRegion()) : null)
                 .retailerState(r != null ? emptyToNull(r.getState()) : null)
-                .retailerPhone(r != null ? r.getPhoneContact() : null)
+                .retailerPhone(r != null ? emptyToNull(r.getPhoneContact()) : null)
                 .build();
+    }
+
+    /** User profile photo (settings) preferred; business logo as fallback. */
+    private static String resolveWholesalerAvatarUrl(Wholesaler w) {
+        if (w == null) {
+            return null;
+        }
+        if (w.getUser() != null) {
+            String avatar = emptyToNull(w.getUser().getAvatarUrl());
+            if (avatar != null) {
+                return avatar;
+            }
+        }
+        return emptyToNull(w.getLogoUrl());
     }
 
     private static String emptyToNull(String s) {
@@ -288,5 +322,19 @@ public class ConnectionService {
         }
         String t = s.trim();
         return t.isEmpty() ? null : t;
+    }
+
+    /** Display name for search / cards: linked user, else contact name. */
+    private static String proprietorPreview(Retailer r) {
+        if (r.getUser() != null) {
+            String n = r.getUser().getName();
+            if (n != null && !n.trim().isEmpty()) {
+                return n.trim();
+            }
+        }
+        if (r.getContactName() != null && !r.getContactName().trim().isEmpty()) {
+            return r.getContactName().trim();
+        }
+        return null;
     }
 }

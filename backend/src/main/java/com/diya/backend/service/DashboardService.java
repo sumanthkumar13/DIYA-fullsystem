@@ -8,9 +8,13 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 
 import java.math.BigDecimal;
+import java.time.DayOfWeek;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.LocalTime;
+import java.time.format.DateTimeFormatter;
+import java.time.temporal.ChronoUnit;
+import java.time.temporal.TemporalAdjusters;
 import java.util.*;
 
 @Service
@@ -105,73 +109,8 @@ public class DashboardService {
                                 .filter(o -> o.getCancelledAt() == null || o.getCancelledAt().isAfter(yesterdayEnd))
                                 .count();
 
-                // Outstanding = sum(totalAmount - confirmedPaid) for accepted orders only.
-                // Excludes pending (PLACED) and rejected/cancelled orders.
-                Map<UUID, BigDecimal> paidByOrderId = new HashMap<>();
-                for (Payment p : paymentRepository.findByWholesaler(wholesaler)) {
-                        if (p == null || p.getOrder() == null || p.getStatus() != Payment.PaymentStatus.CONFIRMED) {
-                                continue;
-                        }
-                        if (retailerScope != null
-                                        && (p.getRetailer() == null || !retailerScope.contains(p.getRetailer().getId()))) {
-                                continue;
-                        }
-                        UUID oid = p.getOrder().getId();
-                        BigDecimal amt = p.getAmount() != null ? p.getAmount() : BigDecimal.ZERO;
-                        paidByOrderId.merge(oid, amt, BigDecimal::add);
-                }
-
-                BigDecimal totalOutstanding = BigDecimal.ZERO;
-                for (Order o : orderRepository.findByWholesaler(wholesaler)) {
-                        if (o == null || o.getRetailer() == null || o.getRetailer().getId() == null) continue;
-                        if (retailerScope != null && !retailerScope.contains(o.getRetailer().getId())) continue;
-                        Order.Status st = o.getStatus();
-                        if (st == Order.Status.PLACED || st == Order.Status.REJECTED || st == Order.Status.CANCELLED) {
-                                continue;
-                        }
-                        BigDecimal total = o.getTotalAmount() != null ? o.getTotalAmount() : BigDecimal.ZERO;
-                        BigDecimal paid = paidByOrderId.getOrDefault(o.getId(), BigDecimal.ZERO);
-                        BigDecimal out = total.subtract(paid).max(BigDecimal.ZERO);
-                        totalOutstanding = totalOutstanding.add(out);
-                }
-
-                // Outstanding "as of yesterday end" = accepted on/before yesterday end minus confirmed payments on/before yesterday end.
-                Map<UUID, BigDecimal> paidByOrderIdYesterday = new HashMap<>();
-                for (Payment p : paymentRepository.findByWholesaler(wholesaler)) {
-                        if (p == null || p.getOrder() == null || p.getStatus() != Payment.PaymentStatus.CONFIRMED) {
-                                continue;
-                        }
-                        if (p.getConfirmedAt() == null || p.getConfirmedAt().isAfter(yesterdayEnd)) {
-                                continue;
-                        }
-                        if (retailerScope != null
-                                        && (p.getRetailer() == null || !retailerScope.contains(p.getRetailer().getId()))) {
-                                continue;
-                        }
-                        UUID oid = p.getOrder().getId();
-                        BigDecimal amt = p.getAmount() != null ? p.getAmount() : BigDecimal.ZERO;
-                        paidByOrderIdYesterday.merge(oid, amt, BigDecimal::add);
-                }
-
-                BigDecimal totalOutstandingYesterday = BigDecimal.ZERO;
-                for (Order o : orderRepository.findByWholesaler(wholesaler)) {
-                        if (o == null || o.getRetailer() == null || o.getRetailer().getId() == null) continue;
-                        if (retailerScope != null && !retailerScope.contains(o.getRetailer().getId())) continue;
-                        if (o.getAcceptedAt() == null || o.getAcceptedAt().isAfter(yesterdayEnd)) {
-                                continue; // not yet accepted by yesterday
-                        }
-                        if (o.getCancelledAt() != null && !o.getCancelledAt().isAfter(yesterdayEnd)) {
-                                continue; // cancelled by yesterday
-                        }
-                        Order.Status st = o.getStatus();
-                        if (st == Order.Status.REJECTED || st == Order.Status.CANCELLED || st == Order.Status.PLACED) {
-                                continue;
-                        }
-                        BigDecimal total = o.getTotalAmount() != null ? o.getTotalAmount() : BigDecimal.ZERO;
-                        BigDecimal paid = paidByOrderIdYesterday.getOrDefault(o.getId(), BigDecimal.ZERO);
-                        BigDecimal out = total.subtract(paid).max(BigDecimal.ZERO);
-                        totalOutstandingYesterday = totalOutstandingYesterday.add(out);
-                }
+                BigDecimal salesToday = sumSalesForCalendarDay(wholesaler, retailerScope, today);
+                BigDecimal salesYesterday = sumSalesForCalendarDay(wholesaler, retailerScope, yesterday);
 
                 return DashboardKpiDTO.builder()
                                 .newOrdersToday(newOrdersToday)
@@ -180,9 +119,323 @@ public class DashboardService {
                                 .paymentsReceivedYesterday(paymentsYesterday)
                                 .pendingOrders(pendingOrders)
                                 .pendingOrdersYesterday(pendingOrdersYesterday)
-                                .totalOutstanding(totalOutstanding)
-                                .totalOutstandingYesterday(totalOutstandingYesterday)
+                                .salesToday(salesToday)
+                                .salesYesterday(salesYesterday)
                                 .build();
+        }
+
+        /**
+         * Single KPI metric for a time window (independent per-card on the dashboard).
+         */
+        public KpiWidgetDTO getKpiWidget(
+                        String identifier,
+                        String authType,
+                        String metricRaw,
+                        String periodRaw,
+                        String regionFilter) {
+                Wholesaler wholesaler = getWholesaler(identifier, authType);
+                Set<UUID> retailerScope = resolveRetailerScope(wholesaler, regionFilter);
+                KpiMetric metric = KpiMetric.parse(metricRaw);
+                KpiTimePeriod period = KpiTimePeriod.parse(periodRaw);
+                PeriodWindow pw = resolvePeriodWindow(period);
+
+                BigDecimal value = computeKpiValue(wholesaler, retailerScope, metric, pw.start, pw.endExclusive);
+                BigDecimal comparison = computeKpiValue(wholesaler, retailerScope, metric, pw.compStart, pw.compEndExclusive);
+
+                return KpiWidgetDTO.builder()
+                                .metric(metric.name())
+                                .period(period.name())
+                                .value(value)
+                                .comparisonValue(comparison)
+                                .build();
+        }
+
+        /**
+         * Sales aggregated by retailer for the selected {@link KpiTimePeriod} and region.
+         */
+        public SalesDetailsPageDTO getSalesDetails(
+                        String identifier,
+                        String authType,
+                        String regionFilter,
+                        String periodRaw,
+                        int page,
+                        int size) {
+                Wholesaler wholesaler = getWholesaler(identifier, authType);
+                Set<UUID> retailerScope = resolveRetailerScope(wholesaler, regionFilter);
+                KpiTimePeriod period = KpiTimePeriod.parse(periodRaw);
+                PeriodWindow pw = resolvePeriodWindow(period);
+
+                Map<UUID, BigDecimal> sums = new HashMap<>();
+                Map<UUID, Retailer> retailers = new HashMap<>();
+                for (Order o : orderRepository.findByWholesaler(wholesaler)) {
+                        if (!countsTowardSales(o)) {
+                                continue;
+                        }
+                        LocalDateTime at = o.getAcceptedAt();
+                        if (at == null || at.isBefore(pw.start) || !at.isBefore(pw.endExclusive)) {
+                                continue;
+                        }
+                        if (retailerScope != null
+                                        && (o.getRetailer() == null || !retailerScope.contains(o.getRetailer().getId()))) {
+                                continue;
+                        }
+                        UUID rid = o.getRetailer().getId();
+                        BigDecimal amt = o.getTotalAmount() != null ? o.getTotalAmount() : BigDecimal.ZERO;
+                        sums.merge(rid, amt, BigDecimal::add);
+                        retailers.putIfAbsent(rid, o.getRetailer());
+                }
+
+                List<SalesRetailerRowDTO> allRows = sums.entrySet().stream()
+                                .map(e -> SalesRetailerRowDTO.builder()
+                                                .retailerId(e.getKey())
+                                                .shopName(retailerShopDisplayName(retailers.get(e.getKey())))
+                                                .totalSales(e.getValue())
+                                                .build())
+                                .sorted(Comparator.comparing(
+                                                SalesRetailerRowDTO::getTotalSales,
+                                                Comparator.nullsLast(Comparator.reverseOrder())))
+                                .toList();
+
+                int p = Math.max(0, page);
+                int s = Math.min(100, Math.max(1, size));
+                long total = allRows.size();
+                int from = (int) Math.min(total, (long) p * s);
+                int to = (int) Math.min(total, from + (long) s);
+                List<SalesRetailerRowDTO> slice = from >= to ? List.of() : new ArrayList<>(allRows.subList(from, to));
+                int totalPages = total == 0 ? 1 : (int) Math.ceil(total / (double) s);
+
+                BigDecimal windowTotal = sumSalesInWindow(wholesaler, retailerScope, pw.start, pw.endExclusive);
+                LocalDate rangeStartDate = pw.start.toLocalDate();
+
+                return SalesDetailsPageDTO.builder()
+                                .dayTotalSales(windowTotal)
+                                .period(period.name())
+                                .rangeLabel(formatSalesRangeLabel(pw.start, pw.endExclusive))
+                                .day(new SalesDetailsPageDTO.SalesDayDTO(
+                                                rangeStartDate.getYear(),
+                                                rangeStartDate.getMonthValue(),
+                                                rangeStartDate.getDayOfMonth()))
+                                .content(slice)
+                                .page(p)
+                                .size(s)
+                                .totalElements(total)
+                                .totalPages(totalPages)
+                                .build();
+        }
+
+        private static final class PeriodWindow {
+                final LocalDateTime start;
+                final LocalDateTime endExclusive;
+                final LocalDateTime compStart;
+                final LocalDateTime compEndExclusive;
+
+                private PeriodWindow(
+                                LocalDateTime start,
+                                LocalDateTime endExclusive,
+                                LocalDateTime compStart,
+                                LocalDateTime compEndExclusive) {
+                        this.start = start;
+                        this.endExclusive = endExclusive;
+                        this.compStart = compStart;
+                        this.compEndExclusive = compEndExclusive;
+                }
+        }
+
+        private static PeriodWindow resolvePeriodWindow(KpiTimePeriod period) {
+                LocalDate today = LocalDate.now();
+                return switch (period) {
+                        case TODAY -> {
+                                LocalDateTime st = today.atStartOfDay();
+                                LocalDateTime en = today.plusDays(1).atStartOfDay();
+                                LocalDate y = today.minusDays(1);
+                                yield new PeriodWindow(st, en, y.atStartOfDay(), y.plusDays(1).atStartOfDay());
+                        }
+                        case YESTERDAY -> {
+                                LocalDate y = today.minusDays(1);
+                                LocalDate db = today.minusDays(2);
+                                LocalDateTime st = y.atStartOfDay();
+                                LocalDateTime en = y.plusDays(1).atStartOfDay();
+                                yield new PeriodWindow(st, en, db.atStartOfDay(), db.plusDays(1).atStartOfDay());
+                        }
+                        case THIS_WEEK -> {
+                                LocalDate mon = today.with(TemporalAdjusters.previousOrSame(DayOfWeek.MONDAY));
+                                LocalDateTime st = mon.atStartOfDay();
+                                LocalDateTime en = today.plusDays(1).atStartOfDay();
+                                LocalDate prevMon = mon.minusWeeks(1);
+                                long days = ChronoUnit.DAYS.between(mon, today) + 1;
+                                LocalDateTime cst = prevMon.atStartOfDay();
+                                LocalDateTime cen = prevMon.plusDays(days).atStartOfDay();
+                                yield new PeriodWindow(st, en, cst, cen);
+                        }
+                        case THIS_MONTH -> {
+                                LocalDate first = today.withDayOfMonth(1);
+                                LocalDateTime st = first.atStartOfDay();
+                                LocalDateTime en = today.plusDays(1).atStartOfDay();
+                                LocalDate prevFirst = first.minusMonths(1);
+                                int dom = today.getDayOfMonth();
+                                int maxPrev = prevFirst.lengthOfMonth();
+                                int endDay = Math.min(dom, maxPrev);
+                                LocalDate compEndDate = prevFirst.withDayOfMonth(endDay);
+                                yield new PeriodWindow(st, en, prevFirst.atStartOfDay(), compEndDate.plusDays(1).atStartOfDay());
+                        }
+                };
+        }
+
+        private static String formatSalesRangeLabel(LocalDateTime startInclusive, LocalDateTime endExclusive) {
+                LocalDate a = startInclusive.toLocalDate();
+                LocalDate b = endExclusive.toLocalDate().minusDays(1);
+                DateTimeFormatter fmt = DateTimeFormatter.ofPattern("d MMM yyyy", Locale.forLanguageTag("en-IN"));
+                if (a.equals(b)) {
+                        return a.format(fmt);
+                }
+                return a.format(fmt) + " – " + b.format(fmt);
+        }
+
+        private BigDecimal computeKpiValue(
+                        Wholesaler wholesaler,
+                        Set<UUID> retailerScope,
+                        KpiMetric metric,
+                        LocalDateTime start,
+                        LocalDateTime endExclusive) {
+                if (retailerScope != null && retailerScope.isEmpty()) {
+                        return BigDecimal.ZERO;
+                }
+                return switch (metric) {
+                        case NEW_ORDERS -> BigDecimal.valueOf(
+                                        countOrdersPlacedInWindow(wholesaler, retailerScope, start, endExclusive));
+                        case PAYMENTS -> sumPaymentsInWindow(wholesaler, retailerScope, start, endExclusive);
+                        case PENDING_ORDERS -> BigDecimal.valueOf(
+                                        countPendingPlacedInWindow(wholesaler, retailerScope, start, endExclusive));
+                        case SALES -> sumSalesInWindow(wholesaler, retailerScope, start, endExclusive);
+                };
+        }
+
+        private long countOrdersPlacedInWindow(
+                        Wholesaler wholesaler,
+                        Set<UUID> retailerScope,
+                        LocalDateTime startInclusive,
+                        LocalDateTime endExclusive) {
+                return orderRepository.findByWholesaler(wholesaler).stream()
+                                .filter(o -> o != null && o.getPlacedAt() != null)
+                                .filter(o -> retailerScope == null
+                                                || (o.getRetailer() != null
+                                                                && retailerScope.contains(o.getRetailer().getId())))
+                                .filter(o -> !o.getPlacedAt().isBefore(startInclusive)
+                                                && o.getPlacedAt().isBefore(endExclusive))
+                                .count();
+        }
+
+        private long countPendingPlacedInWindow(
+                        Wholesaler wholesaler,
+                        Set<UUID> retailerScope,
+                        LocalDateTime startInclusive,
+                        LocalDateTime endExclusive) {
+                return orderRepository.findByWholesaler(wholesaler).stream()
+                                .filter(o -> o != null && o.getPlacedAt() != null && o.getStatus() == Order.Status.PLACED)
+                                .filter(o -> retailerScope == null
+                                                || (o.getRetailer() != null
+                                                                && retailerScope.contains(o.getRetailer().getId())))
+                                .filter(o -> !o.getPlacedAt().isBefore(startInclusive)
+                                                && o.getPlacedAt().isBefore(endExclusive))
+                                .count();
+        }
+
+        private BigDecimal sumPaymentsInWindow(
+                        Wholesaler wholesaler,
+                        Set<UUID> retailerScope,
+                        LocalDateTime startInclusive,
+                        LocalDateTime endExclusive) {
+                BigDecimal sum = BigDecimal.ZERO;
+                for (Payment p : paymentRepository.findByWholesaler(wholesaler)) {
+                        if (p == null || p.getStatus() != Payment.PaymentStatus.CONFIRMED) {
+                                continue;
+                        }
+                        LocalDateTime at = p.getConfirmedAt();
+                        if (at == null) {
+                                continue;
+                        }
+                        if (at.isBefore(startInclusive) || !at.isBefore(endExclusive)) {
+                                continue;
+                        }
+                        if (retailerScope != null
+                                        && (p.getRetailer() == null || !retailerScope.contains(p.getRetailer().getId()))) {
+                                continue;
+                        }
+                        sum = sum.add(p.getAmount() != null ? p.getAmount() : BigDecimal.ZERO);
+                }
+                return sum;
+        }
+
+        private static final EnumSet<Order.Status> SALES_ELIGIBLE_STATUSES = EnumSet.of(
+                        Order.Status.ACCEPTED,
+                        Order.Status.PACKING,
+                        Order.Status.DISPATCHED,
+                        Order.Status.DELIVERED,
+                        Order.Status.COMPLETED,
+                        Order.Status.INVOICED);
+
+        private static LocalDate saleAttributionDate(Order o) {
+                if (o == null || o.getAcceptedAt() == null) {
+                        return null;
+                }
+                return o.getAcceptedAt().toLocalDate();
+        }
+
+        private static boolean countsTowardSales(Order o) {
+                return o != null
+                                && o.getStatus() != null
+                                && SALES_ELIGIBLE_STATUSES.contains(o.getStatus())
+                                && saleAttributionDate(o) != null;
+        }
+
+        private BigDecimal sumSalesForCalendarDay(Wholesaler wholesaler, Set<UUID> retailerScope, LocalDate day) {
+                return sumSalesInWindow(
+                                wholesaler,
+                                retailerScope,
+                                day.atStartOfDay(),
+                                day.plusDays(1).atStartOfDay());
+        }
+
+        private BigDecimal sumSalesInWindow(
+                        Wholesaler wholesaler,
+                        Set<UUID> retailerScope,
+                        LocalDateTime startInclusive,
+                        LocalDateTime endExclusive) {
+                BigDecimal sum = BigDecimal.ZERO;
+                for (Order o : orderRepository.findByWholesaler(wholesaler)) {
+                        if (!countsTowardSales(o)) {
+                                continue;
+                        }
+                        LocalDateTime at = o.getAcceptedAt();
+                        if (at == null || at.isBefore(startInclusive) || !at.isBefore(endExclusive)) {
+                                continue;
+                        }
+                        if (retailerScope != null
+                                        && (o.getRetailer() == null || !retailerScope.contains(o.getRetailer().getId()))) {
+                                continue;
+                        }
+                        BigDecimal total = o.getTotalAmount() != null ? o.getTotalAmount() : BigDecimal.ZERO;
+                        sum = sum.add(total);
+                }
+                return sum;
+        }
+
+        private String retailerShopDisplayName(Retailer r) {
+                if (r == null) {
+                        return "Retailer";
+                }
+                String shop = r.getShopName() != null ? r.getShopName().trim() : "";
+                if (!shop.isEmpty()) {
+                        return shop;
+                }
+                String contact = r.getContactName() != null ? r.getContactName().trim() : "";
+                if (!contact.isEmpty()) {
+                        return contact;
+                }
+                if (r.getUser() != null && r.getUser().getName() != null && !r.getUser().getName().isBlank()) {
+                        return r.getUser().getName().trim();
+                }
+                return "Retailer";
         }
 
         /** null = no filter; empty set = no retailers match region */
@@ -191,7 +444,7 @@ public class DashboardService {
                                 || "all".equalsIgnoreCase(regionFilter.trim())) {
                         return null;
                 }
-                String want = regionFilter.trim();
+                String want = com.diya.backend.util.RegionCatalog.normalize(regionFilter.trim());
                 Set<UUID> ids = new HashSet<>();
                 for (Connection c : connectionRepository.findByWholesalerAndStatusOrderByRequestedAtDesc(
                                 wholesaler, Connection.Status.APPROVED)) {
@@ -227,7 +480,7 @@ public class DashboardService {
                 }
 
                 // Top / risk region derived from real territory-performance aggregation (retailer.region only).
-                List<TerritoryPerformanceDTO> perf = analyticsService.getTerritoryPerformance(identifier, "revenue");
+                List<TerritoryPerformanceDTO> perf = analyticsService.getTerritoryPerformance(identifier);
 
                 TerritoryPerformanceDTO topRow = perf.stream()
                                 .max(Comparator.comparing(p -> p.getRevenue() == null ? BigDecimal.ZERO : p.getRevenue()))

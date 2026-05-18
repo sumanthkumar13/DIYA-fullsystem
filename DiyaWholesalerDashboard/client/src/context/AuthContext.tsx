@@ -1,5 +1,6 @@
 import React, { createContext, useContext, useEffect, useState } from "react";
 import api from "@/lib/api";
+import { mergeAuthProfile } from "@/lib/accountProfile";
 
 type AuthUser = {
   token: string;
@@ -53,17 +54,9 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
       api
         .get("/users/me")
         .then((res) => {
-          const serverAvatar = (res.data as any)?.avatarUrl;
-          const serverName = (res.data as any)?.name;
-          const serverBusinessName = (res.data as any)?.businessName;
-          if (typeof serverAvatar === "string" && serverAvatar.trim()) {
-            setUser((prev) => (prev ? ({ ...(prev as any), avatarUrl: serverAvatar.trim() } as any) : prev));
-          }
-          if (typeof serverName === "string" && serverName.trim()) {
-            setUser((prev) => (prev ? ({ ...(prev as any), name: serverName.trim() } as any) : prev));
-          } else if (typeof serverBusinessName === "string" && serverBusinessName.trim()) {
-            setUser((prev) => (prev ? ({ ...(prev as any), businessName: serverBusinessName.trim() } as any) : prev));
-          }
+          const data = res.data as Record<string, unknown> | undefined;
+          if (!data) return;
+          setUser((prev) => mergeAuthProfile(prev as Record<string, unknown> | null, data) as AuthUser);
         })
         .catch(() => {});
     } else {

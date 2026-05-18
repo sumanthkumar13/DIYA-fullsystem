@@ -1,4 +1,6 @@
 import { useMemo } from "react";
+import { useQuery } from "@tanstack/react-query";
+import { Loader2 } from "lucide-react";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -6,32 +8,39 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/com
 import { Label } from "@/components/ui/label";
 import { Separator } from "@/components/ui/separator";
 import { useAuth } from "@/context/AuthContext";
+import { getAccountEmail, pickFirstString } from "@/lib/accountProfile";
 import { getInitials, getUserDisplayName } from "@/lib/greeting";
+import { getWholesalerSettings } from "@/services/wholesalerSettings";
 import avatarImage from "@assets/generated_images/professional_business_avatar_for_a_wholesaler.png";
 import { useLocation } from "wouter";
-
-function pickFirstString(...values: unknown[]) {
-  for (const v of values) {
-    if (typeof v === "string" && v.trim()) return v.trim();
-  }
-  return "";
-}
 
 export default function ProfilePage() {
   const { user } = useAuth();
   const [, setLocation] = useLocation();
 
-  const displayName = getUserDisplayName(user) || "Account";
+  const { data: settings, isLoading: settingsLoading } = useQuery({
+    queryKey: ["wholesaler-settings"],
+    queryFn: getWholesalerSettings,
+  });
+
+  const displayName = useMemo(
+    () => pickFirstString(settings?.ownerName, getUserDisplayName(user)) || "Account",
+    [settings?.ownerName, user],
+  );
   const initials = getInitials(displayName);
-  const avatarUrl = (user as any)?.avatarUrl as string | undefined;
+  const avatarUrl = (user as { avatarUrl?: string })?.avatarUrl;
 
   const email = useMemo(
-    () => pickFirstString((user as any)?.email, (user as any)?.user?.email, (user as any)?.profile?.email),
-    [user]
+    () => getAccountEmail(user as Record<string, unknown>, settings?.email),
+    [user, settings?.email],
+  );
+  const phone = useMemo(
+    () => pickFirstString(settings?.phone, (user as { phone?: string })?.phone),
+    [settings?.phone, user],
   );
   const role = useMemo(
-    () => pickFirstString((user as any)?.role, (user as any)?.user?.role, (user as any)?.profile?.role),
-    [user]
+    () => pickFirstString((user as { role?: string })?.role),
+    [user],
   );
 
   return (
@@ -74,35 +83,48 @@ export default function ProfilePage() {
         <Card className="bg-white border-gray-200 shadow-sm lg:col-span-2">
           <CardHeader>
             <CardTitle>Account information</CardTitle>
-            <CardDescription>These details come from your login token.</CardDescription>
+            <CardDescription>Synced with your Settings page and account record.</CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
-            <div className="grid md:grid-cols-2 gap-4">
-              <div className="space-y-2">
-                <Label>Full name</Label>
-                <div className="h-10 px-3 rounded-md border border-gray-200 bg-gray-50 flex items-center text-sm text-gray-900">
-                  {displayName}
+            {settingsLoading ? (
+              <div className="flex items-center gap-2 text-sm text-gray-500 py-4">
+                <Loader2 className="h-4 w-4 animate-spin" />
+                Loading account details…
+              </div>
+            ) : (
+              <div className="grid md:grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <Label>Full name</Label>
+                  <div className="h-10 px-3 rounded-md border border-gray-200 bg-gray-50 flex items-center text-sm text-gray-900">
+                    {displayName}
+                  </div>
+                </div>
+                <div className="space-y-2">
+                  <Label>Email</Label>
+                  <div className="h-10 px-3 rounded-md border border-gray-200 bg-gray-50 flex items-center text-sm text-gray-900">
+                    {email || "—"}
+                  </div>
+                </div>
+                <div className="space-y-2">
+                  <Label>Phone</Label>
+                  <div className="h-10 px-3 rounded-md border border-gray-200 bg-gray-50 flex items-center text-sm text-gray-900">
+                    {phone || "—"}
+                  </div>
+                </div>
+                <div className="space-y-2">
+                  <Label>Role</Label>
+                  <div className="h-10 px-3 rounded-md border border-gray-200 bg-gray-50 flex items-center text-sm text-gray-900">
+                    {role || "—"}
+                  </div>
+                </div>
+                <div className="space-y-2">
+                  <Label>Sign-in status</Label>
+                  <div className="h-10 px-3 rounded-md border border-gray-200 bg-gray-50 flex items-center text-sm text-gray-900">
+                    {user?.token ? "Signed in" : "Signed out"}
+                  </div>
                 </div>
               </div>
-              <div className="space-y-2">
-                <Label>Email</Label>
-                <div className="h-10 px-3 rounded-md border border-gray-200 bg-gray-50 flex items-center text-sm text-gray-900">
-                  {email || "—"}
-                </div>
-              </div>
-              <div className="space-y-2">
-                <Label>Role</Label>
-                <div className="h-10 px-3 rounded-md border border-gray-200 bg-gray-50 flex items-center text-sm text-gray-900">
-                  {role || "—"}
-                </div>
-              </div>
-              <div className="space-y-2">
-                <Label>Token status</Label>
-                <div className="h-10 px-3 rounded-md border border-gray-200 bg-gray-50 flex items-center text-sm text-gray-900">
-                  {user?.token ? "Signed in" : "Signed out"}
-                </div>
-              </div>
-            </div>
+            )}
 
             <Separator />
 
@@ -135,4 +157,5 @@ export default function ProfilePage() {
     </div>
   );
 }
+
 

@@ -120,7 +120,8 @@ class _RetailerNavigationBar extends ConsumerWidget {
       };
 
   void _go(BuildContext context, WidgetRef ref, NavTab tab) {
-    if (tab != NavTab.cart) {
+    // Refresh session in background when switching tabs (sync coalesces concurrent calls).
+    if (tab != NavTab.cart && tab != current) {
       ref.read(retailerSessionProvider.notifier).sync();
     }
 
@@ -137,8 +138,7 @@ class _RetailerNavigationBar extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final cart = ref.watch(cartProvider).valueOrNull;
-    final cartCount = cart?.totalItems ?? 0;
+    final cartCount = ref.watch(cartBadgeCountProvider);
 
     return SafeArea(
       top: false,

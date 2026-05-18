@@ -17,5 +17,9 @@ public class TopRetailerDTO {
     private String retailerName;
     private long totalOrders;
     private BigDecimal totalRevenue;
+    /** Ledger outstanding for this retailer (never negative). */
+    private BigDecimal outstandingDue;
+    /** totalRevenue / totalOrders for the selected period (accepted sales). */
+    private BigDecimal averageOrderValue;
 }
 

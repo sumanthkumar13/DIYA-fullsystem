@@ -3,15 +3,18 @@ package com.diya.backend.service;
 import com.diya.backend.dto.OrderCheckoutRequest;
 import com.diya.backend.dto.OrderCheckoutResponse;
 import com.diya.backend.dto.order.OrderListItemDTO;
+import com.diya.backend.dto.order.RetailerOrderDetailDTO;
 import com.diya.backend.dto.order.WholesalerOrderDetailDTO;
 import com.diya.backend.dto.order.WholesalerOrderItemDetailDTO;
 import com.diya.backend.dto.order.WholesalerOrderAcceptRequest;
 import com.diya.backend.dto.order.WholesalerOrderEditRequest;
 import com.diya.backend.dto.order.WholesalerOrderCreditPatchRequest;
 import com.diya.backend.dto.order.WholesalerCreateOrderRequest;
+import com.diya.backend.dto.retailer.RetailerCreditSummaryDTO;
 import com.diya.backend.entity.*;
 import com.diya.backend.repository.*;
 import com.diya.backend.util.OrderPrefixUtil;
+import com.diya.backend.util.RegionCatalog;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -44,6 +47,7 @@ public class OrderService {
     private final LedgerEntryRepository ledgerEntryRepository;
     private final com.diya.backend.repository.InvoiceRepository invoiceRepository;
     private final PaymentService paymentService;
+    private final KhatabookService khatabookService;
 
     // ==========================================================
     // RETAILER: Checkout from Cart -> Create Order
@@ -149,12 +153,6 @@ public class OrderService {
 
         order = orderRepository.save(order);
 
-        // ✅ Debug: Log order creation
-        System.out.println("[ORDER SERVICE] Order created - ID: " + order.getId() + 
-                ", OrderNumber: " + order.getOrderNumber() + 
-                ", WholesalerID: " + order.getWholesaler().getId() + 
-                ", Status: " + order.getStatus());
-
         // 7) Create OrderItems + reserve stock
         for (CartItem ci : itemsToCheckout) {
 
@@ -237,6 +235,8 @@ public class OrderService {
             String status,
             String search,
             String dateRange,
+            String region,
+            java.util.UUID retailerId,
             Integer page,
             Integer size) {
 
@@ -252,20 +252,30 @@ public class OrderService {
 
         List<Order> orders = orderRepository.findByWholesaler(wholesaler);
 
-        // ✅ Debug: Log orders found
-        System.out.println("[ORDER SERVICE] getOrdersForWholesaler - WholesalerID: " + wholesaler.getId() + 
-                ", Total orders found: " + orders.size());
-        if (!orders.isEmpty()) {
-            System.out.println("[ORDER SERVICE] Sample order - ID: " + orders.get(0).getId() + 
-                    ", Status: " + orders.get(0).getStatus() + 
-                    ", OrderNumber: " + orders.get(0).getOrderNumber());
+        if (retailerId != null) {
+            orders = orders.stream()
+                    .filter(o -> o.getRetailer() != null && retailerId.equals(o.getRetailer().getId()))
+                    .toList();
         }
 
         // status filter
         if (status != null && !status.isBlank() && !"all".equalsIgnoreCase(status)) {
-            orders = orders.stream()
-                    .filter(o -> o.getStatus() != null && o.getStatus().name().equalsIgnoreCase(status))
-                    .toList();
+            String st = status.trim();
+            // "Delivered" filter should include all post-delivery stages (e.g. COMPLETED/INVOICED).
+            if ("DELIVERED".equalsIgnoreCase(st)) {
+                java.util.Set<Order.Status> deliveredOrLater = java.util.EnumSet.of(
+                        Order.Status.DELIVERED,
+                        Order.Status.COMPLETED,
+                        Order.Status.INVOICED
+                );
+                orders = orders.stream()
+                        .filter(o -> o.getStatus() != null && deliveredOrLater.contains(o.getStatus()))
+                        .toList();
+            } else {
+                orders = orders.stream()
+                        .filter(o -> o.getStatus() != null && o.getStatus().name().equalsIgnoreCase(st))
+                        .toList();
+            }
         }
 
         // search filter
@@ -273,9 +283,13 @@ public class OrderService {
             String q = search.toLowerCase();
             orders = orders.stream()
                     .filter(o -> {
-                        String rn = o.getRetailer() != null && o.getRetailer().getUser() != null
-                                ? o.getRetailer().getUser().getName().toLowerCase()
-                                : "";
+                        String rn = "";
+                        if (o.getRetailer() != null) {
+                            Retailer r = o.getRetailer();
+                            String shop = r.getShopName() != null ? r.getShopName().toLowerCase() : "";
+                            String user = (r.getUser() != null && r.getUser().getName() != null) ? r.getUser().getName().toLowerCase() : "";
+                            rn = (shop + " " + user).trim();
+                        }
                         String on = o.getOrderNumber() != null ? o.getOrderNumber().toLowerCase() : "";
                         return rn.contains(q) || on.contains(q);
                     })
@@ -299,6 +313,17 @@ public class OrderService {
                         .toList();
                 default -> {
                 }
+            }
+        }
+
+        // Retailer territory filter (must run before pagination so pages are stable)
+        if (region != null && !region.isBlank()) {
+            String want = RegionCatalog.normalize(region);
+            if (!want.isEmpty()) {
+                orders = orders.stream()
+                        .filter(o -> o.getRetailer() != null
+                                && want.equals(RegionCatalog.normalize(o.getRetailer().getRegion())))
+                        .toList();
             }
         }
 
@@ -337,11 +362,22 @@ public class OrderService {
             int itemCount = o.getOrderItems() == null ? 0 : o.getOrderItems().size();
 
             String loc = "";
+            String retailerRegion = null;
+            String retailerDisplayName = "Retailer";
             if (o.getRetailer() != null) {
                 Retailer r = o.getRetailer();
+                retailerRegion = r.getRegion();
                 String city = r.getCity() != null ? r.getCity() : "";
                 String state = r.getState() != null ? r.getState() : "";
                 loc = (city + (city.isEmpty() || state.isEmpty() ? "" : ", ") + state).trim();
+
+                String n1 = (r.getUser() != null && r.getUser().getName() != null) ? r.getUser().getName().trim() : "";
+                String n2 = r.getShopName() != null ? r.getShopName().trim() : "";
+                String n3 = r.getContactName() != null ? r.getContactName().trim() : "";
+                // Prefer shopName in wholesaler views.
+                if (!n2.isBlank()) retailerDisplayName = n2;
+                else if (!n1.isBlank()) retailerDisplayName = n1;
+                else if (!n3.isBlank()) retailerDisplayName = n3;
             }
 
             BigDecimal total = o.getTotalAmount() != null ? o.getTotalAmount() : BigDecimal.ZERO;
@@ -359,10 +395,9 @@ public class OrderService {
                     .id(o.getId().toString())
                     .orderNumber(o.getOrderNumber())
                     .retailerId(o.getRetailer() != null && o.getRetailer().getId() != null ? o.getRetailer().getId().toString() : null)
-                    .retailer(o.getRetailer() != null && o.getRetailer().getUser() != null
-                            ? o.getRetailer().getUser().getName()
-                            : "Unknown")
+                    .retailer(retailerDisplayName)
                     .location(loc)
+                    .region(retailerRegion)
                     .amount(o.getTotalAmount() == null ? BigDecimal.ZERO : o.getTotalAmount())
                     .date(o.getPlacedAt() == null ? "" : o.getPlacedAt().toString())
                     .createdAt(o.getPlacedAt() == null ? "" : o.getPlacedAt().toString())
@@ -373,6 +408,92 @@ public class OrderService {
                     .unpaidAmount(unpaid)
                     .build();
         }).toList();
+    }
+
+    /**
+     * Recompute reservedStock for a set of products from scratch based on all PLACED orders
+     * (in placedAt order) for the wholesaler.
+     *
+     * This keeps partial-reservation semantics intact (reserve up to available at the time),
+     * and fixes cases where an edited order would otherwise leave stale reservations behind.
+     */
+    private void recomputeReservationsForProducts(Wholesaler wholesaler, java.util.Set<java.util.UUID> productIds) {
+        if (wholesaler == null || wholesaler.getId() == null) return;
+        if (productIds == null || productIds.isEmpty()) return;
+
+        java.util.List<Product> products = productRepository.findAllById(productIds);
+        java.util.Map<java.util.UUID, Product> productById = new java.util.HashMap<>();
+        for (Product p : products) {
+            if (p == null || p.getId() == null) continue;
+            p.setReservedStock(0);
+            productById.put(p.getId(), p);
+        }
+        productRepository.saveAll(productById.values());
+
+        java.util.List<Order> open = orderRepository.findByWholesaler(wholesaler).stream()
+                .filter(o -> o != null && o.getStatus() == Order.Status.PLACED)
+                .sorted(java.util.Comparator.comparing(
+                        (Order o) -> o.getPlacedAt() == null ? java.time.LocalDateTime.MIN : o.getPlacedAt()
+                ))
+                .toList();
+
+        java.util.Map<java.util.UUID, Integer> reservedByProductId = new java.util.HashMap<>();
+        for (java.util.UUID pid : productById.keySet()) {
+            reservedByProductId.put(pid, 0);
+        }
+
+        for (Order o : open) {
+            if (o.getOrderItems() == null) continue;
+            for (OrderItem item : o.getOrderItems()) {
+                if (item == null) continue;
+                java.util.UUID pid = null;
+                if (item.getProduct() != null && item.getProduct().getId() != null) {
+                    pid = item.getProduct().getId();
+                } else if (item.getProductIdSnapshot() != null) {
+                    pid = item.getProductIdSnapshot();
+                }
+                if (pid == null || !productById.containsKey(pid)) continue;
+
+                Product tracked = productById.get(pid);
+                int stock = tracked.getStock() == null ? 0 : Math.max(0, tracked.getStock());
+                int reservedSoFar = reservedByProductId.getOrDefault(pid, 0);
+                int available = Math.max(0, stock - reservedSoFar);
+
+                int qty = item.getQty() == null ? 0 : item.getQty();
+                int unitsPerSelling = (tracked.getUnitsPerSelling() != null && tracked.getUnitsPerSelling() > 0)
+                        ? tracked.getUnitsPerSelling()
+                        : 1;
+                long qtyBaseLong = (long) qty * (long) unitsPerSelling;
+                if (qtyBaseLong < 0) qtyBaseLong = 0;
+                if (qtyBaseLong > Integer.MAX_VALUE) qtyBaseLong = Integer.MAX_VALUE;
+                int qtyBase = (int) qtyBaseLong;
+
+                int reserveQtyBase = Math.min(qtyBase, available);
+                long nextLong = (long) reservedSoFar + (long) reserveQtyBase;
+                int nextReserved = nextLong > Integer.MAX_VALUE ? Integer.MAX_VALUE : (int) nextLong;
+
+                reservedByProductId.put(pid, nextReserved);
+                tracked.setReservedStock(nextReserved);
+            }
+        }
+
+        productRepository.saveAll(productById.values());
+    }
+
+    /**
+     * Rebuilds {@link Product#getReservedStock()} for every product owned by the wholesaler from all PLACED orders.
+     * Corrects stale/corrupted reservation totals (e.g. after bad quantities or partial Hibernate state).
+     */
+    private void reconcileReservedStockForWholesaler(Wholesaler wholesaler) {
+        if (wholesaler == null || wholesaler.getId() == null) return;
+        java.util.List<Product> all = productRepository.findByWholesalerId(wholesaler.getId());
+        java.util.Set<java.util.UUID> ids = new java.util.HashSet<>();
+        for (Product p : all) {
+            if (p != null && p.getId() != null) {
+                ids.add(p.getId());
+            }
+        }
+        recomputeReservationsForProducts(wholesaler, ids);
     }
 
     // ==========================================================
@@ -404,6 +525,7 @@ public class OrderService {
         }
 
         // Pre-validate items and compute subtotal
+        final long MAX_ORDER_QTY_PER_LINE = 100000L;
         for (WholesalerCreateOrderRequest.Item item : items) {
             if (item == null || item.getProductId() == null) {
                 throw new RuntimeException("productId is required for each item");
@@ -415,7 +537,14 @@ public class OrderService {
             Product p = productRepository.findById(item.getProductId())
                     .orElseThrow(() -> new RuntimeException("Product not found: " + item.getProductId()));
 
-            int qty = item.getQuantity();
+            long qtyLong = item.getQuantity();
+            if (qtyLong > MAX_ORDER_QTY_PER_LINE) {
+                throw new RuntimeException("Quantity too large (max " + MAX_ORDER_QTY_PER_LINE + ") for product: " + p.getName());
+            }
+            if (qtyLong > Integer.MAX_VALUE) {
+                throw new RuntimeException("Quantity too large for product: " + p.getName());
+            }
+            int qty = (int) qtyLong;
             BigDecimal unitPrice = p.getPrice() != null ? p.getPrice() : BigDecimal.ZERO;
             BigDecimal lineTotal = unitPrice
                     .multiply(BigDecimal.valueOf(qty))
@@ -446,7 +575,17 @@ public class OrderService {
             Product p = productRepository.findById(item.getProductId())
                     .orElseThrow(() -> new RuntimeException("Product not found: " + item.getProductId()));
 
-            int qty = item.getQuantity();
+            long qtyLong = item.getQuantity() == null ? 0L : item.getQuantity();
+            if (qtyLong <= 0) {
+                throw new RuntimeException("Quantity must be > 0 for each item");
+            }
+            if (qtyLong > MAX_ORDER_QTY_PER_LINE) {
+                throw new RuntimeException("Quantity too large (max " + MAX_ORDER_QTY_PER_LINE + ") for product: " + p.getName());
+            }
+            if (qtyLong > Integer.MAX_VALUE) {
+                throw new RuntimeException("Quantity too large for product: " + p.getName());
+            }
+            int qty = (int) qtyLong;
 
             // Stock in Diya is treated as BASE units for invoice/Tally consistency.
             // Order qty is in selling units, so convert using unitsPerSelling (default 1).
@@ -494,6 +633,8 @@ public class OrderService {
         wholesaler.setOrderSequence(nextSeq);
         wholesalerRepository.save(wholesaler);
 
+        reconcileReservedStockForWholesaler(wholesaler);
+
         return order;
     }
 
@@ -515,8 +656,17 @@ public class OrderService {
 
         List<Order> orders = orderRepository.findByRetailer(retailer);
 
+        Map<UUID, BigDecimal> paidByOrderId = new HashMap<>();
+        for (Payment p : paymentRepository.findByRetailerOrderByCreatedAtDesc(retailer)) {
+            if (p == null || p.getOrder() == null || p.getOrder().getId() == null) continue;
+            if (p.getStatus() != Payment.PaymentStatus.CONFIRMED) continue;
+            BigDecimal amt = p.getAmount() != null ? p.getAmount() : BigDecimal.ZERO;
+            paidByOrderId.merge(p.getOrder().getId(), amt, BigDecimal::add);
+        }
+
         return orders.stream().map(o -> {
             int itemCount = o.getOrderItems() == null ? 0 : o.getOrderItems().size();
+            OrderPaymentSummary summary = computeOrderPaymentSummary(o, paidByOrderId);
 
             return OrderListItemDTO.builder()
                     .id(o.getId().toString())
@@ -528,6 +678,9 @@ public class OrderService {
                     .status(o.getStatus() == null ? Order.Status.PLACED.name() : o.getStatus().name())
                     .items(itemCount)
                     .exposure("NORMAL")
+                    .paidAmount(summary.paidAmount())
+                    .unpaidAmount(summary.outstandingAmount())
+                    .paymentStatus(summary.displayPaymentStatus())
                     .build();
         }).toList();
     }
@@ -535,8 +688,93 @@ public class OrderService {
     // ==========================================================
     // RETAILER: Order detail
     // ==========================================================
-    public Order getRetailerOrderDetails(String identifier, UUID orderId) {
+    public RetailerOrderDetailDTO getRetailerOrderDetailDto(String identifier, UUID orderId) {
+        Order order = getRetailerOrderEntity(identifier, orderId);
+        OrderPaymentSummary summary = computeOrderPaymentSummary(order, null);
 
+        java.util.List<RetailerOrderDetailDTO.PaymentHistoryDTO> paymentHistory = new java.util.ArrayList<>();
+        try {
+            java.util.List<Payment> payments = paymentRepository.findByOrder(order);
+            if (payments != null) {
+                payments = payments.stream()
+                        .sorted(java.util.Comparator.comparing(
+                                p -> p.getConfirmedAt() != null ? p.getConfirmedAt() : p.getCreatedAt(),
+                                java.util.Comparator.nullsLast(java.util.Comparator.naturalOrder())))
+                        .toList();
+                for (Payment pay : payments) {
+                    if (pay == null) continue;
+                    paymentHistory.add(RetailerOrderDetailDTO.PaymentHistoryDTO.builder()
+                            .amount(pay.getAmount() == null ? BigDecimal.ZERO : pay.getAmount())
+                            .paymentMethod(pay.getMode() != null ? pay.getMode().name() : null)
+                            .status(pay.getStatus() != null ? pay.getStatus().name() : null)
+                            .createdAt(pay.getConfirmedAt() != null ? pay.getConfirmedAt() : pay.getCreatedAt())
+                            .build());
+                }
+            }
+        } catch (Exception ignored) {
+        }
+
+        Wholesaler w = order.getWholesaler();
+        RetailerOrderDetailDTO.WholesalerDTO wholesalerDto = null;
+        if (w != null) {
+            wholesalerDto = RetailerOrderDetailDTO.WholesalerDTO.builder()
+                    .id(w.getId())
+                    .businessName(w.getBusinessName())
+                    .city(w.getCity())
+                    .state(w.getState())
+                    .build();
+        }
+
+        List<RetailerOrderDetailDTO.OrderItemDTO> items = new ArrayList<>();
+        if (order.getOrderItems() != null) {
+            for (OrderItem oi : order.getOrderItems()) {
+                items.add(RetailerOrderDetailDTO.OrderItemDTO.builder()
+                        .id(oi.getId())
+                        .productNameSnapshot(oi.getProductNameSnapshot())
+                        .qty(oi.getQty())
+                        .unitPriceSnapshot(oi.getUnitPriceSnapshot())
+                        .lineTotal(oi.getLineTotal())
+                        .originalQty(oi.getOriginalQty())
+                        .originalUnitPrice(oi.getOriginalUnitPrice())
+                        .originalLineTotal(oi.getOriginalLineTotal())
+                        .build());
+            }
+        }
+
+        Integer cd = order.getCreditDays() != null ? order.getCreditDays() : 0;
+        LocalDateTime placed = order.getPlacedAt();
+        LocalDateTime displayDue = (placed != null && cd > 0)
+                ? placed.plusDays(cd)
+                : (order.getDueDate() != null ? order.getDueDate() : null);
+        boolean isOverdue = displayDue != null
+                && LocalDateTime.now().isAfter(displayDue)
+                && summary.outstandingAmount().compareTo(BigDecimal.ZERO) > 0;
+
+        return RetailerOrderDetailDTO.builder()
+                .id(order.getId())
+                .orderNumber(order.getOrderNumber())
+                .status(order.getStatus() != null ? order.getStatus().name() : null)
+                .paymentStatus(summary.displayPaymentStatus())
+                .paymentMode(order.getPaymentMode() != null ? order.getPaymentMode().name() : null)
+                .creditDays(cd)
+                .dueDate(displayDue)
+                .isOverdue(isOverdue)
+                .paidAmount(summary.paidAmount())
+                .outstandingAmount(summary.outstandingAmount())
+                .placedAt(order.getPlacedAt())
+                .editedAt(order.getEditedAt())
+                .editReason(order.getEditReason())
+                .subtotal(order.getSubtotal())
+                .taxAmount(order.getTaxAmount())
+                .deliveryCharge(order.getDeliveryCharge())
+                .totalAmount(order.getTotalAmount())
+                .wholesaler(wholesalerDto)
+                .orderItems(items)
+                .paymentHistory(paymentHistory)
+                .build();
+    }
+
+    private Order getRetailerOrderEntity(String identifier, UUID orderId) {
         Retailer retailer;
         if (identifier != null && identifier.contains("@")) {
             retailer = retailerRepository.findByUserEmail(identifier).orElse(null);
@@ -556,6 +794,49 @@ public class OrderService {
         }
 
         return order;
+    }
+
+    private record OrderPaymentSummary(
+            BigDecimal paidAmount,
+            BigDecimal outstandingAmount,
+            String displayPaymentStatus) {
+    }
+
+    private OrderPaymentSummary computeOrderPaymentSummary(Order order, Map<UUID, BigDecimal> paidByOrderId) {
+        BigDecimal paidAmount = BigDecimal.ZERO;
+        if (paidByOrderId != null && order.getId() != null) {
+            paidAmount = paidByOrderId.getOrDefault(order.getId(), BigDecimal.ZERO);
+        } else {
+            try {
+                List<Payment> payments = paymentRepository.findByOrder(order);
+                if (payments != null) {
+                    for (Payment pay : payments) {
+                        if (pay == null || pay.getStatus() != Payment.PaymentStatus.CONFIRMED) continue;
+                        paidAmount = paidAmount.add(pay.getAmount() == null ? BigDecimal.ZERO : pay.getAmount());
+                    }
+                }
+            } catch (Exception ignored) {
+            }
+        }
+
+        BigDecimal total = order.getTotalAmount() == null ? BigDecimal.ZERO : order.getTotalAmount();
+        BigDecimal outstanding = total.subtract(paidAmount).max(BigDecimal.ZERO);
+        if (order.getStatus() == Order.Status.PLACED
+                || order.getStatus() == Order.Status.REJECTED
+                || order.getStatus() == Order.Status.CANCELLED) {
+            outstanding = BigDecimal.ZERO;
+        }
+
+        String displayPaymentStatus;
+        if (outstanding.compareTo(BigDecimal.ZERO) <= 0) {
+            displayPaymentStatus = paidAmount.compareTo(BigDecimal.ZERO) > 0 ? "PAID" : "UNPAID";
+        } else if (paidAmount.compareTo(BigDecimal.ZERO) > 0) {
+            displayPaymentStatus = "PARTIAL";
+        } else {
+            displayPaymentStatus = "UNPAID";
+        }
+
+        return new OrderPaymentSummary(paidAmount, outstanding, displayPaymentStatus);
     }
 
     @Transactional
@@ -584,29 +865,14 @@ public class OrderService {
             throw new RuntimeException("Order cannot be cancelled after wholesaler accepts/rejects");
         }
 
-        // release reserved stock
-        if (order.getOrderItems() != null) {
-            for (OrderItem item : order.getOrderItems()) {
-                Product p = item.getProduct();
-                int qty = item.getQty();
-
-                if (p != null) {
-                    int unitsPerSelling = (p.getUnitsPerSelling() != null && p.getUnitsPerSelling() > 0)
-                            ? p.getUnitsPerSelling()
-                            : 1;
-                    int qtyBase = Math.max(0, qty * unitsPerSelling);
-
-                    int reserved = p.getReservedStock() == null ? 0 : p.getReservedStock();
-                    p.setReservedStock(Math.max(0, reserved - qtyBase));
-                    productRepository.save(p);
-                }
-            }
-        }
-
         order.setStatus(Order.Status.CANCELLED);
         order.setCancelledAt(LocalDateTime.now());
 
-        return orderRepository.save(order);
+        Order saved = orderRepository.saveAndFlush(order);
+        if (saved.getWholesaler() != null) {
+            reconcileReservedStockForWholesaler(saved.getWholesaler());
+        }
+        return saved;
     }
 
     // ==========================================================
@@ -638,6 +904,9 @@ public class OrderService {
     public WholesalerOrderDetailDTO getWholesalerOrderDetailDto(String identifier, String authType, UUID orderId) {
         Order order = getWholesalerOrderDetails(identifier, authType, orderId);
 
+        // Refresh reservation totals from persisted PLACED order lines (fixes stale DB + avoids stale entity cache).
+        reconcileReservedStockForWholesaler(order.getWholesaler());
+
         Retailer r = order.getRetailer();
         WholesalerOrderDetailDTO.RetailerDTO retailerDto = null;
         if (r != null) {
@@ -655,7 +924,7 @@ public class OrderService {
         java.util.List<WholesalerOrderItemDetailDTO> items = new java.util.ArrayList<>();
         if (order.getOrderItems() != null) {
             for (OrderItem oi : order.getOrderItems()) {
-                Product p = oi.getProduct(); // may be null if deleted
+                Product p = productRepository.findById(oi.getProductIdSnapshot()).orElse(null);
                 int stock = p != null && p.getStock() != null ? Math.max(0, p.getStock()) : 0;
                 int reserved = p != null && p.getReservedStock() != null ? Math.max(0, p.getReservedStock()) : 0;
                 int available = Math.max(0, stock - reserved);
@@ -824,10 +1093,21 @@ public class OrderService {
                 throw new RuntimeException("creditDays cannot be negative");
             }
             order.setCreditDays(d);
-            if (order.getPlacedAt() != null && d > 0) {
-                order.setDueDate(order.getPlacedAt().plusDays(d));
+            // Use placedAt when available, else fall back to acceptedAt so legacy rows
+            // (or older data) can still compute due dates reliably.
+            java.time.LocalDateTime base = order.getPlacedAt() != null
+                    ? order.getPlacedAt()
+                    : (order.getAcceptedAt() != null ? order.getAcceptedAt() : java.time.LocalDateTime.now());
+            if (d > 0) {
+                order.setDueDate(base.plusDays(d));
+                // Keep creditDueDate aligned when there is any approved credit amount.
+                java.math.BigDecimal approved = order.getApprovedCreditAmount() != null ? order.getApprovedCreditAmount() : java.math.BigDecimal.ZERO;
+                if (approved.compareTo(java.math.BigDecimal.ZERO) > 0) {
+                    order.setCreditDueDate(java.time.LocalDateTime.now().plusDays(d));
+                }
             } else {
                 order.setDueDate(null);
+                order.setCreditDueDate(null);
             }
         }
         if (req.getApprovedCreditAmount() != null) {
@@ -921,23 +1201,6 @@ public class OrderService {
         }
 
         if (target == Order.Status.REJECTED || target == Order.Status.CANCELLED) {
-            // release reserved stock
-            for (OrderItem item : order.getOrderItems()) {
-                Product p = item.getProduct();
-                int qty = item.getQty();
-                if (p == null) continue;
-
-                int unitsPerSelling = (p.getUnitsPerSelling() != null && p.getUnitsPerSelling() > 0)
-                        ? p.getUnitsPerSelling()
-                        : 1;
-                int qtyBase = Math.max(0, qty * unitsPerSelling);
-
-                int reserved = p.getReservedStock() == null ? 0 : p.getReservedStock();
-                p.setReservedStock(Math.max(0, reserved - qtyBase));
-
-                productRepository.save(p);
-            }
-
             order.setCancelledAt(LocalDateTime.now());
         }
 
@@ -950,7 +1213,11 @@ public class OrderService {
         }
 
         order.setStatus(target);
-        return orderRepository.save(order);
+        Order saved = orderRepository.saveAndFlush(order);
+        if (target == Order.Status.REJECTED || target == Order.Status.CANCELLED) {
+            reconcileReservedStockForWholesaler(wholesaler);
+        }
+        return saved;
     }
 
     // ==========================================================
@@ -961,6 +1228,7 @@ public class OrderService {
             String identifier,
             UUID orderId,
             boolean force,
+            boolean forceCredit,
             WholesalerOrderAcceptRequest req) {
         Wholesaler wholesaler = identifier.contains("@")
                 ? wholesalerRepository.findByUserEmail(identifier)
@@ -981,10 +1249,55 @@ public class OrderService {
 
         java.util.List<String> warnings = new java.util.ArrayList<>();
 
-        // Payment terms
+        // Payment terms — compute before stock so credit-limit checks run before inventory mutations.
         Order.PaymentMode paymentMode = req != null ? req.getPaymentMode() : null;
         if (paymentMode == null) {
             paymentMode = Order.PaymentMode.CASH; // backward compatible default
+        }
+
+        BigDecimal orderTotal = order.getTotalAmount() != null ? order.getTotalAmount() : BigDecimal.ZERO;
+        BigDecimal paidNow = BigDecimal.ZERO;
+        if (paymentMode == Order.PaymentMode.CREDIT) {
+            paidNow = BigDecimal.ZERO;
+        } else {
+            if (req != null && req.getPaidNow() != null) {
+                paidNow = req.getPaidNow();
+            } else {
+                paidNow = orderTotal;
+            }
+        }
+        if (paidNow.compareTo(BigDecimal.ZERO) < 0) {
+            paidNow = BigDecimal.ZERO;
+        }
+        if (paidNow.compareTo(orderTotal) > 0) {
+            throw new RuntimeException("paidNow cannot exceed order total");
+        }
+
+        BigDecimal remainingCredit = orderTotal.subtract(paidNow).max(BigDecimal.ZERO);
+
+        if (remainingCredit.compareTo(BigDecimal.ZERO) > 0) {
+            Integer creditDaysEarly = req != null ? req.getCreditDays() : null;
+            if (creditDaysEarly == null || creditDaysEarly <= 0) {
+                throw new RuntimeException("creditDays must be > 0 for remaining credit amount");
+            }
+        }
+
+        if (!forceCredit && remainingCredit.compareTo(BigDecimal.ZERO) > 0) {
+            Retailer retailer = order.getRetailer();
+            if (retailer != null) {
+                BigDecimal limit = retailer.getCreditLimit();
+                if (limit != null && limit.compareTo(BigDecimal.ZERO) > 0) {
+                    RetailerCreditSummaryDTO summary =
+                            khatabookService.getRetailerCreditSummary(wholesaler.getId(), retailer.getId());
+                    BigDecimal currentOutstanding = summary.getTotalOutstanding() != null
+                            ? summary.getTotalOutstanding()
+                            : BigDecimal.ZERO;
+                    BigDecimal projected = currentOutstanding.add(remainingCredit);
+                    if (projected.compareTo(limit) > 0) {
+                        throw new RuntimeException("CREDIT_LIMIT_EXCEEDED");
+                    }
+                }
+            }
         }
 
         if (order.getOrderItems() != null) {
@@ -1011,7 +1324,6 @@ public class OrderService {
                             + " (ordered base units " + orderedQtyBase + ", available " + available + ")");
                 }
 
-                // Deduct what we can fulfill now
                 int fulfillQtyBase = force ? Math.min(orderedQtyBase, stock) : Math.min(orderedQtyBase, available);
 
                 if (fulfillQtyBase < orderedQtyBase) {
@@ -1019,7 +1331,6 @@ public class OrderService {
                             + ": ordered base units " + orderedQtyBase + ", fulfilled " + fulfillQtyBase + ", available " + available);
                 }
 
-                // Apply stock changes (never go negative)
                 int newStock = Math.max(0, stock - fulfillQtyBase);
                 int reservedDecrease = Math.min(reserved, fulfillQtyBase);
                 int newReserved = Math.max(0, reserved - reservedDecrease);
@@ -1030,37 +1341,12 @@ public class OrderService {
             }
         }
 
-        // Accept timestamps
         order.setStatus(Order.Status.ACCEPTED);
         LocalDateTime acceptedAt = LocalDateTime.now();
         order.setAcceptedAt(acceptedAt);
 
-        // Apply payment mode rules (Tally-fast)
         order.setPaymentMode(paymentMode);
-        BigDecimal orderTotal = order.getTotalAmount() != null ? order.getTotalAmount() : BigDecimal.ZERO;
-        BigDecimal paidNow = BigDecimal.ZERO;
-        if (paymentMode == Order.PaymentMode.CREDIT) {
-            paidNow = BigDecimal.ZERO;
-        } else {
-            // CASH/UPI: wholesaler can capture immediate paid amount at acceptance.
-            // Backward-compatible default: assume full paid if client does not send paidNow.
-            if (req != null && req.getPaidNow() != null) {
-                paidNow = req.getPaidNow();
-            } else {
-                paidNow = orderTotal;
-            }
-        }
 
-        if (paidNow.compareTo(BigDecimal.ZERO) < 0) {
-            paidNow = BigDecimal.ZERO;
-        }
-        if (paidNow.compareTo(orderTotal) > 0) {
-            throw new RuntimeException("paidNow cannot exceed order total");
-        }
-
-        BigDecimal remainingCredit = orderTotal.subtract(paidNow).max(BigDecimal.ZERO);
-
-        // Remaining amount is treated as credit exposure (even for CASH/UPI mode)
         if (remainingCredit.compareTo(BigDecimal.ZERO) > 0) {
             Integer creditDays = req != null ? req.getCreditDays() : null;
             if (creditDays == null || creditDays <= 0) {
@@ -1080,7 +1366,8 @@ public class OrderService {
 
         Order saved = orderRepository.save(order);
 
-        // Ledger exposure applies only if remaining credit > 0.
+        reconcileReservedStockForWholesaler(wholesaler);
+
         if (remainingCredit.compareTo(BigDecimal.ZERO) > 0) {
             createDebitLedgerEntryForAcceptedOrder(
                     saved,
@@ -1092,7 +1379,6 @@ public class OrderService {
             );
         }
 
-        // Immediate payment is considered verified because wholesaler is entering it.
         if (paidNow.compareTo(BigDecimal.ZERO) > 0) {
             Payment.PaymentMode payMode = paymentMode == Order.PaymentMode.UPI
                     ? Payment.PaymentMode.UPI
@@ -1110,6 +1396,7 @@ public class OrderService {
         java.util.Map<String, Object> resp = new java.util.HashMap<>();
         resp.put("success", true);
         resp.put("forced", force);
+        resp.put("forcedCredit", forceCredit);
         resp.put("warnings", warnings);
         resp.put("order", saved);
         return resp;
@@ -1198,6 +1485,11 @@ public class OrderService {
             throw new RuntimeException("Order cannot be edited after it is packed");
         }
 
+        BigDecimal paidOnOrder = sumConfirmedPaymentsForOrder(order);
+        if (paidOnOrder.compareTo(BigDecimal.ZERO) > 0) {
+            throw new RuntimeException("Order cannot be edited after any payment has been recorded");
+        }
+
         // Index items by ID for quick lookup
         java.util.Map<java.util.UUID, OrderItem> itemById = new java.util.HashMap<>();
         if (order.getOrderItems() != null) {
@@ -1280,6 +1572,8 @@ public class OrderService {
 
         Order saved = orderRepository.save(order);
 
+        reconcileReservedStockForWholesaler(wholesaler);
+
         java.util.Map<String, Object> resp = new java.util.HashMap<>();
         resp.put("success", true);
         resp.put("message", "Order updated");
@@ -1287,5 +1581,22 @@ public class OrderService {
         resp.put("orderId", saved.getId());
         resp.put("editedAt", saved.getEditedAt());
         return resp;
+    }
+
+    private BigDecimal sumConfirmedPaymentsForOrder(Order order) {
+        BigDecimal paid = BigDecimal.ZERO;
+        if (order == null) {
+            return paid;
+        }
+        List<Payment> payments = paymentRepository.findByOrder(order);
+        if (payments == null) {
+            return paid;
+        }
+        for (Payment p : payments) {
+            if (p != null && p.getStatus() == Payment.PaymentStatus.CONFIRMED) {
+                paid = paid.add(p.getAmount() == null ? BigDecimal.ZERO : p.getAmount());
+            }
+        }
+        return paid;
     }
 }

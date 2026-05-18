@@ -12,6 +12,10 @@ public class DashboardKpiDTO {
     private BigDecimal paymentsReceivedYesterday;
     private int pendingOrders;
     private int pendingOrdersYesterday;
-    private BigDecimal totalOutstanding;
-    private BigDecimal totalOutstandingYesterday;
+    /**
+     * Sum of {@link com.diya.backend.entity.Order#getTotalAmount()} for orders accepted on the given calendar day
+     * (server local date) that are still in post-acceptance active statuses. Excludes PLACED / REJECTED / CANCELLED.
+     */
+    private BigDecimal salesToday;
+    private BigDecimal salesYesterday;
 }

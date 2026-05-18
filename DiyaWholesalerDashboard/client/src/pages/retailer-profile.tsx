@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { useRoute, Link, useLocation } from "wouter";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
@@ -12,6 +12,10 @@ import {
   Package,
   Ban,
   UserMinus,
+  Clock,
+  CheckCircle2,
+  Truck,
+  XCircle,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -36,6 +40,10 @@ import { cn } from "@/lib/utils";
 import { useToast } from "@/hooks/use-toast";
 import { invalidateAfterMutation } from "@/lib/invalidate";
 import { formatINR } from "@/lib/money";
+import {
+  normalizeWholesalerOrderListItem,
+  wholesalerOrderUiStatusPillClass,
+} from "@/lib/wholesalerOrderStatus";
 import {
   AlertDialog,
   AlertDialogCancel,
@@ -74,13 +82,24 @@ function connectionStatusLabel(status: string) {
   return "Active";
 }
 
-function mapStatusToUI(status: string): string {
-  const m: Record<string, string> = {
-    PLACED: "Pending", ACCEPTED: "Approved", PACKING: "Packed",
-    DISPATCHED: "Out for Delivery", DELIVERED: "Delivered",
-    COMPLETED: "Delivered", CANCELLED: "Cancelled", REJECTED: "Rejected",
-  };
-  return m[status] || status;
+function orderStatusIcon(uiStatus: string) {
+  switch (uiStatus) {
+    case "Pending":
+      return Clock;
+    case "Approved":
+      return CheckCircle2;
+    case "Packed":
+      return Package;
+    case "Out for Delivery":
+      return Truck;
+    case "Delivered":
+      return CheckCircle2;
+    case "Cancelled":
+    case "Rejected":
+      return XCircle;
+    default:
+      return AlertTriangle;
+  }
 }
 
 export default function RetailerProfile() {
@@ -199,14 +218,96 @@ export default function RetailerProfile() {
     },
   });
 
-  const { data: ordersData } = useQuery({
-    queryKey: ["orders"],
-    queryFn: () => fetchOrders(),
-    enabled: !!retailerId && !!data?.retailerName,
-  });
-  const orders = (ordersData || []).filter(
-    (o: OrderListItem) => (o as any).retailerId === retailerId || o.retailer === data?.retailerName
+  const pageSize = 20;
+  const [retailerOrders, setRetailerOrders] = useState<OrderListItem[]>([]);
+  const [retailerOrdersLoading, setRetailerOrdersLoading] = useState(false);
+  const [retailerOrdersLoadingMore, setRetailerOrdersLoadingMore] = useState(false);
+  const [retailerOrdersHasMore, setRetailerOrdersHasMore] = useState(false);
+  const retailerOrdersLastPageRef = useRef(-1);
+  const retailerOrdersLoadingMoreRef = useRef(false);
+  const retailerOrdersAppendNewRef = useRef(0);
+
+  const loadRetailerOrders = useCallback(
+    async (opts: { reset: boolean; pageOverride?: number }) => {
+      if (!retailerId) return;
+      try {
+        if (opts.reset) {
+          setRetailerOrdersLoading(true);
+          setRetailerOrders([]);
+          retailerOrdersLastPageRef.current = -1;
+        } else {
+          if (retailerOrdersLoadingMoreRef.current) return;
+          retailerOrdersLoadingMoreRef.current = true;
+          setRetailerOrdersLoadingMore(true);
+        }
+
+        const nextPage = opts.reset
+          ? (opts.pageOverride ?? 0)
+          : opts.pageOverride !== undefined
+            ? opts.pageOverride
+            : retailerOrdersLastPageRef.current + 1;
+
+        const raw = await fetchOrders(
+          undefined,
+          undefined,
+          undefined,
+          undefined,
+          retailerId,
+          nextPage,
+          pageSize
+        );
+        const arr = Array.isArray(raw) ? raw : [];
+        const batch = arr.map((o: unknown) =>
+          normalizeWholesalerOrderListItem(o as Record<string, unknown>)
+        );
+
+        setRetailerOrders((prev) => {
+          if (opts.reset) {
+            retailerOrdersAppendNewRef.current = batch.length;
+            return batch;
+          }
+          const seen = new Set(prev.map((x) => x.id).filter(Boolean));
+          let newItems = 0;
+          const merged = [...prev];
+          for (const o of batch) {
+            if (o.id && !seen.has(o.id)) {
+              seen.add(o.id);
+              merged.push(o);
+              newItems++;
+            }
+          }
+          retailerOrdersAppendNewRef.current = newItems;
+          return merged;
+        });
+
+        const newItems = retailerOrdersAppendNewRef.current;
+        const batchFull = arr.length === pageSize;
+        if (!opts.reset && batchFull && newItems === 0) {
+          setRetailerOrdersHasMore(false);
+        } else {
+          setRetailerOrdersHasMore(batchFull);
+        }
+        retailerOrdersLastPageRef.current = nextPage;
+      } catch (e) {
+        console.error(e);
+        if (opts.reset) {
+          setRetailerOrders([]);
+          setRetailerOrdersHasMore(false);
+        }
+      } finally {
+        retailerOrdersLoadingMoreRef.current = false;
+        setRetailerOrdersLoading(false);
+        setRetailerOrdersLoadingMore(false);
+      }
+    },
+    [retailerId, pageSize]
   );
+
+  useEffect(() => {
+    if (!retailerId) return;
+    setRetailerOrdersHasMore(false);
+    void loadRetailerOrders({ reset: true, pageOverride: 0 });
+  }, [retailerId, loadRetailerOrders]);
 
   const { data: statement, isLoading: statementLoading } = useQuery({
     queryKey: ["retailer-statement", retailerId],
@@ -215,8 +316,13 @@ export default function RetailerProfile() {
     refetchOnMount: "always",
   });
 
-  const retailerName = data?.retailerName ?? "Retailer";
-  const initials = retailerName.slice(0, 2).toUpperCase();
+  const shopDisplayName = (data?.shopName?.trim() || data?.retailerName?.trim() || "Retailer");
+  const ownerDisplayName =
+    data?.proprietorName?.trim() ||
+    data?.retailerName?.trim() ||
+    shopDisplayName;
+  const headerTitle = shopDisplayName;
+  const initials = ownerDisplayName.slice(0, 2).toUpperCase();
   const locationLine =
     (data?.region && String(data.region).trim()) ||
     [data?.city, data?.state].map((v) => (typeof v === "string" ? v.trim() : String(v || "").trim())).filter(Boolean).join(", ") ||
@@ -232,7 +338,7 @@ export default function RetailerProfile() {
           <ArrowLeft className="h-4 w-4" /> Back to Retailers
         </Link>
         <span>/</span>
-        <span className="text-gray-900 font-medium">{retailerName}</span>
+        <span className="text-gray-900 font-medium">{headerTitle}</span>
       </div>
 
       {!isLoading && data && !isRemoved && (isActive || isBlocked) && (
@@ -368,7 +474,7 @@ export default function RetailerProfile() {
             
             <div className="flex-1 min-w-0 pb-2">
               <div className="flex items-center gap-2 flex-wrap">
-                <h1 className="text-2xl font-bold text-gray-900">{retailerName}</h1>
+                <h1 className="text-2xl font-bold text-gray-900">{headerTitle}</h1>
                 {!isLoading && data && (
                   <Badge variant="outline" className={cn("font-medium", connectionStatusBadgeClass(connectionStatus))}>
                     {connectionStatusLabel(connectionStatus)}
@@ -474,11 +580,11 @@ export default function RetailerProfile() {
                  <div className="flex items-center gap-3">
                     <div className="h-10 w-10 rounded-full bg-gray-100 flex items-center justify-center">
                        <span className="font-bold text-gray-500">
-                         {(data?.proprietorName || retailerName).slice(0, 2).toUpperCase()}
+                         {initials}
                        </span>
                     </div>
                     <div>
-                       <p className="font-medium text-gray-900">{isLoading ? "…" : data?.proprietorName || retailerName}</p>
+                       <p className="font-medium text-gray-900">{isLoading ? "…" : ownerDisplayName}</p>
                        <p className="text-xs text-gray-500">Proprietor</p>
                     </div>
                  </div>
@@ -489,7 +595,7 @@ export default function RetailerProfile() {
                     </div>
                     <div className="flex items-start gap-2 text-gray-600">
                        <MapPin className="h-4 w-4 text-gray-400 shrink-0 mt-0.5" />
-                       <span className="break-words">{data?.shopName ? `${data.shopName}${addressDisplay !== "—" ? `, ${addressDisplay}` : ""}` : addressDisplay}</span>
+                       <span className="break-words">{addressDisplay}</span>
                     </div>
                  </div>
               </CardContent>
@@ -505,8 +611,14 @@ export default function RetailerProfile() {
                  <TabsTrigger value="insights" className="rounded-none border-b-2 border-transparent data-[state=active]:border-primary data-[state=active]:text-primary data-[state=active]:bg-transparent h-12 px-6 font-medium">Insights</TabsTrigger>
               </TabsList>
               
-              <TabsContent value="orders" className="space-y-4 mt-0">
-                 {orders.length === 0 ? (
+              <TabsContent value="orders" className="mt-0 space-y-3">
+                 {retailerOrdersLoading ? (
+                   <Card className="bg-white border-gray-200 shadow-sm">
+                     <CardContent className="p-8 text-center">
+                       <p className="text-gray-500 text-sm">Loading orders…</p>
+                     </CardContent>
+                   </Card>
+                 ) : retailerOrders.length === 0 ? (
                    <Card className="bg-white border-gray-200 shadow-sm">
                      <CardContent className="p-8 text-center">
                        <Package className="h-12 w-12 text-gray-200 mx-auto mb-3" />
@@ -514,27 +626,54 @@ export default function RetailerProfile() {
                      </CardContent>
                    </Card>
                  ) : (
-                 orders.map((order: OrderListItem) => (
+                   <>
+                   <div className="flex flex-col gap-2">
+                 {retailerOrders.map((order: OrderListItem) => {
+                    const StatusIcon = orderStatusIcon(order.status);
+                    return (
                     <Link key={order.id} href={`/orders/${order.id}`}>
                     <Card className="bg-white border-gray-200 shadow-sm hover:shadow-md transition-all cursor-pointer">
-                       <CardContent className="p-4 flex items-center justify-between">
-                          <div className="flex items-center gap-4">
-                             <div className="h-10 w-10 rounded-full bg-blue-50 flex items-center justify-center text-blue-600">
+                       <CardContent className="p-4 flex items-center justify-between gap-3">
+                          <div className="flex items-center gap-4 min-w-0">
+                             <div className="h-10 w-10 shrink-0 rounded-full bg-blue-50 flex items-center justify-center text-blue-600">
                                 <Package className="h-5 w-5" />
                              </div>
-                             <div>
-                                <p className="font-bold text-gray-900">{order.orderNumber ? `Order #${order.orderNumber}` : `Order #${order.id}`}</p>
-                                <p className="text-xs text-gray-500">{order.date ? formatDate(order.date) : ""} • {order.items ?? 0} Items</p>
+                             <div className="min-w-0">
+                                <p className="font-bold text-gray-900 truncate">{order.orderNumber ? `Order #${order.orderNumber}` : `Order #${order.id}`}</p>
+                                <p className="text-xs text-gray-500">{order.date ? order.date : ""}{order.date ? " • " : ""}{order.items ?? 0} Items</p>
                              </div>
                           </div>
-                          <div className="text-right">
-                             <p className="font-bold text-gray-900">{formatAmount(order.amount ?? 0)}</p>
-                             <Badge variant="secondary" className="bg-green-50 text-green-700 text-[10px]">{mapStatusToUI(order.status)}</Badge>
+                          <div className="text-right shrink-0 flex flex-col items-end gap-1.5">
+                             <p className="font-bold text-gray-900 tabular-nums">{formatAmount(order.amount ?? 0)}</p>
+                             <div className={cn(
+                               "inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[10px] font-semibold",
+                               wholesalerOrderUiStatusPillClass(order.status)
+                             )}>
+                               <StatusIcon className="h-3 w-3 shrink-0" />
+                               {order.status}
+                             </div>
                           </div>
                        </CardContent>
                     </Card>
                     </Link>
-                 )))}
+                 );})}
+                   </div>
+                   {retailerOrdersHasMore && (
+                     <div className="flex justify-center pt-1">
+                       <Button
+                         type="button"
+                         variant="ghost"
+                         size="sm"
+                         className="text-gray-500 hover:text-gray-900"
+                         disabled={retailerOrdersLoadingMore}
+                         onClick={() => void loadRetailerOrders({ reset: false })}
+                       >
+                         {retailerOrdersLoadingMore ? "Loading…" : "Load more orders"}
+                       </Button>
+                     </div>
+                   )}
+                   </>
+                 )}
               </TabsContent>
               
               <TabsContent value="ledger" className="mt-0">

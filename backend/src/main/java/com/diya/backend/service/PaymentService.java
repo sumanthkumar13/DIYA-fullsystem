@@ -1,5 +1,6 @@
 package com.diya.backend.service;
 
+import com.diya.backend.dto.payment.RetailerPaymentHistoryItemDTO;
 import com.diya.backend.entity.*;
 import com.diya.backend.repository.*;
 import lombok.RequiredArgsConstructor;
@@ -9,7 +10,9 @@ import org.springframework.transaction.annotation.Transactional;
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Objects;
 import java.util.UUID;
+import java.util.stream.Collectors;
 
 @Service
 @RequiredArgsConstructor
@@ -27,6 +30,47 @@ public class PaymentService {
     // Creates payment as PENDING_VERIFICATION
     // ==========================================================
     private static final BigDecimal TOLERANCE = new BigDecimal("0.01");
+
+    /**
+     * Maps a payment to a flat DTO safe for retailer clients (no circular JPA/Jackson graphs).
+     */
+    public RetailerPaymentHistoryItemDTO toRetailerPaymentHistoryItem(Payment payment) {
+        if (payment == null) {
+            throw new RuntimeException("Payment not found");
+        }
+        Order order = payment.getOrder();
+        UUID orderId = order != null ? order.getId() : null;
+        String orderNumber = order != null ? order.getOrderNumber() : null;
+        return RetailerPaymentHistoryItemDTO.builder()
+                .id(payment.getId())
+                .amount(payment.getAmount())
+                .mode(payment.getMode() != null ? payment.getMode().name() : null)
+                .status(payment.getStatus() != null ? payment.getStatus().name() : null)
+                .reference(payment.getReference())
+                .note(payment.getNote())
+                .createdAt(payment.getCreatedAt())
+                .confirmedAt(payment.getConfirmedAt())
+                .rejectedAt(payment.getRejectedAt())
+                .orderId(orderId)
+                .orderNumber(orderNumber)
+                .source(resolvePaymentSource(payment))
+                .build();
+    }
+
+    public List<RetailerPaymentHistoryItemDTO> getRetailerPaymentHistory(Retailer retailer) {
+        return paymentRepository.findByRetailerWithOrderOrderByCreatedAtDesc(retailer).stream()
+                .filter(Objects::nonNull)
+                .map(this::toRetailerPaymentHistoryItem)
+                .collect(Collectors.toList());
+    }
+
+    private static String resolvePaymentSource(Payment payment) {
+        String note = payment.getNote();
+        if (note != null && note.toLowerCase().contains("acceptance")) {
+            return "IMMEDIATE";
+        }
+        return "RETAILER";
+    }
 
     @Transactional
     public Payment recordPayment(

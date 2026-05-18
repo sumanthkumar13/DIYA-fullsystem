@@ -17,6 +17,8 @@ import {
   Loader2,
   CheckCircle2,
   XCircle,
+  Eye,
+  EyeOff,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -36,8 +38,10 @@ import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import avatarImage from "@assets/generated_images/professional_business_avatar_for_a_wholesaler.png";
 import { tallyPing } from "@/services/tally";
 import { useAuth } from "@/context/AuthContext";
+import { mergeAuthProfile } from "@/lib/accountProfile";
 import api from "@/lib/api";
 import { uploadImageUnsignedToCloudinary, validateImageFile } from "@/lib/cloudinary";
+import { getGstinValidationError, normalizeGstin } from "@/lib/gstin";
 
 export default function SettingsPage() {
   const { toast } = useToast();
@@ -53,6 +57,7 @@ export default function SettingsPage() {
   const [businessName, setBusinessName] = useState("");
   const [email, setEmail] = useState("");
   const [gstin, setGstin] = useState("");
+  const [gstinTouched, setGstinTouched] = useState(false);
   const [address, setAddress] = useState("");
   const [businessType, setBusinessType] = useState("");
 
@@ -60,6 +65,9 @@ export default function SettingsPage() {
   const [newPassword, setNewPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
   const [passwordSaving, setPasswordSaving] = useState(false);
+  const [showCurrentPassword, setShowCurrentPassword] = useState(false);
+  const [showNewPassword, setShowNewPassword] = useState(false);
+  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
 
   useEffect(() => {
     if (!data) return;
@@ -70,17 +78,30 @@ export default function SettingsPage() {
     setGstin(data.gstin ?? "");
     setAddress(data.address ?? "");
     setBusinessType(data.businessType ?? "");
-  }, [data]);
+
+    setUser((prev) =>
+      mergeAuthProfile(prev as Record<string, unknown> | null, {
+        email: data.email,
+        phone: data.phone,
+        name: data.ownerName,
+      }) as typeof prev,
+    );
+  }, [data, setUser]);
+
+  const gstinNormalized = normalizeGstin(gstin);
+  const gstinError = getGstinValidationError(gstin);
 
   const saveMutation = useMutation({
     mutationFn: updateWholesalerSettings,
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["wholesaler-settings"] });
-      // If email was updated, reflect it immediately in local auth payload (UI consistency).
-      const nextEmail = email.trim();
-      if (user && nextEmail) {
-        setUser({ ...(user as any), email: nextEmail } as any);
-      }
+      setUser((prev) =>
+        mergeAuthProfile(prev as Record<string, unknown> | null, {
+          email: email.trim() || undefined,
+          phone: phone.trim() || undefined,
+          name: ownerName.trim() || undefined,
+        }) as typeof prev,
+      );
       toast({ title: "Settings saved" });
     },
     onError: (err: any) => {
@@ -102,12 +123,16 @@ export default function SettingsPage() {
       });
       return;
     }
+    if (gstinError) {
+      setGstinTouched(true);
+      return;
+    }
     const payload: Parameters<typeof updateWholesalerSettings>[0] = {
       businessName: businessName || null,
       ownerName: ownerName || null,
       phone: phone || null,
       address: address || null,
-      gstin: gstin || null,
+      gstin: gstinNormalized || null,
     };
     // Only send email when user explicitly set it (avoid wiping).
     if (trimmedEmail) payload.email = trimmedEmail;
@@ -429,10 +454,17 @@ export default function SettingsPage() {
                     <div className="space-y-2">
                       <Label>GSTIN</Label>
                       <Input
-                        value={gstin}
-                        onChange={(e) => setGstin(e.target.value)}
+                        value={gstinNormalized}
+                        onChange={(e) => setGstin(e.target.value.toUpperCase())}
+                        onBlur={() => setGstinTouched(true)}
                         disabled={disabled}
+                        placeholder="22AAAAA0000A1Z5"
+                        className="uppercase"
+                        maxLength={15}
                       />
+                      {gstinTouched && gstinError && (
+                        <p className="text-xs text-red-600">{gstinError}</p>
+                      )}
                     </div>
                     <div className="space-y-2 md:col-span-2">
                       <Label>Business type</Label>
@@ -533,37 +565,79 @@ export default function SettingsPage() {
                 <CardContent className="space-y-6">
                   <div className="space-y-2">
                     <Label htmlFor="currentPassword">Current Password</Label>
-                    <Input
-                      id="currentPassword"
-                      type="password"
-                      autoComplete="current-password"
-                      value={currentPassword}
-                      onChange={(e) => setCurrentPassword(e.target.value)}
-                      disabled={disabled || passwordSaving}
-                    />
+                    <div className="relative">
+                      <Input
+                        id="currentPassword"
+                        type={showCurrentPassword ? "text" : "password"}
+                        autoComplete="current-password"
+                        value={currentPassword}
+                        onChange={(e) => setCurrentPassword(e.target.value)}
+                        disabled={disabled || passwordSaving}
+                        className="pr-10"
+                      />
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon"
+                        className="absolute right-0.5 top-1/2 h-8 w-8 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                        onClick={() => setShowCurrentPassword((v) => !v)}
+                        disabled={disabled || passwordSaving}
+                        aria-label={showCurrentPassword ? "Hide current password" : "Show current password"}
+                      >
+                        {showCurrentPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                      </Button>
+                    </div>
                   </div>
                   <div className="grid md:grid-cols-2 gap-4">
                     <div className="space-y-2">
                       <Label htmlFor="newPassword">New Password</Label>
-                      <Input
-                        id="newPassword"
-                        type="password"
-                        autoComplete="new-password"
-                        value={newPassword}
-                        onChange={(e) => setNewPassword(e.target.value)}
-                        disabled={disabled || passwordSaving}
-                      />
+                      <div className="relative">
+                        <Input
+                          id="newPassword"
+                          type={showNewPassword ? "text" : "password"}
+                          autoComplete="new-password"
+                          value={newPassword}
+                          onChange={(e) => setNewPassword(e.target.value)}
+                          disabled={disabled || passwordSaving}
+                          className="pr-10"
+                        />
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="icon"
+                          className="absolute right-0.5 top-1/2 h-8 w-8 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                          onClick={() => setShowNewPassword((v) => !v)}
+                          disabled={disabled || passwordSaving}
+                          aria-label={showNewPassword ? "Hide new password" : "Show new password"}
+                        >
+                          {showNewPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                        </Button>
+                      </div>
                     </div>
                     <div className="space-y-2">
                       <Label htmlFor="confirmPassword">Confirm New Password</Label>
-                      <Input
-                        id="confirmPassword"
-                        type="password"
-                        autoComplete="new-password"
-                        value={confirmPassword}
-                        onChange={(e) => setConfirmPassword(e.target.value)}
-                        disabled={disabled || passwordSaving}
-                      />
+                      <div className="relative">
+                        <Input
+                          id="confirmPassword"
+                          type={showConfirmPassword ? "text" : "password"}
+                          autoComplete="new-password"
+                          value={confirmPassword}
+                          onChange={(e) => setConfirmPassword(e.target.value)}
+                          disabled={disabled || passwordSaving}
+                          className="pr-10"
+                        />
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="icon"
+                          className="absolute right-0.5 top-1/2 h-8 w-8 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                          onClick={() => setShowConfirmPassword((v) => !v)}
+                          disabled={disabled || passwordSaving}
+                          aria-label={showConfirmPassword ? "Hide confirm password" : "Show confirm password"}
+                        >
+                          {showConfirmPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                        </Button>
+                      </div>
                     </div>
                   </div>
                   <div className="flex justify-end">

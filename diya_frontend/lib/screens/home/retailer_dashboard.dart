@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../providers/retailer_session_provider.dart';
+import '../../widgets/dashboard/retailer_dashboard_header.dart';
 import '../../widgets/ui/diya_card.dart';
 import '../../widgets/ui/stat_card.dart';
 
@@ -17,120 +18,138 @@ class RetailerDashboard extends ConsumerWidget {
     return "${dt.day.toString().padLeft(2, '0')}/${dt.month.toString().padLeft(2, '0')}/${dt.year} • $h:$mm $ampm";
   }
 
+  Widget _sessionGate({
+    required Widget child,
+    required WidgetRef ref,
+    required AsyncValue<RetailerSessionData?> sessionAsync,
+    required RetailerSessionData? session,
+  }) {
+    if (session != null) return child;
+
+    if (sessionAsync.isLoading) {
+      return const CustomScrollView(
+        slivers: [
+          SliverFillRemaining(
+            child: Center(
+              child: CircularProgressIndicator(
+                strokeWidth: 2,
+                color: Color(0xFFFF7A00),
+              ),
+            ),
+          ),
+        ],
+      );
+    }
+
+    return CustomScrollView(
+      slivers: [
+        SliverFillRemaining(
+          hasScrollBody: false,
+          child: Center(
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 24),
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  const Icon(Icons.error_outline, color: Color(0xFFDC2626), size: 40),
+                  const SizedBox(height: 12),
+                  const Text(
+                    "Couldn't load dashboard data.",
+                    textAlign: TextAlign.center,
+                    style: TextStyle(fontWeight: FontWeight.w800, fontSize: 16),
+                  ),
+                  const SizedBox(height: 8),
+                  const Text(
+                    "Check your connection and try again.",
+                    textAlign: TextAlign.center,
+                    style: TextStyle(color: Color(0xFF737373)),
+                  ),
+                  const SizedBox(height: 16),
+                  FilledButton(
+                    onPressed: () => ref.read(retailerSessionProvider.notifier).sync(),
+                    style: FilledButton.styleFrom(
+                      backgroundColor: const Color(0xFFFF7A00),
+                    ),
+                    child: const Text('Retry'),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final sessionAsync = ref.watch(retailerSessionProvider);
     final session = sessionAsync.valueOrNull;
 
-    final shopName = (session?.profile['shopName'] ?? "My Shop").toString();
-    final userName = shopName.isNotEmpty ? shopName : "Retailer";
+    return _sessionGate(
+      ref: ref,
+      sessionAsync: sessionAsync,
+      session: session,
+      child: _DashboardBody(
+        ref: ref,
+        session: session!,
+        sessionAsync: sessionAsync,
+        fmtInr: _fmtInr,
+        fmtDateTime: _fmtDateTime,
+      ),
+    );
+  }
+}
 
-    final totalDue = _fmtInr(session?.totalDue ?? 0);
-    final lastOrder = session?.lastOrder;
-    final lastOrderAmt = _fmtInr(
+class _DashboardBody extends StatelessWidget {
+  final WidgetRef ref;
+  final RetailerSessionData session;
+  final AsyncValue<RetailerSessionData?> sessionAsync;
+  final String Function(num) fmtInr;
+  final String Function(DateTime?) fmtDateTime;
+
+  const _DashboardBody({
+    required this.ref,
+    required this.session,
+    required this.sessionAsync,
+    required this.fmtInr,
+    required this.fmtDateTime,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final shopName = session.shopName;
+    final userName = shopName.isNotEmpty ? shopName : 'Retailer';
+
+    final totalDue = fmtInr(session.totalDue);
+    final lastOrder = session.lastOrder;
+    final lastOrderAmt = fmtInr(
       (lastOrder?['amount'] is num)
           ? (lastOrder?['amount'] as num)
           : num.tryParse((lastOrder?['amount'] ?? '0').toString()) ?? 0,
     );
-    final recentOrders = session?.recentOrders ?? const <Map<String, dynamic>>[];
+    final recentOrders = session.recentOrders;
 
     // ✅ IMPORTANT:
     // This screen must NOT return Scaffold.
     // RetailerShell is the scaffold + navbar holder.
 
+    final shopLabel = shopName.isNotEmpty ? shopName : userName;
+
     return CustomScrollView(
       slivers: [
-        // HEADER (orange) - reduced size
         SliverToBoxAdapter(
-          child: Container(
-            padding: const EdgeInsets.fromLTRB(20, 10, 20, 12),
-            decoration: const BoxDecoration(
-              color: Color(0xFFFF7A00),
-              borderRadius: BorderRadius.only(
-                bottomLeft: Radius.circular(26),
-                bottomRight: Radius.circular(26),
-              ),
-              boxShadow: [
-                BoxShadow(
-                  color: Color(0x33000000),
-                  blurRadius: 18,
-                  offset: Offset(0, 8),
-                )
-              ],
-            ),
-            child: Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                // Left
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        "Welcome back,",
-                        style: TextStyle(
-                          fontSize: 12,
-                          fontWeight: FontWeight.w600,
-                          color: Colors.white.withOpacity(0.82),
-                        ),
-                      ),
-                      const SizedBox(height: 3),
-                      Text(
-                        userName,
-                        style: TextStyle(
-                          fontSize: 17,
-                          fontWeight: FontWeight.w900,
-                          color: Colors.white,
-                        ),
-                      ),
-                      const SizedBox(height: 6),
-                      GestureDetector(
-                        onTap: () => Navigator.pushNamed(context, '/account'),
-                        child: Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                          decoration: BoxDecoration(
-                            color: Colors.white.withOpacity(0.20),
-                            borderRadius: BorderRadius.circular(999),
-                          ),
-                          child: Row(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              Container(
-                                width: 7,
-                                height: 7,
-                                decoration: const BoxDecoration(
-                                  color: Color(0xFF4ADE80),
-                                  shape: BoxShape.circle,
-                                ),
-                              ),
-                              const SizedBox(width: 6),
-                              Text(
-                                shopName,
-                                style: TextStyle(
-                                  fontSize: 11,
-                                  fontWeight: FontWeight.w700,
-                                  color: Colors.white,
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ],
-            ),
+          child: RetailerDashboardHeader(
+            displayName: userName,
+            shopLabel: shopLabel,
+            onAccountTap: () => Navigator.pushNamed(context, '/account'),
           ),
         ),
 
-        // Stats grid overlap (slightly reduced overlap so it won't hide)
         SliverPadding(
-          padding: const EdgeInsets.fromLTRB(16, 0, 16, 0),
+          padding: const EdgeInsets.fromLTRB(16, 10, 16, 0),
           sliver: SliverToBoxAdapter(
-            child: Transform.translate(
-              offset: const Offset(0, -18), // ✅ was -28
-              child: GridView.count(
+            child: GridView.count(
                 crossAxisCount: 2,
                 crossAxisSpacing: 12,
                 mainAxisSpacing: 12,
@@ -154,7 +173,6 @@ class RetailerDashboard extends ConsumerWidget {
                 ],
               ),
             ),
-          ),
         ),
 
         // BODY
@@ -169,9 +187,10 @@ class RetailerDashboard extends ConsumerWidget {
                 const Text(
                   "Quick Actions",
                   style: TextStyle(
-                    fontSize: 16, // ✅ slightly smaller
+                    fontSize: 17,
                     fontWeight: FontWeight.w900,
-                    color: Color(0xFF262626),
+                    color: Color(0xFF171717),
+                    letterSpacing: -0.2,
                   ),
                 ),
                 const SizedBox(height: 12),
@@ -271,9 +290,10 @@ class RetailerDashboard extends ConsumerWidget {
                     const Text(
                       "Recent Orders",
                       style: TextStyle(
-                        fontSize: 16, // ✅ smaller
+                        fontSize: 17,
                         fontWeight: FontWeight.w900,
-                        color: Color(0xFF262626),
+                        color: Color(0xFF171717),
+                        letterSpacing: -0.2,
                       ),
                     ),
                     TextButton(
@@ -298,34 +318,6 @@ class RetailerDashboard extends ConsumerWidget {
                       child: CircularProgressIndicator(
                         strokeWidth: 2,
                         color: Color(0xFFFF7A00),
-                      ),
-                    ),
-                  )
-                else if (sessionAsync.hasError)
-                  Padding(
-                    padding: const EdgeInsets.only(top: 8),
-                    child: DiyaCard(
-                      child: Row(
-                        children: [
-                          const Icon(Icons.error_outline, color: Color(0xFFDC2626)),
-                          const SizedBox(width: 10),
-                          const Expanded(
-                            child: Text(
-                              "Couldn't load dashboard data. Pull to refresh later.",
-                              style: TextStyle(fontWeight: FontWeight.w700),
-                            ),
-                          ),
-                          TextButton(
-                            onPressed: () => ref.read(retailerSessionProvider.notifier).sync(),
-                            child: const Text(
-                              "Retry",
-                              style: TextStyle(
-                                fontWeight: FontWeight.w900,
-                                color: Color(0xFFFF7A00),
-                              ),
-                            ),
-                          ),
-                        ],
                       ),
                     ),
                   )
@@ -393,7 +385,7 @@ class RetailerDashboard extends ConsumerWidget {
                                   ),
                                   const SizedBox(height: 4),
                                   Text(
-                                    _fmtDateTime(placedAt),
+                                    fmtDateTime(placedAt),
                                     maxLines: 1,
                                     overflow: TextOverflow.ellipsis,
                                     style: const TextStyle(
@@ -408,7 +400,7 @@ class RetailerDashboard extends ConsumerWidget {
                               crossAxisAlignment: CrossAxisAlignment.end,
                               children: [
                                 Text(
-                                  _fmtInr(amount),
+                                  fmtInr(amount),
                                   style: const TextStyle(
                                     fontWeight: FontWeight.w900,
                                     color: Color(0xFF171717),

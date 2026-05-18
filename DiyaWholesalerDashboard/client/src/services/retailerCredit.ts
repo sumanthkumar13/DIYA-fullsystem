@@ -9,6 +9,7 @@ export interface RetailerCreditSummary {
   outstandingAmount?: number;
   /** Unpaid and overdue (accepted orders only). */
   overdueAmount?: number;
+  /** Current unpaid on credit-bearing orders only (not lifetime credit issued). */
   creditGiven?: number;
   creditLimit: number;
   availableCredit: number;

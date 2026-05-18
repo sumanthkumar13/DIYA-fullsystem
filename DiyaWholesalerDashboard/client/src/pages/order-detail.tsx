@@ -1,4 +1,4 @@
-import { Fragment, useState } from "react";
+import { Fragment, useState, useRef } from "react";
 import { useRoute, Link } from "wouter";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
@@ -44,10 +44,21 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { useToast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
 import { formatINR } from "@/lib/money";
 import { getRetailerOutstanding } from "@/services/ledger";
+import { fetchRetailerCreditSummary, type RetailerCreditSummary } from "@/services/retailerCredit";
 import {
   fetchOrderDetail,
   acceptOrder,
@@ -58,22 +69,7 @@ import {
 } from "@/services/order";
 import { finalizeInvoice } from "@/services/invoice";
 import { invalidateAfterMutation } from "@/lib/invalidate";
-
-// Map backend status to UI status
-function mapStatusToUI(status: string): string {
-  const statusMap: Record<string, string> = {
-    PLACED: "Pending",
-    ACCEPTED: "Approved",
-    PACKING: "Packed",
-    DISPATCHED: "Out for Delivery",
-    DELIVERED: "Delivered",
-    COMPLETED: "Delivered",
-    CANCELLED: "Cancelled",
-    REJECTED: "Rejected",
-    INVOICED: "Invoiced",
-  };
-  return statusMap[status] || status;
-}
+import { mapBackendOrderStatusToUi, wholesalerOrderUiStatusPillClass } from "@/lib/wholesalerOrderStatus";
 
 // Format date
 function formatDate(dateString: string | null): string {
@@ -112,6 +108,18 @@ function paymentMethodDisplay(raw: unknown): string {
   return map[up] ?? s;
 }
 
+function wouldExceedRetailerCreditLimit(
+  remainingCredit: number,
+  summary: RetailerCreditSummary | undefined
+): boolean {
+  if (remainingCredit <= 0 || !summary) return false;
+  const limit = Number(summary.creditLimit ?? 0);
+  if (!Number.isFinite(limit) || limit <= 0) return false;
+  const out = Number(summary.totalOutstanding ?? 0);
+  if (!Number.isFinite(out)) return false;
+  return out + remainingCredit > limit;
+}
+
 export default function OrderDetail() {
   const [match, params] = useRoute("/orders/:id");
   const { toast } = useToast();
@@ -141,13 +149,23 @@ export default function OrderDetail() {
   const [paymentMode, setPaymentMode] = useState<"CASH" | "UPI" | "CREDIT">("CASH");
   const [creditDays, setCreditDays] = useState<string>("");
   const [paidNow, setPaidNow] = useState<string>("");
+  const [creditLimitConfirmOpen, setCreditLimitConfirmOpen] = useState(false);
+  const pendingAcceptOptsRef = useRef<{ force: boolean; forceCredit: boolean }>({
+    force: false,
+    forceCredit: false,
+  });
+
+  const { data: acceptCreditSummary } = useQuery({
+    queryKey: ["retailer-credit-summary", retailerId],
+    queryFn: () => fetchRetailerCreditSummary(retailerId),
+    enabled: acceptOpen && !!retailerId,
+  });
 
   const acceptMutation = useMutation({
-    mutationFn: (opts: { force: boolean }) =>
+    mutationFn: (opts: { force: boolean; forceCredit?: boolean }) =>
       acceptOrder(orderId, {
-        // Compute locally to avoid relying on render-time variables
-        // (mutation can be triggered only once order is loaded).
         force: opts.force,
+        forceCredit: opts.forceCredit ?? false,
         paymentMode,
         paidNow:
           paymentMode === "CREDIT"
@@ -168,6 +186,7 @@ export default function OrderDetail() {
         })(),
       }),
     onSuccess: () => {
+      setCreditLimitConfirmOpen(false);
       invalidateAfterMutation(queryClient, { orderId, retailerId });
       toast({
         title: "Order Approved Successfully",
@@ -177,9 +196,14 @@ export default function OrderDetail() {
       setAcceptOpen(false);
     },
     onError: (e: any) => {
+      const msg = e?.response?.data?.message ?? e?.message ?? "";
+      if (String(msg) === "CREDIT_LIMIT_EXCEEDED") {
+        setCreditLimitConfirmOpen(true);
+        return;
+      }
       toast({
         title: "Failed to approve order",
-        description: e?.response?.data?.message || e?.message || "An error occurred",
+        description: typeof msg === "string" && msg ? msg : "An error occurred",
         variant: "destructive",
       });
     },
@@ -320,9 +344,9 @@ export default function OrderDetail() {
     );
   }
 
-  const status = mapStatusToUI(order.status || "PLACED");
+  const status = mapBackendOrderStatusToUi(order.status || "PLACED");
   const retailer = order.retailer;
-  const retailerName = retailer?.name || retailer?.shopName || "Unknown Retailer";
+  const retailerName = retailer?.shopName || retailer?.name || "Unknown Retailer";
   const retailerInitial = retailerName.charAt(0).toUpperCase();
   const retailerLocation = retailer 
     ? `${retailer.city || ""}${retailer.city && retailer.state ? ", " : ""}${retailer.state || ""}`.trim() || "Location not available"
@@ -362,12 +386,6 @@ export default function OrderDetail() {
     "CANCELLED",
     "REJECTED",
   ]);
-  const canEditOrder = !nonEditableStatuses.has(order.status);
-
-  const editDisabledReason = (() => {
-    if (!nonEditableStatuses.has(order.status)) return "";
-    return "Order cannot be edited after it is packed.";
-  })();
 
   const isAcceptedOrLater =
     order.status !== "PLACED" &&
@@ -377,6 +395,19 @@ export default function OrderDetail() {
   const orderTotal = Number(order.totalAmount ?? 0);
   const paidAmount = Math.max(0, Number((order as any).paidAmount ?? 0));
   const unpaidAmount = Math.max(0, orderTotal - paidAmount);
+
+  const hasRecordedPayment = paidAmount > 0;
+  const canEditOrder = !nonEditableStatuses.has(order.status) && !hasRecordedPayment;
+
+  const editDisabledReason = (() => {
+    if (hasRecordedPayment) {
+      return "Order cannot be edited after any payment has been recorded (partial or full).";
+    }
+    if (nonEditableStatuses.has(order.status)) {
+      return "Order cannot be edited after it is packed.";
+    }
+    return "";
+  })();
 
   const computedPaymentStatus = (() => {
     // Before wholesaler approval, never show PAID/UNPAID based on math.
@@ -614,6 +645,19 @@ export default function OrderDetail() {
                         </div>
                       </div>
                     )}
+
+                    {wouldExceedRetailerCreditLimit(remainingCredit, acceptCreditSummary) && (
+                      <div className="flex items-start gap-2 rounded-md border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
+                        <AlertTriangle className="h-4 w-4 mt-0.5 shrink-0" />
+                        <div>
+                          <div className="font-semibold">Credit limit may be exceeded</div>
+                          <p className="text-xs text-amber-800 mt-1">
+                            Outstanding after acceptance would exceed the configured credit limit for this retailer.
+                            Confirm to proceed.
+                          </p>
+                        </div>
+                      </div>
+                    )}
                   </div>
 
                   <DialogFooter>
@@ -625,7 +669,15 @@ export default function OrderDetail() {
                         variant="outline"
                         className="border-yellow-200 text-yellow-800 hover:bg-yellow-50 hover:text-yellow-900"
                         disabled={acceptMutation.isPending || (paymentMode === "CREDIT" && Number(creditDays) <= 0)}
-                        onClick={() => acceptMutation.mutate({ force: true })}
+                        onClick={() => {
+                          const opts = { force: true, forceCredit: false };
+                          pendingAcceptOptsRef.current = opts;
+                          if (wouldExceedRetailerCreditLimit(remainingCredit, acceptCreditSummary)) {
+                            setCreditLimitConfirmOpen(true);
+                            return;
+                          }
+                          acceptMutation.mutate(opts);
+                        }}
                       >
                         Force Accept
                       </Button>
@@ -636,13 +688,47 @@ export default function OrderDetail() {
                         acceptMutation.isPending ||
                         ((paymentMode === "CREDIT" || remainingCredit > 0) && Number(creditDays) <= 0)
                       }
-                      onClick={() => acceptMutation.mutate({ force: false })}
+                      onClick={() => {
+                        const opts = { force: false, forceCredit: false };
+                        pendingAcceptOptsRef.current = opts;
+                        if (wouldExceedRetailerCreditLimit(remainingCredit, acceptCreditSummary)) {
+                          setCreditLimitConfirmOpen(true);
+                          return;
+                        }
+                        acceptMutation.mutate(opts);
+                      }}
                     >
                       Accept
                     </Button>
                   </DialogFooter>
                 </DialogContent>
               </Dialog>
+
+              <AlertDialog open={creditLimitConfirmOpen} onOpenChange={setCreditLimitConfirmOpen}>
+                <AlertDialogContent>
+                  <AlertDialogHeader>
+                    <AlertDialogTitle>Credit limit exceeded</AlertDialogTitle>
+                    <AlertDialogDescription className="text-gray-700 sm:text-left">
+                      Credit limit exceeded. Are you sure you want to continue accepting this order with extra credit?
+                    </AlertDialogDescription>
+                  </AlertDialogHeader>
+                  <AlertDialogFooter>
+                    <AlertDialogCancel type="button">Cancel</AlertDialogCancel>
+                    <AlertDialogAction
+                      type="button"
+                      className="bg-primary hover:bg-primary/90 text-primary-foreground"
+                      onClick={(ev) => {
+                        ev.preventDefault();
+                        const p = pendingAcceptOptsRef.current;
+                        setCreditLimitConfirmOpen(false);
+                        acceptMutation.mutate({ force: p.force, forceCredit: true });
+                      }}
+                    >
+                      Continue anyway
+                    </AlertDialogAction>
+                  </AlertDialogFooter>
+                </AlertDialogContent>
+              </AlertDialog>
             </>
           )}
 
@@ -768,24 +854,24 @@ export default function OrderDetail() {
               </DialogContent>
             </Dialog>
           ) : (
-            <Button variant="outline" className="gap-2" disabled title={editDisabledReason}>
-              <Edit2 className="h-4 w-4" /> Edit Order
-            </Button>
+            <div className="flex flex-col gap-1 items-start">
+              <Button variant="outline" className="gap-2" disabled title={editDisabledReason}>
+                <Edit2 className="h-4 w-4" /> Edit Order
+              </Button>
+              {editDisabledReason ? (
+                <p className="text-xs text-gray-500 max-w-sm leading-snug">{editDisabledReason}</p>
+              ) : null}
+            </div>
           )}
           
           {status === "Approved" && (
-            <>
-              <Button variant="outline" className="gap-2">
-                <Printer className="h-4 w-4" /> Print Picklist
-              </Button>
-              <Button 
-                className="bg-purple-600 hover:bg-purple-700 text-white gap-2 shadow-sm" 
-                onClick={handlePack}
-                disabled={updateStatusMutation.isPending}
-              >
-                <Package className="h-4 w-4" /> Mark as Packed
-              </Button>
-            </>
+            <Button
+              className="bg-purple-600 hover:bg-purple-700 text-white gap-2 shadow-sm"
+              onClick={handlePack}
+              disabled={updateStatusMutation.isPending}
+            >
+              <Package className="h-4 w-4" /> Mark as Packed
+            </Button>
           )}
 
           {status === "Packed" && (
@@ -961,7 +1047,7 @@ export default function OrderDetail() {
                   <TableRow className="hover:bg-transparent">
                     <TableHead className="w-10" aria-hidden />
                     <TableHead>Product</TableHead>
-                    <TableHead className="text-right min-w-[200px]">Line</TableHead>
+                    <TableHead className="text-right min-w-[200px]"></TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -1141,8 +1227,8 @@ export default function OrderDetail() {
           {/* Payment Status box removed from always-on order details view.
               (Shown only inside the Accept dialog while accepting an order.) */}
 
-          {/* Credit Limit Warning - Only show if needed */}
-           {computedPaymentStatus === "UNPAID" && order.totalAmount && order.totalAmount > 10000 && (
+          {/* Payment reminder (never for rejected/cancelled/awaiting approval). */}
+           {isAcceptedOrLater && computedPaymentStatus === "UNPAID" && unpaidAmount > 0 && order.totalAmount && order.totalAmount > 10000 && (
              <div className="bg-red-50 border border-red-100 rounded-xl p-4 flex items-start gap-3">
                 <Info className="h-5 w-5 text-red-600 shrink-0 mt-0.5" />
                 <div>
@@ -1160,27 +1246,16 @@ export default function OrderDetail() {
 }
 
 function StatusBadge({ status }: { status: string }) {
-  const styles: Record<string, string> = {
-    Pending: "bg-orange-100 text-orange-700 border-orange-200",
-    Approved: "bg-blue-100 text-blue-700 border-blue-200",
-    Packed: "bg-purple-100 text-purple-700 border-purple-200",
-    "Out for Delivery": "bg-indigo-100 text-indigo-700 border-indigo-200",
-    Delivered: "bg-green-100 text-green-700 border-green-200",
-    Invoiced: "bg-teal-100 text-teal-700 border-teal-200",
-    Cancelled: "bg-red-100 text-red-700 border-red-200",
-    Rejected: "bg-red-100 text-red-700 border-red-200",
-  };
-  
   return (
     <div className={cn(
       "px-3 py-1 rounded-full text-sm font-semibold border flex items-center gap-1.5",
-      styles[status] || "bg-gray-100 text-gray-700"
+      wholesalerOrderUiStatusPillClass(status)
     )}>
       {status === "Pending" && <Clock className="h-3.5 w-3.5" />}
       {status === "Approved" && <CheckCircle2 className="h-3.5 w-3.5" />}
       {status === "Packed" && <Package className="h-3.5 w-3.5" />}
       {status === "Out for Delivery" && <Truck className="h-3.5 w-3.5" />}
-      {(status === "Delivered" || status === "Completed") && <CheckCircle2 className="h-3.5 w-3.5" />}
+      {status === "Delivered" && <CheckCircle2 className="h-3.5 w-3.5" />}
       {(status === "Cancelled" || status === "Rejected") && <XCircle className="h-3.5 w-3.5" />}
       {status}
     </div>

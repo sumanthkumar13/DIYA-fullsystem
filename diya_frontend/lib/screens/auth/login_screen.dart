@@ -149,7 +149,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                     ),
                     const SizedBox(height: 6),
                     const Text(
-                      "Enter your mobile number or email to continue.",
+                      "Enter your mobile number to continue.",
                       style: TextStyle(
                         fontSize: 16,
                         color: Color(0xFF737373),
@@ -160,7 +160,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
 
                     DiyaInput(
                       label: "Phone Number",
-                      hintText: "9876543210",
+                      hintText: " eg : 9876543210",
                       controller: _phoneController,
                       validator: (v) {
                         final val = (v ?? '').trim();
@@ -175,12 +175,12 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
 
                     const SizedBox(height: 14),
 
-                    if (_showPasswordField)
+                    if (_showPasswordField) ...[
                       DiyaInput(
                         label: "Password",
                         hintText: "••••••••",
                         controller: _passwordController,
-                        obscureText: true,
+                        obscurable: true,
                         validator: (v) {
                           if (!_showPasswordField) return null;
                           final val = (v ?? '').trim();
@@ -188,6 +188,37 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                           return null;
                         },
                       ),
+                      const SizedBox(height: 8),
+                      Align(
+                        alignment: Alignment.centerRight,
+                        child: TextButton(
+                          onPressed: _loading
+                              ? null
+                              : () {
+                                  Navigator.pushNamed(
+                                    context,
+                                    '/forgot-password',
+                                    arguments: {
+                                      'phone': _phoneController.text.trim(),
+                                    },
+                                  );
+                                },
+                          style: TextButton.styleFrom(
+                            padding: const EdgeInsets.symmetric(horizontal: 4),
+                            minimumSize: Size.zero,
+                            tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                          ),
+                          child: const Text(
+                            'Forgot Password?',
+                            style: TextStyle(
+                              fontSize: 13,
+                              fontWeight: FontWeight.w700,
+                              color: Color(0xFFFF7A00),
+                            ),
+                          ),
+                        ),
+                      ),
+                    ],
 
                     const SizedBox(height: 22),
 

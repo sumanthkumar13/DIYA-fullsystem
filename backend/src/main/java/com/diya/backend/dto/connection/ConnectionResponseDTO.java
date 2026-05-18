@@ -19,9 +19,17 @@ public class ConnectionResponseDTO {
     public String wholesalerBusinessName;
     public String wholesalerHandle;
     public String wholesalerCity;
+    public String wholesalerState;
+    public String wholesalerPincode;
+    public String wholesalerPhone;
+    public String wholesalerLogoUrl;
+    public String wholesalerAvatarUrl;
 
     // ✅ retailer preview fields (for wholesaler UI)
+    /** Shop / business name on the retailer profile. */
     public String retailerBusinessName;
+    /** Proprietor or contact display name (linked user name, else contact name). */
+    public String retailerProprietorName;
     public String retailerCity;
     /** Territory / region from retailer profile (fallback when city is blank). */
     public String retailerRegion;

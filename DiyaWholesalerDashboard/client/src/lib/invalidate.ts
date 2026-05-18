@@ -18,7 +18,9 @@ export function invalidateAfterMutation(queryClient: QueryClient, ctx: Invalidat
 
   // Retailer scoped
   if (retailerId) {
+    queryClient.invalidateQueries({ queryKey: ["retailer-orders", retailerId] });
     queryClient.invalidateQueries({ queryKey: ["retailer-credit", retailerId] });
+    queryClient.invalidateQueries({ queryKey: ["retailer-credit-summary", retailerId] });
     queryClient.invalidateQueries({ queryKey: ["retailer-statement", retailerId] });
   }
   if (retailerId && orderId) {
@@ -29,7 +31,6 @@ export function invalidateAfterMutation(queryClient: QueryClient, ctx: Invalidat
   queryClient.invalidateQueries({ queryKey: ["khatabook-summary"] });
   queryClient.invalidateQueries({ queryKey: ["khatabook-retailers"] });
   queryClient.invalidateQueries({ queryKey: ["pending-payments"] });
-  queryClient.invalidateQueries({ queryKey: ["payments-received-today"] });
 
   // Dashboard + territory
   queryClient.invalidateQueries({ queryKey: ["retailer-regions"] });
@@ -38,5 +39,13 @@ export function invalidateAfterMutation(queryClient: QueryClient, ctx: Invalidat
   queryClient.invalidateQueries({ queryKey: ["dashboard-territory"] });
   // KPI has a region param in key; invalidate all variants.
   queryClient.invalidateQueries({ queryKey: ["dashboard-kpi"] });
+  queryClient.invalidateQueries({ queryKey: ["dashboard-kpi-widget"] });
+  queryClient.invalidateQueries({ queryKey: ["sales-details"] });
+  queryClient.invalidateQueries({ queryKey: ["analytics-sales-trend"] });
+  queryClient.invalidateQueries({ queryKey: ["analytics-month-retailers"] });
+  queryClient.invalidateQueries({ queryKey: ["analytics-top-retailers"] });
+  queryClient.invalidateQueries({ queryKey: ["analytics-top-products"] });
+  queryClient.invalidateQueries({ queryKey: ["analytics-slow-products"] });
+  queryClient.invalidateQueries({ queryKey: ["analytics-orders-by-region"] });
 }
 

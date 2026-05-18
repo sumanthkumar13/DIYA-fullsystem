@@ -13,7 +13,6 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { useToast } from "@/hooks/use-toast";
-import { api } from "@/lib/api";
 import { invalidateAfterMutation } from "@/lib/invalidate";
 import {
   confirmPendingPayment,
@@ -40,15 +39,6 @@ function formatDate(dateString?: string | null) {
   });
 }
 
-type KhatabookSummary = {
-  totalOutstanding?: number;
-  totalOutstandingYesterday?: number;
-  collectedThisMonth?: number;
-  collectedThisMonthYesterday?: number;
-  criticalOverdue?: number;
-  retailerCount?: number;
-};
-
 export default function PaymentsPage() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
@@ -57,30 +47,6 @@ export default function PaymentsPage() {
   const { data: pending = [], isLoading: loadingPending } = useQuery({
     queryKey: ["pending-payments"],
     queryFn: fetchPendingPayments,
-  });
-
-  const { data: summary } = useQuery({
-    queryKey: ["khatabook-summary"],
-    queryFn: async () => {
-      const res = await api.get("/ledger/wholesaler/summary");
-      return res.data as KhatabookSummary;
-    },
-  });
-
-  const { data: totalReceivedToday } = useQuery({
-    queryKey: ["payments-received-today"],
-    queryFn: async () => {
-      const today = new Date();
-      const yyyy = today.getFullYear();
-      const mm = String(today.getMonth() + 1).padStart(2, "0");
-      const dd = String(today.getDate()).padStart(2, "0");
-      const dateStr = `${yyyy}-${mm}-${dd}`;
-      const res = await api.get("/ledger/wholesaler", {
-        params: { type: "CREDIT", fromDate: dateStr, toDate: dateStr },
-      });
-      const entries = (res.data ?? []) as Array<{ amount?: number }>;
-      return entries.reduce((acc, e) => acc + (typeof e.amount === "number" ? e.amount : 0), 0);
-    },
   });
 
   const confirmMutation = useMutation({
@@ -115,7 +81,6 @@ export default function PaymentsPage() {
   });
 
   const pendingCount = pending?.length ?? 0;
-  const totalOutstanding = summary?.totalOutstanding ?? 0;
 
   const rows = useMemo(() => {
     return (pending ?? []) as PendingPayment[];
@@ -135,34 +100,14 @@ export default function PaymentsPage() {
         </div>
       </div>
 
-      <div className="grid gap-4 md:grid-cols-3">
-        <Card>
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium text-gray-600">Pending Payments</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-semibold text-gray-900">{pendingCount}</div>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium text-gray-600">Total Received Today</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-semibold text-gray-900">{formatMoney(totalReceivedToday)}</div>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium text-gray-600">Outstanding Across Retailers</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-semibold text-gray-900">{formatMoney(totalOutstanding)}</div>
-          </CardContent>
-        </Card>
-      </div>
+      <Card className="max-w-xs">
+        <CardHeader className="pb-2">
+          <CardTitle className="text-sm font-medium text-gray-600">Pending payments</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="text-2xl font-semibold text-gray-900">{pendingCount}</div>
+        </CardContent>
+      </Card>
 
       <Card>
         <CardHeader>
@@ -192,7 +137,7 @@ export default function PaymentsPage() {
               <TableBody>
                 {rows.map((p) => {
                   const retailerName =
-                    p?.retailer?.user?.name || p?.retailer?.shopName || p?.retailer?.id || "Retailer";
+                    p?.retailer?.shopName || p?.retailer?.user?.name || p?.retailer?.id || "Retailer";
                   const orderNumber = p?.order?.orderNumber || p?.order?.id || "-";
                   const rejecting = rejectMutation.isPending && rejectMutation.variables?.paymentId === p.id;
                   const confirming = confirmMutation.isPending && confirmMutation.variables === p.id;
@@ -264,4 +209,3 @@ export default function PaymentsPage() {
     </div>
   );
 }
-

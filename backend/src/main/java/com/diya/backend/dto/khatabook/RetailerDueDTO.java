@@ -15,6 +15,8 @@ public class RetailerDueDTO {
     private UUID retailerId;
     private String retailerName;
     private String shopName;
+    /** City from retailer profile (for search / display). */
+    private String city;
     private String phone;
     private BigDecimal totalDue;
     private BigDecimal overdueAmount;

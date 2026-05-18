@@ -8,11 +8,16 @@ export async function fetchKhatabookSummary() {
 export async function fetchKhatabookRetailers() {
   const res = await api.get("/ledger/wholesaler/retailers");
   return res.data.map((r: any) => {
-    const name = r.shopName || r.retailerName || "Retailer";
+    const retailerName = typeof r.retailerName === "string" ? r.retailerName.trim() : "";
+    const shopName = typeof r.shopName === "string" ? r.shopName.trim() : "";
+    const city = typeof r.city === "string" ? r.city.trim() : "";
+    const phone = typeof r.phone === "string" ? r.phone.trim() : "";
+    const name = shopName || retailerName || "Retailer";
 
     const initials = name
       .split(" ")
       .map((w: string) => w[0])
+      .filter(Boolean)
       .slice(0, 2)
       .join("")
       .toUpperCase();
@@ -33,8 +38,11 @@ export async function fetchKhatabookRetailers() {
 
     return {
       id: r.retailerId,
-      name: name,
-      location: "",
+      name,
+      retailerName,
+      shopName,
+      city,
+      phone,
       outstanding,
       due: `₹${Number(r.totalDue || 0).toLocaleString("en-IN")}`,
       overdue: `₹${Number(r.overdueAmount || 0).toLocaleString("en-IN")}`,
@@ -42,7 +50,7 @@ export async function fetchKhatabookRetailers() {
         ? new Date(r.lastPaymentDate).toLocaleDateString("en-IN")
         : "No payment",
       status,
-      initials,
+      initials: initials || "?",
     };
   });
 }

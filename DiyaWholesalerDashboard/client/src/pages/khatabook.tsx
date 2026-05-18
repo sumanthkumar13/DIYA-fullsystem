@@ -2,10 +2,19 @@ import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "wouter";
 import { fetchKhatabookSummary, fetchKhatabookRetailers } from "@/services/khatabook";
+import { useKpiWidget } from "@/hooks/useDashboard";
+import { KPI_PERIOD_OPTIONS, type KpiTimePeriod } from "@/lib/kpiPeriod";
 import { Search } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { formatINR } from "@/lib/money";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { cn } from "@/lib/utils";
@@ -13,7 +22,10 @@ import { cn } from "@/lib/utils";
 type KhatabookItem = {
   id: number | string;
   name: string;
-  location: string;
+  retailerName: string;
+  shopName: string;
+  city: string;
+  phone: string;
   outstanding: number;
   due: string;
   overdue: string;
@@ -22,9 +34,37 @@ type KhatabookItem = {
   initials: string;
 };
 
+function digitsOnly(s: string): string {
+  return s.replace(/\D/g, "");
+}
+
+function normalizeQuery(raw: string): string {
+  return raw.trim().toLowerCase();
+}
+
+/** Case-insensitive match across proprietor name, shop, city, phone (incl. digit-only phone match). */
+function khatabookMatchesSearch(item: KhatabookItem, rawQuery: string): boolean {
+  const q = normalizeQuery(rawQuery);
+  if (!q) return true;
+
+  const haystackParts = [item.retailerName, item.shopName, item.city, item.phone]
+    .filter((x) => x.trim().length > 0)
+    .map((x) => x.toLowerCase());
+
+  if (haystackParts.some((p) => p.includes(q))) return true;
+
+  const qDigits = digitsOnly(rawQuery);
+  if (qDigits.length >= 3 && item.phone) {
+    const phoneDigits = digitsOnly(item.phone);
+    if (phoneDigits.includes(qDigits)) return true;
+  }
+  return false;
+}
+
 export default function Khatabook() {
   const [filterStatus, setFilterStatus] = useState("all");
   const [searchQuery, setSearchQuery] = useState("");
+  const [collectedPeriod, setCollectedPeriod] = useState<KpiTimePeriod>("TODAY");
 
   const { data: summary, isLoading: summaryLoading } = useQuery({
     queryKey: ["khatabook-summary"],
@@ -36,21 +76,25 @@ export default function Khatabook() {
     queryFn: fetchKhatabookRetailers,
   });
 
+  const collectedQ = useKpiWidget("PAYMENTS", collectedPeriod, "all");
+
   const khatabookList = retailers || [];
-  const filteredList = khatabookList.filter((item: KhatabookItem) => {
-    if (filterStatus !== "all") {
-      if (filterStatus === "Critical" && item.status !== "Critical") return false;
-      if (
-        filterStatus === "Pending" &&
-        item.status !== "Pending" &&
-        item.status !== "Due"
-      ) {
-        return false;
+  const filteredList = useMemo(() => {
+    return khatabookList.filter((item: KhatabookItem) => {
+      if (filterStatus !== "all") {
+        if (filterStatus === "Critical" && item.status !== "Critical") return false;
+        if (
+          filterStatus === "Pending" &&
+          item.status !== "Pending" &&
+          item.status !== "Due"
+        ) {
+          return false;
+        }
+        if (filterStatus === "Settled" && item.status !== "Settled") return false;
       }
-      if (filterStatus === "Settled" && item.status !== "Settled") return false;
-    }
-    return item.name.toLowerCase().includes(searchQuery.toLowerCase());
-  });
+      return khatabookMatchesSearch(item, searchQuery);
+    });
+  }, [khatabookList, filterStatus, searchQuery]);
 
   const outstandingTrend = useMemo(() => {
     const today = Number(summary?.totalOutstanding ?? 0);
@@ -59,10 +103,10 @@ export default function Khatabook() {
   }, [summary?.totalOutstanding, summary?.totalOutstandingYesterday]);
 
   const collectedTrend = useMemo(() => {
-    const today = Number(summary?.collectedThisMonth ?? 0);
-    const yesterday = Number(summary?.collectedThisMonthYesterday ?? 0);
-    return computeTrend(today, yesterday);
-  }, [summary?.collectedThisMonth, summary?.collectedThisMonthYesterday]);
+    const value = Number(collectedQ.data?.value ?? 0);
+    const comparison = Number(collectedQ.data?.comparisonValue ?? 0);
+    return computeTrend(value, comparison);
+  }, [collectedQ.data?.value, collectedQ.data?.comparisonValue]);
 
   return (
     <div className="space-y-6">
@@ -114,16 +158,31 @@ export default function Khatabook() {
         </Card>
         <Card className="bg-white border-gray-200 shadow-sm">
           <CardContent className="p-5">
-            <p className="text-sm font-medium text-gray-500 mb-1">Collected This Month</p>
+            <div className="flex items-start justify-between gap-2 mb-1">
+              <p className="text-sm font-medium text-gray-500">Collected Payment</p>
+              <Select value={collectedPeriod} onValueChange={(v) => setCollectedPeriod(v as KpiTimePeriod)}>
+                <SelectTrigger
+                  aria-label="Collected payment time range"
+                  className="h-7 w-[118px] text-xs border-gray-200/90 bg-white shadow-sm px-2 py-0 gap-1"
+                >
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent align="end" className="min-w-[9rem]">
+                  {KPI_PERIOD_OPTIONS.map((o) => (
+                    <SelectItem key={o.value} value={o.value} className="text-xs">
+                      {o.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
             <div className="flex items-baseline gap-2">
               <h3 className="text-3xl font-display font-bold text-green-600">
-                {summaryLoading ? "Loading..." : formatINR(summary?.collectedThisMonth ?? 0)}
+                {collectedQ.isLoading ? "Loading..." : formatINR(collectedQ.data?.value ?? 0)}
               </h3>
-              {!summaryLoading && (
-                <TrendPill trend={collectedTrend} />
-              )}
+              {!collectedQ.isLoading && <TrendPill trend={collectedTrend} />}
             </div>
-            <p className="text-xs text-gray-400 mt-1">vs yesterday</p>
+            <p className="text-xs text-gray-400 mt-1">vs prior period</p>
           </CardContent>
         </Card>
       </div>
@@ -133,7 +192,7 @@ export default function Khatabook() {
         <div className="relative flex-1 w-full">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
           <Input 
-            placeholder="Search retailer name..." 
+            placeholder="Search by name, shop, city, or phone…" 
             className="pl-10 bg-gray-50 border-gray-200 w-full"
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
@@ -164,8 +223,14 @@ export default function Khatabook() {
       <div className="space-y-3">
         {retailersLoading ? (
           <p className="text-sm text-gray-500 py-6">Loading retailers...</p>
+        ) : filteredList.length === 0 ? (
+          <p className="text-sm text-gray-500 py-6 text-center">
+            {khatabookList.length === 0
+              ? "No retailers in your Khatabook yet."
+              : "No retailers match your search or filters."}
+          </p>
         ) : (
-        filteredList.map((item) => (
+        filteredList.map((item: KhatabookItem) => (
           <Link key={item.id} href={`/khatabook/${item.id}`}>
             <Card className="hover:shadow-md transition-all duration-200 hover:border-primary/30 cursor-pointer bg-white border-gray-200">
             <CardContent className="p-4 sm:p-5 flex flex-col sm:flex-row sm:items-center gap-5">
@@ -185,6 +250,9 @@ export default function Khatabook() {
                 </Avatar>
                 <div className="min-w-0">
                   <h3 className="font-bold text-gray-900 text-lg truncate">{item.name}</h3>
+                  {item.city ? (
+                    <p className="text-xs text-gray-500 truncate">{item.city}</p>
+                  ) : null}
                   <p className="text-sm text-gray-500 flex items-center gap-2 flex-wrap">
                     <span className="text-xs font-medium text-gray-700">{item.status}</span>
                     <span className="text-gray-300">·</span>

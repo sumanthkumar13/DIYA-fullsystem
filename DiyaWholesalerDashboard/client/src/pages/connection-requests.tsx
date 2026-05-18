@@ -1,10 +1,11 @@
-import { useMemo, useState } from "react";
+import { useMemo, useState, useEffect, useRef } from "react";
 import {
   CheckCircle2,
   XCircle,
   RefreshCcw,
   MapPin,
   Phone,
+  Search,
 } from "lucide-react";
 import { Link } from "wouter";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
@@ -18,24 +19,67 @@ import { cn } from "@/lib/utils";
 
 type ConnectionStatus = "PENDING" | "APPROVED" | "REJECTED" | "BLOCKED";
 
-type ConnectionRequestDTO = {
+type ConnectionRow = {
   id: string;
   status: ConnectionStatus;
   requestedAt?: string;
 
   retailerId?: string;
+  /** Shop / business name (from retailer profile). */
   retailerBusinessName?: string;
+  /** Proprietor or contact name (linked user or contact name). */
+  retailerProprietorName?: string;
   retailerCity?: string;
   retailerRegion?: string;
   retailerState?: string;
   retailerPhone?: string;
 };
 
-function retailerLocationLine(r: ConnectionRequestDTO): string | null {
+function retailerLocationLine(r: ConnectionRow): string | null {
   const parts = [r.retailerCity, r.retailerRegion, r.retailerState]
     .map((s) => (typeof s === "string" ? s.trim() : ""))
     .filter(Boolean);
   return parts.length ? parts.join(" · ") : null;
+}
+
+function digitsOnly(s: string): string {
+  return s.replace(/\D/g, "");
+}
+
+function normalizeQuery(raw: string): string {
+  return raw.trim().toLowerCase();
+}
+
+/** Case-insensitive match across proprietor name, shop name, city, region, state, phone (incl. digit-only phone match). */
+function connectionMatchesSearch(r: ConnectionRow, rawQuery: string): boolean {
+  const q = normalizeQuery(rawQuery);
+  if (!q) return true;
+
+  const haystackParts = [
+    r.retailerProprietorName,
+    r.retailerBusinessName,
+    r.retailerCity,
+    r.retailerRegion,
+    r.retailerState,
+    r.retailerPhone,
+  ]
+    .filter((x): x is string => typeof x === "string" && x.trim().length > 0)
+    .map((x) => x.toLowerCase());
+
+  if (haystackParts.some((p) => p.includes(q))) return true;
+
+  const qDigits = digitsOnly(rawQuery);
+  if (qDigits.length >= 3 && r.retailerPhone) {
+    const phoneDigits = digitsOnly(r.retailerPhone);
+    if (phoneDigits.includes(qDigits)) return true;
+  }
+  return false;
+}
+
+function tabForConnection(c: ConnectionRow): "pending" | "approved" | "rejected" {
+  if (c.status === "PENDING") return "pending";
+  if (c.status === "APPROVED" || c.status === "BLOCKED") return "approved";
+  return "rejected";
 }
 
 function statusBadge(status: ConnectionStatus) {
@@ -44,25 +88,25 @@ function statusBadge(status: ConnectionStatus) {
       return (
         <Badge
           variant="outline"
-          className="bg-yellow-50 text-yellow-800 border-yellow-200"
+          className="bg-yellow-50 text-yellow-800 border-yellow-200 shrink-0"
         >
-          Pending Approval
+          Pending
         </Badge>
       );
     case "APPROVED":
       return (
         <Badge
           variant="outline"
-          className="bg-green-50 text-green-800 border-green-200"
+          className="bg-green-50 text-green-800 border-green-200 shrink-0"
         >
-          Approved
+          Accepted
         </Badge>
       );
     case "BLOCKED":
       return (
         <Badge
           variant="outline"
-          className="bg-amber-50 text-amber-800 border-amber-200"
+          className="bg-amber-50 text-amber-800 border-amber-200 shrink-0"
         >
           Blocked
         </Badge>
@@ -71,12 +115,22 @@ function statusBadge(status: ConnectionStatus) {
       return (
         <Badge
           variant="outline"
-          className="bg-red-50 text-red-700 border-red-200"
+          className="bg-red-50 text-red-700 border-red-200 shrink-0"
         >
           Rejected
         </Badge>
       );
   }
+}
+
+function formatLastUpdatedFromMs(ts: number | undefined): string | null {
+  if (!ts) return null;
+  const time = new Date(ts).toLocaleTimeString("en-IN", {
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: true,
+  });
+  return `Last updated: ${time}`;
 }
 
 export default function ConnectionRequestsPage() {
@@ -87,7 +141,7 @@ export default function ConnectionRequestsPage() {
   );
   const [updatingId, setUpdatingId] = useState<string | null>(null);
   const [isRefreshing, setIsRefreshing] = useState(false);
-  const [lastUpdatedAt, setLastUpdatedAt] = useState<Date | null>(null);
+  const searchInputRef = useRef<HTMLInputElement | null>(null);
 
   const {
     data: connections = [],
@@ -96,14 +150,17 @@ export default function ConnectionRequestsPage() {
     isError,
     error,
     refetch,
+    dataUpdatedAt,
   } = useQuery({
     queryKey: ["wholesaler-connections"],
     queryFn: async () => {
       const res = await api.get("/wholesaler/connections");
-      return res.data as ConnectionRequestDTO[];
-    },
-    onSuccess: () => {
-      setLastUpdatedAt(new Date());
+      const raw = res.data as ConnectionRow[];
+      if (!Array.isArray(raw)) return [];
+      return raw.map((row) => ({
+        ...row,
+        status: String(row.status ?? "PENDING").toUpperCase() as ConnectionStatus,
+      }));
     },
   });
 
@@ -115,36 +172,18 @@ export default function ConnectionRequestsPage() {
         (error instanceof Error ? error.message : "Failed to load connections")
       : null;
 
-  function formatLastUpdated(value: Date | null) {
-    if (!value) return null;
-    const time = value.toLocaleTimeString("en-IN", {
-      hour: "2-digit",
-      minute: "2-digit",
-      hour12: true,
-    });
-    return `Last updated: ${time}`;
-  }
-
   async function handleRefresh() {
     try {
       setIsRefreshing(true);
       await queryClient.invalidateQueries({ queryKey: ["wholesaler-connections"] });
       await refetch();
-      setLastUpdatedAt(new Date());
     } finally {
       setIsRefreshing(false);
     }
   }
 
   const filtered = useMemo(() => {
-    const q = searchQuery.trim().toLowerCase();
-    if (!q) return connections;
-    return connections.filter((r) => {
-      const name = (r.retailerBusinessName ?? "").toLowerCase();
-      const loc = (retailerLocationLine(r) ?? "").toLowerCase();
-      const phone = (r.retailerPhone ?? "").toLowerCase();
-      return name.includes(q) || loc.includes(q) || phone.includes(q);
-    });
+    return connections.filter((r) => connectionMatchesSearch(r, searchQuery));
   }, [connections, searchQuery]);
 
   const isSearchActive = searchQuery.trim().length > 0;
@@ -163,6 +202,32 @@ export default function ConnectionRequestsPage() {
     [filtered]
   );
 
+  // While searching, if the current tab has no rows but another tab does, jump to the first tab with matches.
+  useEffect(() => {
+    if (!isSearchActive) return;
+    const cur =
+      activeTab === "pending"
+        ? pending.length
+        : activeTab === "approved"
+          ? approved.length
+          : rejected.length;
+    if (cur > 0) return;
+    if (pending.length > 0) setActiveTab("pending");
+    else if (approved.length > 0) setActiveTab("approved");
+    else if (rejected.length > 0) setActiveTab("rejected");
+  }, [isSearchActive, activeTab, pending.length, approved.length, rejected.length]);
+
+  function goToConnectionRow(c: ConnectionRow) {
+    const tab = tabForConnection(c);
+    setActiveTab(tab);
+    requestAnimationFrame(() => {
+      document.getElementById(`connection-card-${c.id}`)?.scrollIntoView({
+        behavior: "smooth",
+        block: "nearest",
+      });
+    });
+  }
+
   async function updateStatus(id: string, status: "APPROVED" | "REJECTED") {
     try {
       setUpdatingId(id);
@@ -180,15 +245,21 @@ export default function ConnectionRequestsPage() {
   function tabEmptyText(tab: typeof activeTab) {
     switch (tab) {
       case "pending":
-        return "No pending requests";
+        return isSearchActive
+          ? "No pending requests match your search"
+          : "No pending requests";
       case "approved":
-        return "No approved retailers yet";
+        return isSearchActive
+          ? "No accepted retailers match your search"
+          : "No approved retailers yet";
       case "rejected":
-        return "No rejected retailers";
+        return isSearchActive
+          ? "No rejected retailers match your search"
+          : "No rejected retailers";
     }
   }
 
-  function profileHrefFor(r: ConnectionRequestDTO): string | null {
+  function profileHrefFor(r: ConnectionRow): string | null {
     if (!r.retailerId) return null;
     if (r.status !== "APPROVED" && r.status !== "BLOCKED") return null;
     return `/retailers/${r.retailerId}`;
@@ -198,19 +269,26 @@ export default function ConnectionRequestsPage() {
     r,
     tab,
   }: {
-    r: ConnectionRequestDTO;
+    r: ConnectionRow;
     tab: typeof activeTab;
   }) {
-    const name = (r.retailerBusinessName ?? "").trim() || "Retailer";
+    const shop = (r.retailerBusinessName ?? "").trim();
+    const proprietor = (r.retailerProprietorName ?? "").trim();
+    const title = shop || proprietor || "Retailer";
+    const secondary =
+      shop && proprietor && shop.toLowerCase() !== proprietor.toLowerCase()
+        ? proprietor
+        : null;
     const location = retailerLocationLine(r);
     const phone = (r.retailerPhone ?? "").trim();
     const href = profileHrefFor(r);
 
     const card = (
       <Card
+        id={`connection-card-${r.id}`}
         className={cn(
           "border-gray-200 bg-white transition-all duration-200 hover:shadow-md hover:border-primary/30",
-          href ? "cursor-pointer" : "cursor-pointer"
+          "cursor-pointer"
         )}
       >
         <CardContent className="p-4 sm:p-5">
@@ -218,9 +296,12 @@ export default function ConnectionRequestsPage() {
             <div className="min-w-0">
               <div className="flex items-start gap-2">
                 <h3 className="font-semibold text-gray-900 text-base sm:text-lg leading-snug truncate">
-                  {name}
+                  {title}
                 </h3>
               </div>
+              {secondary && (
+                <p className="text-sm text-gray-600 mt-0.5 truncate">{secondary}</p>
+              )}
               <div className="mt-1 flex flex-col gap-1 text-sm text-gray-500">
                 {location && (
                   <div className="flex items-center gap-2 min-w-0">
@@ -328,8 +409,8 @@ export default function ConnectionRequestsPage() {
             />
             {refreshLoading ? "Refreshing..." : "Refresh"}
           </Button>
-          {formatLastUpdated(lastUpdatedAt) ? (
-            <div className="text-xs text-gray-500">{formatLastUpdated(lastUpdatedAt)}</div>
+          {formatLastUpdatedFromMs(dataUpdatedAt) ? (
+            <div className="text-xs text-gray-500">{formatLastUpdatedFromMs(dataUpdatedAt)}</div>
           ) : null}
         </div>
       </div>
@@ -344,29 +425,74 @@ export default function ConnectionRequestsPage() {
       {/* Filters */}
       <div className="bg-white p-4 rounded-xl border border-gray-200 shadow-sm flex flex-col md:flex-row gap-4 items-center">
         <div className="relative flex-1 w-full">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400 pointer-events-none" />
           <Input
-            placeholder="Search retailer name, city, phone..."
-            className="bg-gray-50 border-gray-200 w-full"
+            ref={searchInputRef}
+            placeholder="Search proprietor name, shop name, city, phone..."
+            className="bg-gray-50 border-gray-200 w-full pl-10"
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
+            aria-label="Search connections"
           />
         </div>
 
-        <div className="flex items-center gap-2 w-full md:w-auto justify-between md:justify-end">
+        <div className="flex flex-wrap items-center gap-2 w-full md:w-auto justify-between md:justify-end">
           <Badge className="bg-gray-50 text-gray-700 border-gray-200" variant="outline">
-            Total: {filtered.length}
+            {isSearchActive ? `Matches: ${filtered.length}` : `Total: ${connections.length}`}
           </Badge>
           <Badge className="bg-yellow-50 text-yellow-800 border-yellow-200" variant="outline">
             Pending: {pending.length}
           </Badge>
           <Badge className="bg-green-50 text-green-800 border-green-200" variant="outline">
-            Approved: {approved.length}
+            Accepted: {approved.length}
           </Badge>
           <Badge className="bg-red-50 text-red-700 border-red-200" variant="outline">
             Rejected: {rejected.length}
           </Badge>
         </div>
       </div>
+
+      {isSearchActive && filtered.length > 0 && (
+        <Card className="border-primary/20 bg-primary/[0.03]">
+          <CardContent className="p-4">
+            <div className="text-sm font-semibold text-gray-900 mb-3">
+              Search results ({filtered.length})
+              <span className="font-normal text-gray-500 ml-2">
+                — all statuses; click a row to open its tab
+              </span>
+            </div>
+            <ul className="max-h-56 overflow-y-auto divide-y divide-gray-100 rounded-lg border border-gray-100 bg-white">
+              {filtered.map((c) => {
+                const shop = (c.retailerBusinessName ?? "").trim();
+                const proprietor = (c.retailerProprietorName ?? "").trim();
+                const primary = shop || proprietor || "Retailer";
+                const sub =
+                  shop && proprietor && shop.toLowerCase() !== proprietor.toLowerCase()
+                    ? proprietor
+                    : retailerLocationLine(c) || (c.retailerPhone ?? "").trim() || null;
+                return (
+                  <li key={c.id}>
+                    <button
+                      type="button"
+                      className="w-full text-left px-3 py-2.5 flex items-center justify-between gap-3 hover:bg-gray-50 transition-colors"
+                      onClick={() => {
+                        goToConnectionRow(c);
+                        searchInputRef.current?.focus();
+                      }}
+                    >
+                      <div className="min-w-0">
+                        <div className="font-medium text-gray-900 truncate">{primary}</div>
+                        {sub && <div className="text-xs text-gray-500 truncate">{sub}</div>}
+                      </div>
+                      {statusBadge(c.status)}
+                    </button>
+                  </li>
+                );
+              })}
+            </ul>
+          </CardContent>
+        </Card>
+      )}
 
       {showNoResults ? (
         <Card className="border-gray-200 bg-white">
@@ -393,7 +519,7 @@ export default function ConnectionRequestsPage() {
               </Badge>
             </TabsTrigger>
             <TabsTrigger value="approved" className="gap-2">
-              Approved
+              Accepted
               <Badge
                 variant="outline"
                 className="bg-green-50 text-green-800 border-green-200"

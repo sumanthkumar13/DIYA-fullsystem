@@ -2,10 +2,13 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../models/products/product_dto.dart';
 import '../../providers/cart_provider.dart';
+import '../../providers/selected_wholesaler_provider.dart';
 import '../../services/product_service.dart';
 import '../../services/order_service.dart';
 import '../../widgets/catalogue/product_card.dart';
+import '../../widgets/catalogue/catalogue_go_to_cart_bar.dart';
 import '../../widgets/ui/diya_card.dart';
+import '../../widgets/wholesalers/wholesaler_catalogue_header.dart';
 import 'catalogue_models.dart';
 import 'category_catalogue_screen.dart';
 import 'package:flutter/foundation.dart';
@@ -13,11 +16,15 @@ import 'package:flutter/foundation.dart';
 class WholesalerCatalogueScreen extends ConsumerStatefulWidget {
   final String wholesalerId;
   final String wholesalerName;
+  final String? profileImageUrl;
+  final String? profileImageCacheKey;
 
   const WholesalerCatalogueScreen({
     super.key,
     required this.wholesalerId,
     required this.wholesalerName,
+    this.profileImageUrl,
+    this.profileImageCacheKey,
   });
 
   @override
@@ -40,8 +47,10 @@ class _WholesalerCatalogueScreenState extends ConsumerState<WholesalerCatalogueS
     }
     _future = _load();
     _discoveryFuture = _future.then((d) => _loadDiscovery(d.products));
-    // ensure cart is hydrated for Add actions (no UI dependency here)
-    Future.microtask(() => ref.read(cartProvider.notifier).loadCart(widget.wholesalerId));
+    Future.microtask(() {
+      ref.read(selectedWholesalerIdProvider.notifier).state = widget.wholesalerId;
+      ref.read(cartProvider.notifier).loadCart(widget.wholesalerId);
+    });
   }
 
   Future<_CatalogueData> _load() async {
@@ -196,12 +205,14 @@ class _WholesalerCatalogueScreenState extends ConsumerState<WholesalerCatalogueS
 
   @override
   Widget build(BuildContext context) {
-    final shopName = widget.wholesalerName.trim().isEmpty ? 'Wholesaler' : widget.wholesalerName.trim();
+    final cartCount = ref.watch(cartBadgeCountProvider);
+    final bottomInset = catalogueScrollBottomInset(cartCount);
 
     return Scaffold(
       backgroundColor: const Color(0xFFF5F5F5),
       body: SafeArea(
-        child: FutureBuilder<_CatalogueData>(
+        child: CatalogueGoToCartOverlay(
+          child: FutureBuilder<_CatalogueData>(
           future: _future,
           builder: (context, snapshot) {
             if (snapshot.connectionState == ConnectionState.waiting) {
@@ -239,61 +250,17 @@ class _WholesalerCatalogueScreenState extends ConsumerState<WholesalerCatalogueS
             }
 
             return SingleChildScrollView(
-              padding: const EdgeInsets.fromLTRB(0, 12, 0, 20),
+              padding: EdgeInsets.fromLTRB(0, 8, 0, bottomInset),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Padding(
-                    padding: const EdgeInsets.fromLTRB(8, 0, 16, 0),
-                    child: Row(
-                      children: [
-                        IconButton(
-                          onPressed: () => Navigator.maybePop(context),
-                          icon: const Icon(Icons.arrow_back_ios_new_rounded),
-                          color: const Color(0xFF171717),
-                          tooltip: 'Back',
-                        ),
-                        const Expanded(child: SizedBox()),
-                      ],
-                    ),
+                  WholesalerCatalogueHeader(
+                    wholesalerName: widget.wholesalerName,
+                    profileImageUrl: widget.profileImageUrl,
+                    profileImageCacheKey: widget.profileImageCacheKey,
                   ),
-                  const SizedBox(height: 4),
-                  Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 16),
-                    child: Center(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.center,
-                        children: [
-                          const Text(
-                            'Welcome to',
-                            textAlign: TextAlign.center,
-                            style: TextStyle(
-                              fontWeight: FontWeight.w800,
-                              fontSize: 12.5,
-                              color: Color(0xFF737373),
-                              height: 1.1,
-                            ),
-                          ),
-                          const SizedBox(height: 6),
-                          Text(
-                            shopName,
-                            textAlign: TextAlign.center,
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: const TextStyle(
-                              fontWeight: FontWeight.w900,
-                              fontSize: 20,
-                              color: Color(0xFF171717),
-                              height: 1.15,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ),
-                  const SizedBox(height: 18),
                   const Padding(
-                    padding: EdgeInsets.symmetric(horizontal: 16),
+                    padding: EdgeInsets.fromLTRB(20, 4, 20, 12),
                     child: Text(
                       'Categories',
                       style: TextStyle(
@@ -303,7 +270,6 @@ class _WholesalerCatalogueScreenState extends ConsumerState<WholesalerCatalogueS
                       ),
                     ),
                   ),
-                  const SizedBox(height: 10),
                   SizedBox(
                     height: 120,
                     child: ListView.separated(
@@ -412,13 +378,6 @@ class _WholesalerCatalogueScreenState extends ConsumerState<WholesalerCatalogueS
                           const SizedBox(height: 10),
                           _HorizontalProducts(
                             products: disc.recentlyOrdered.take(_maxDiscoveryItems).toList(growable: false),
-                            onAdd: (p) async {
-                              await ref.read(cartProvider.notifier).addItem(p.id);
-                              if (!context.mounted) return;
-                              ScaffoldMessenger.of(context).showSnackBar(
-                                SnackBar(content: Text('${p.name} added to cart')),
-                              );
-                            },
                           ),
                           const SizedBox(height: 18),
                         ]);
@@ -430,13 +389,6 @@ class _WholesalerCatalogueScreenState extends ConsumerState<WholesalerCatalogueS
                           const SizedBox(height: 10),
                           _HorizontalProducts(
                             products: disc.mostOrdered.take(_maxDiscoveryItems).toList(growable: false),
-                            onAdd: (p) async {
-                              await ref.read(cartProvider.notifier).addItem(p.id);
-                              if (!context.mounted) return;
-                              ScaffoldMessenger.of(context).showSnackBar(
-                                SnackBar(content: Text('${p.name} added to cart')),
-                              );
-                            },
                           ),
                           const SizedBox(height: 18),
                         ]);
@@ -453,13 +405,6 @@ class _WholesalerCatalogueScreenState extends ConsumerState<WholesalerCatalogueS
                           const SizedBox(height: 10),
                           _HorizontalProducts(
                             products: newly,
-                            onAdd: (p) async {
-                              await ref.read(cartProvider.notifier).addItem(p.id);
-                              if (!context.mounted) return;
-                              ScaffoldMessenger.of(context).showSnackBar(
-                                SnackBar(content: Text('${p.name} added to cart')),
-                              );
-                            },
                           ),
                         ]);
                       }
@@ -472,6 +417,7 @@ class _WholesalerCatalogueScreenState extends ConsumerState<WholesalerCatalogueS
               ),
             );
           },
+        ),
         ),
       ),
     );
@@ -544,21 +490,17 @@ class _SectionTitle extends StatelessWidget {
   }
 }
 
-class _HorizontalProducts extends ConsumerWidget {
+class _HorizontalProducts extends StatelessWidget {
   final List<ProductResponseDTO> products;
-  final Future<void> Function(ProductResponseDTO product) onAdd;
 
-  const _HorizontalProducts({
-    required this.products,
-    required this.onAdd,
-  });
+  const _HorizontalProducts({required this.products});
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  Widget build(BuildContext context) {
     if (products.isEmpty) return const SizedBox.shrink();
 
     return SizedBox(
-      height: 300,
+      height: 280,
       child: ListView.separated(
         padding: const EdgeInsets.symmetric(horizontal: 16),
         scrollDirection: Axis.horizontal,
@@ -569,7 +511,7 @@ class _HorizontalProducts extends ConsumerWidget {
           final p = products[i];
           return SizedBox(
             width: 170,
-            child: ProductCard(product: p, onAdd: () => onAdd(p)),
+            child: ProductCard(product: p),
           );
         },
       ),

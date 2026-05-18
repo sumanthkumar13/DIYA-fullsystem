@@ -18,6 +18,7 @@ import Analytics from "@/pages/analytics";
 import SettingsPage from "@/pages/settings";
 import ProfilePage from "@/pages/profile";
 import ActivityPage from "@/pages/activity";
+import SalesPage from "@/pages/sales";
 import LandingPage from "@/pages/landing";
 import LoginPage from "@/pages/login";
 import SignupFlow from "@/pages/signup";
@@ -67,6 +68,12 @@ function Router() {
       <Route path="/activity">
         <AppLayout>
           <ActivityPage />
+        </AppLayout>
+      </Route>
+
+      <Route path="/sales">
+        <AppLayout>
+          <SalesPage />
         </AppLayout>
       </Route>
 

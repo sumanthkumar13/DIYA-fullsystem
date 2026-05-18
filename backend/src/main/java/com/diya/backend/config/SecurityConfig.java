@@ -109,7 +109,8 @@ public class SecurityConfig {
             // ALLOW ALL ORIGINS for the APK test
             configuration.setAllowedOriginPatterns(Arrays.asList("*"));
 
-            configuration.setAllowedMethods(Arrays.asList("GET", "POST", "PUT", "DELETE", "OPTIONS"));
+            // Include PATCH (used by dashboard for credit days edits, etc.)
+            configuration.setAllowedMethods(Arrays.asList("GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"));
             configuration.setAllowedHeaders(Arrays.asList("*"));
 
             // If you set allowedOrigins to "*", you usually must set this to false

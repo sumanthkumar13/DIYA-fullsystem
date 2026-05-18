@@ -2,8 +2,6 @@ import { useMemo, useState, useEffect } from "react";
 import { Link } from "wouter";
 import {
   Search,
-  Phone,
-  MessageCircle,
   MapPin,
   Plus,
 } from "lucide-react";
@@ -24,6 +22,9 @@ import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { AddRetailerModal } from "@/components/retailers/AddRetailerModal";
 import { RetailerTierBadge } from "@/components/retailers/RetailerTierBadge";
 import { formatINR } from "@/lib/money";
+import { matchesRegionFilter } from "@/lib/regions";
+import { useRetailerRegions } from "@/hooks/useRetailerRegions";
+import { useCardRegionGuard } from "@/hooks/useCardRegionGuard";
 
 type RetailerRow = {
   id: string;
@@ -37,10 +38,14 @@ type RetailerRow = {
   ownerName?: string;
   phone: string;
   location: string;
+  /** India Post territory / signup region (used for region filter). */
+  region: string;
   initials: string;
   /** Precomputed lowercase search index for fast filtering. */
   searchText: string;
 };
+
+type RetailerSortOption = "dues_high" | "dues_low" | "name_az" | "recency";
 
 function formatAmount(n: number): string {
   return formatINR(n);
@@ -61,7 +66,13 @@ export default function Retailers() {
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
+  const [sortBy, setSortBy] = useState<RetailerSortOption>("dues_high");
+  const [filterRegion, setFilterRegion] = useState<string>("all");
+  const { data: regions = [], isLoading: regionsLoading } = useRetailerRegions();
   const [addRetailerOpen, setAddRetailerOpen] = useState(false);
+
+  useCardRegionGuard(filterRegion, regions, regionsLoading, setFilterRegion);
+  const [retailersReloadToken, setRetailersReloadToken] = useState(0);
 
   useEffect(() => {
     let cancelled = false;
@@ -74,10 +85,11 @@ export default function Retailers() {
         const rows: RetailerRow[] = list.map((c: any) => {
           const shopName = (c.shopName || c.retailerBusinessName || "").toString().trim();
           const retailerName = (c.name || "").toString().trim();
-          const ownerName = (c.ownerName || c.proprietorName || "").toString().trim();
+          const ownerName = (c.ownerName || c.proprietorName || c.contactName || "").toString().trim();
           const displayName = shopName || retailerName || ownerName || "Retailer";
           const phone = (c.retailerPhone || c.phone || "").toString().trim() || "--";
           const location = (c.retailerCity || c.location || "").toString().trim() || "--";
+          const region = (c.region || "").toString().trim();
           const searchText = [displayName, shopName, retailerName, ownerName, phone]
             .filter(Boolean)
             .join(" ")
@@ -90,6 +102,7 @@ export default function Retailers() {
             ownerName: ownerName || undefined,
             phone,
             location,
+            region,
             initials: displayName.slice(0, 2).toUpperCase(),
             searchText,
           };
@@ -129,13 +142,40 @@ export default function Retailers() {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [retailersReloadToken]);
 
   const filteredRetailers = useMemo(() => {
     const q = searchQuery.trim().toLowerCase();
-    if (!q) return retailers;
-    return retailers.filter((r) => r.searchText.includes(q));
-  }, [retailers, searchQuery]);
+    let list = q ? retailers.filter((r) => r.searchText.includes(q)) : [...retailers];
+
+    if (filterRegion !== "all") {
+      list = list.filter((r) => matchesRegionFilter(r.region, filterRegion));
+    }
+
+    const outstanding = (id: string) => Number(creditSummaryMap[id]?.totalOutstanding ?? 0);
+    const lastOrderTime = (id: string) => {
+      const raw = creditSummaryMap[id]?.lastOrderDate;
+      if (!raw) return 0;
+      const t = new Date(raw).getTime();
+      return Number.isNaN(t) ? 0 : t;
+    };
+
+    list.sort((a, b) => {
+      switch (sortBy) {
+        case "dues_low":
+          return outstanding(a.id) - outstanding(b.id);
+        case "name_az":
+          return a.name.localeCompare(b.name, "en", { sensitivity: "base" });
+        case "recency":
+          return lastOrderTime(b.id) - lastOrderTime(a.id);
+        case "dues_high":
+        default:
+          return outstanding(b.id) - outstanding(a.id);
+      }
+    });
+
+    return list;
+  }, [retailers, searchQuery, sortBy, filterRegion, creditSummaryMap]);
 
   return (
     <div className="space-y-6">
@@ -183,7 +223,7 @@ export default function Retailers() {
             />
           </div>
           <div className="flex items-center gap-3 w-full md:w-auto overflow-x-auto pb-2 md:pb-0">
-            <Select defaultValue="dues_high">
+            <Select value={sortBy} onValueChange={(v) => setSortBy(v as RetailerSortOption)}>
               <SelectTrigger className="w-[160px] bg-gray-50 border-gray-200">
                 <SelectValue placeholder="Sort By" />
               </SelectTrigger>
@@ -195,14 +235,17 @@ export default function Retailers() {
               </SelectContent>
             </Select>
 
-            <Select defaultValue="all">
-              <SelectTrigger className="w-[150px] bg-gray-50 border-gray-200">
-                <SelectValue placeholder="Location" />
+            <Select value={filterRegion} onValueChange={setFilterRegion} disabled={regionsLoading}>
+              <SelectTrigger className="w-[180px] bg-gray-50 border-gray-200">
+                <SelectValue placeholder={regionsLoading ? "Loading regions…" : "Region"} />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="all">All Locations</SelectItem>
-                <SelectItem value="hyd">Hyderabad</SelectItem>
-                <SelectItem value="wgl">Warangal</SelectItem>
+                <SelectItem value="all">All Regions</SelectItem>
+                {regions.map((r) => (
+                  <SelectItem key={r} value={r}>
+                    {r}
+                  </SelectItem>
+                ))}
               </SelectContent>
             </Select>
           </div>
@@ -216,14 +259,14 @@ export default function Retailers() {
         </div>
       )}
 
-      <div className="space-y-3">
+      <div className="flex flex-col gap-5">
         {filteredRetailers.map((retailer) => {
           const summary = creditSummaryMap[retailer.id];
           const overdueDays = summary?.overdueDays ?? 0;
           const isOverdue = overdueDays > 0;
           return (
             <Link key={retailer.id} href={`/retailers/${retailer.id}`}>
-              <Card className="hover:shadow-md transition-all duration-200 hover:border-primary/30 cursor-pointer group border-gray-200 bg-white">
+              <Card className="hover:shadow-md transition-all duration-200 hover:border-primary/30 cursor-pointer border-gray-200 bg-white">
                 <CardContent className="p-4 sm:p-5 flex flex-col lg:flex-row lg:items-center gap-6">
                   <div className="flex items-start gap-4 min-w-[280px]">
                     <Avatar className="h-12 w-12 rounded-lg border border-gray-100">
@@ -274,19 +317,17 @@ export default function Retailers() {
                     </div>
                   </div>
 
-                  <div className="flex items-center gap-2 justify-end lg:w-auto border-t lg:border-t-0 border-gray-100 pt-4 lg:pt-0">
-                    <Button variant="outline" size="sm" className="h-9 gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
-                      <Phone className="h-3.5 w-3.5" /> Call
-                    </Button>
-                    <Button variant="outline" size="sm" className="h-9 gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
-                      <MessageCircle className="h-3.5 w-3.5" /> Msg
-                    </Button>
-                    {isOverdue && (
-                      <Button size="sm" className="h-9 gap-2 bg-green-600 hover:bg-green-700 text-white shadow-sm ml-2">
+                  {isOverdue && (
+                    <div className="flex items-center justify-end lg:w-auto border-t lg:border-t-0 border-gray-100 pt-4 lg:pt-0">
+                      <Button
+                        size="sm"
+                        className="h-9 gap-2 bg-green-600 hover:bg-green-700 text-white shadow-sm"
+                        onClick={(e) => e.preventDefault()}
+                      >
                         Request Payment
                       </Button>
-                    )}
-                  </div>
+                    </div>
+                  )}
 
                 </CardContent>
               </Card>
@@ -294,7 +335,11 @@ export default function Retailers() {
           );
         })}
       </div>
-      <AddRetailerModal open={addRetailerOpen} onClose={() => setAddRetailerOpen(false)} />
+      <AddRetailerModal
+        open={addRetailerOpen}
+        onClose={() => setAddRetailerOpen(false)}
+        onCreated={() => setRetailersReloadToken((t) => t + 1)}
+      />
     </div>
   );
 }

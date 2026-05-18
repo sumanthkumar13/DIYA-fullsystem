@@ -101,7 +101,9 @@ class _ConnectScreenState extends ConsumerState<ConnectScreen> {
 
       if (!mounted) return;
       setState(() {
-        _wholesalers = wholesalers;
+        _wholesalers = wholesalers
+            .where((w) => _connectionStatus[w.id] != "BLOCKED")
+            .toList();
         _searching = false;
       });
     } catch (e) {

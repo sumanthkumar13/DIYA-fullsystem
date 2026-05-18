@@ -4,8 +4,9 @@ import '../providers/approved_wholesalers_provider.dart';
 import '../providers/selected_wholesaler_provider.dart';
 import '../models/connections/connection_response_dto.dart';
 import '../screens/catalogue/wholesaler_catalogue_screen.dart';
-import '../widgets/ui/diya_card.dart';
 import '../widgets/ui/diya_button.dart';
+import '../widgets/wholesalers/wholesaler_summary_card.dart';
+import '../utils/wholesaler_display.dart';
 
 /// Opens a bottom sheet to select a wholesaler, then navigates to catalogue.
 Future<void> openWholesalerPickerAndProceed(BuildContext context, WidgetRef ref) async {
@@ -44,7 +45,9 @@ Future<void> openWholesalerPickerAndProceed(BuildContext context, WidgetRef ref)
           MaterialPageRoute(
             builder: (_) => WholesalerCatalogueScreen(
               wholesalerId: selected.wholesalerId,
-              wholesalerName: selected.wholesalerBusinessName,
+              wholesalerName: selected.displayName,
+              profileImageUrl: selected.profileImageUrl,
+              profileImageCacheKey: selected.profileImageCacheToken,
             ),
           ),
         );
@@ -132,57 +135,9 @@ class _WholesalerPickerSheet extends StatelessWidget {
                     padding: EdgeInsets.only(
                       bottom: index == wholesalers.length - 1 ? 0 : 12,
                     ),
-                    child: DiyaCard(
-                      padding: const EdgeInsets.all(16),
+                    child: WholesalerSummaryCard(
+                      wholesaler: wholesaler,
                       onTap: () => Navigator.pop(context, wholesaler),
-                      child: Row(
-                        children: [
-                          Container(
-                            width: 48,
-                            height: 48,
-                            decoration: BoxDecoration(
-                              color: const Color(0xFFFFE7D1),
-                              borderRadius: BorderRadius.circular(12),
-                            ),
-                            child: const Icon(
-                              Icons.store,
-                              color: Color(0xFFFF7A00),
-                              size: 24,
-                            ),
-                          ),
-                          const SizedBox(width: 12),
-                          Expanded(
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Text(
-                                  wholesaler.wholesalerBusinessName,
-                                  style: const TextStyle(
-                                    fontSize: 16,
-                                    fontWeight: FontWeight.w800,
-                                    color: Color(0xFF171717),
-                                  ),
-                                ),
-                                if (wholesaler.wholesalerCity.isNotEmpty) ...[
-                                  const SizedBox(height: 4),
-                                  Text(
-                                    wholesaler.wholesalerCity,
-                                    style: const TextStyle(
-                                      fontSize: 13,
-                                      color: Color(0xFF737373),
-                                    ),
-                                  ),
-                                ],
-                              ],
-                            ),
-                          ),
-                          const Icon(
-                            Icons.chevron_right,
-                            color: Color(0xFFD4D4D4),
-                            size: 24,
-                          ),
-                        ],
-                      ),
                     ),
                   );
                 },

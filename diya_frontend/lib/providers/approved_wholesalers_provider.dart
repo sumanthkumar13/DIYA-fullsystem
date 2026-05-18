@@ -23,14 +23,18 @@ class ApprovedWholesalersNotifier extends StateNotifier<AsyncValue<List<Connecti
     super.dispose();
   }
 
-  Future<void> load() async {
+  /// [silent] keeps current list visible while refreshing (e.g. return from catalogue).
+  Future<void> load({bool silent = false}) async {
     try {
-      state = const AsyncValue.loading();
+      if (!silent || !state.hasValue) {
+        state = const AsyncValue.loading();
+      }
       final list = await _service.getApprovedWholesalers();
       if (_disposed) return;
       state = AsyncValue.data(list);
     } catch (e, st) {
       if (_disposed) return;
+      if (silent && state.hasValue) return;
       state = AsyncValue.error(e, st);
     }
   }

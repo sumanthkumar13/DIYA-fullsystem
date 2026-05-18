@@ -85,7 +85,16 @@ class _OrdersScreenState extends State<OrdersScreen> {
       }).toList();
     }
 
+    if (activeTab == "partial") {
+      return orders.where((o) => o.isPartiallyPaid).toList();
+    }
+
     return orders;
+  }
+
+  static bool _isExcludedFromDue(String status) {
+    final s = status.toUpperCase();
+    return s == "PLACED" || s == "REJECTED" || s == "CANCELLED";
   }
 
   Future<List<_UiOrder>> _loadOrders() async {
@@ -105,8 +114,13 @@ class _OrdersScreenState extends State<OrdersScreen> {
       }
 
       String wholesalerName = "Wholesaler";
-      String orderNumber = "";
-      String paymentStatus = "UNPAID";
+      String orderNumber = (li["orderNumber"] ?? "").toString();
+      String paymentStatus = (li["paymentStatus"] ?? "UNPAID").toString();
+      double paidAmount = (li["paidAmount"] as num? ?? 0).toDouble();
+      double outstanding = (li["unpaidAmount"] as num? ??
+              (amount - paidAmount))
+          .toDouble();
+      if (outstanding < 0) outstanding = 0;
 
       try {
         final detail = await svc.getRetailerOrderDetail(orderId);
@@ -114,17 +128,27 @@ class _OrdersScreenState extends State<OrdersScreen> {
         final wholesaler = detail["wholesaler"] as Map<String, dynamic>?;
         wholesalerName = (wholesaler?["businessName"] ?? wholesalerName).toString();
 
-        orderNumber = (detail["orderNumber"] ?? "").toString();
+        orderNumber = (detail["orderNumber"] ?? orderNumber).toString();
         paymentStatus = (detail["paymentStatus"] ?? paymentStatus).toString();
+        paidAmount = (detail["paidAmount"] as num? ?? paidAmount).toDouble();
+        outstanding = (detail["outstandingAmount"] as num? ??
+                detail["unpaidAmount"] as num? ??
+                outstanding)
+            .toDouble();
+        if (outstanding < 0) outstanding = 0;
 
         final placedAtStr = (detail["placedAt"] ?? "").toString();
         final parsedPlacedAt = DateTime.tryParse(placedAtStr);
         if (parsedPlacedAt != null) placedAt = parsedPlacedAt;
       } catch (_) {
-        orderNumber = orderId;
+        if (orderNumber.isEmpty) orderNumber = orderId;
       }
 
       final displayOrderNumber = orderNumber.isEmpty ? orderId : orderNumber;
+      final paid = paidAmount < 0 ? 0.0 : paidAmount;
+      final isPartial = !_isExcludedFromDue(status) &&
+          outstanding > 0.01 &&
+          paid > 0.01;
 
       return _UiOrder(
         id: orderId,
@@ -135,6 +159,10 @@ class _OrdersScreenState extends State<OrdersScreen> {
         amount: amount,
         itemsCount: itemsCount,
         paymentStatus: paymentStatus,
+        paidAmount: paid,
+        outstandingAmount: outstanding,
+        isPartiallyPaid: isPartial ||
+            paymentStatus.toUpperCase() == "PARTIAL",
       );
     }).toList();
 
@@ -173,6 +201,11 @@ class _OrdersScreenState extends State<OrdersScreen> {
                   label: "Pending",
                   active: activeTab == "requested",
                   onTap: () => setState(() => activeTab = "requested"),
+                ),
+                _TabChip(
+                  label: "Partially Paid",
+                  active: activeTab == "partial",
+                  onTap: () => setState(() => activeTab = "partial"),
                 ),
                 _TabChip(
                   label: "Completed",
@@ -268,6 +301,9 @@ class _UiOrder {
   final double amount;
   final int itemsCount;
   final String paymentStatus;
+  final double paidAmount;
+  final double outstandingAmount;
+  final bool isPartiallyPaid;
 
   const _UiOrder({
     required this.id,
@@ -278,6 +314,9 @@ class _UiOrder {
     required this.amount,
     required this.itemsCount,
     required this.paymentStatus,
+    this.paidAmount = 0,
+    this.outstandingAmount = 0,
+    this.isPartiallyPaid = false,
   });
 }
 
